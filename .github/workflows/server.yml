@@ -61,6 +61,9 @@ jobs:
       # nothing: the database it protects lives and dies with this job.
       LMC_MASTER_KEY: 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
       HANDY_MASTER_SECRET: 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
+      # The sign-in routes refuse a cross-origin login, and the spec sends this
+      # as the Origin header — it is part of the contract, not test scaffolding.
+      LMC_PUBLIC_ORIGIN: https://lmc.ci.invalid
 
     steps:
     - name: Checkout
@@ -129,6 +132,9 @@ jobs:
       # nothing: the database it protects lives and dies with this job.
       LMC_MASTER_KEY: 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
       PORT: "4193"
+      # Required of every centre (docs/deployment.md); the image is started the
+      # way the guide starts it.
+      LMC_PUBLIC_ORIGIN: http://127.0.0.1:4193
 
     steps:
     - name: Checkout
@@ -159,6 +165,7 @@ jobs:
         docker run -d --name lmc-centre-ci --network host \
           -e DATABASE_URL="$DATABASE_URL" \
           -e LMC_MASTER_KEY="$LMC_MASTER_KEY" \
+          -e LMC_PUBLIC_ORIGIN="$LMC_PUBLIC_ORIGIN" \
           -e LMC_BIND_HOST=0.0.0.0 \
           -e LMC_WEB_DIR=/srv/web \
           -e PORT="$PORT" \
