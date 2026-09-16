@@ -1,0 +1,50 @@
+name: lmc-center
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - '127.0.0.1:${LMC_MYSQL_PORT:-43316}:3306'
+    command: ['--character-set-server=utf8mb4', '--collation-server=utf8mb4_bin']
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ['CMD-SHELL', 'mysqladmin ping -h 127.0.0.1 --silent']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  center:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.server
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # The host .env points DATABASE_URL at the published loopback port, which
+      # a container cannot reach; inside the network the database is a service
+      # name. Paths are likewise the container's, not the operator's.
+      DATABASE_URL: mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
+      LMC_BIND_HOST: 0.0.0.0
+      LMC_WEB_DIR: /srv/web
+      DATA_DIR: /srv/data
+      HEALTH_URL: http://127.0.0.1:${PORT:-4193}/health
+    # Published on loopback only: the center still expects to sit behind the
+    # operator's reverse proxy, which terminates TLS.
+    ports:
+      - '127.0.0.1:${PORT:-4193}:${PORT:-4193}'
+    # A named volume, not a host path: see the Dockerfile's note on file sharing.
+    volumes:
+      - center-data:/srv/data
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'node -e "fetch(process.env.HEALTH_URL).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+volumes:
+  mysql-data:
+  center-data:

@@ -1,0 +1,121 @@
+import { describe, expect, it } from 'vitest';
+import {
+    isRemoteCodexPermissionMode,
+    resolveCodexApprovalDecision,
+    resolveCodexExecutionPolicy,
+    shouldAutoApproveCodexApproval,
+} from '../executionPolicy';
+
+describe('resolveCodexExecutionPolicy', () => {
+    it('forces never + danger-full-access when sandbox is managed by Happy', () => {
+        const policy = resolveCodexExecutionPolicy('default', true);
+
+        expect(policy).toEqual({
+            approvalPolicy: 'never',
+            sandbox: 'danger-full-access',
+        });
+    });
+
+    it('maps codex default mode to untrusted + workspace-write without managed sandbox', () => {
+        const policy = resolveCodexExecutionPolicy('default', false);
+
+        expect(policy).toEqual({
+            approvalPolicy: 'untrusted',
+            sandbox: 'workspace-write',
+        });
+    });
+
+    it('accepts Auto from app messages and maps it to on-request + workspace-write', () => {
+        expect(isRemoteCodexPermissionMode('auto')).toBe(true);
+        expect(resolveCodexExecutionPolicy('auto', false)).toEqual({
+            approvalPolicy: 'on-request',
+            sandbox: 'workspace-write',
+        });
+    });
+
+    it('rejects non-Codex and crafted remote permission modes', () => {
+        expect(isRemoteCodexPermissionMode('bypassPermissions')).toBe(false);
+        expect(isRemoteCodexPermissionMode('plan')).toBe(false);
+        expect(isRemoteCodexPermissionMode('totally_unsafe')).toBe(false);
+        expect(isRemoteCodexPermissionMode(null)).toBe(false);
+    });
+
+    it('maps read-only mode to never + read-only without managed sandbox', () => {
+        const policy = resolveCodexExecutionPolicy('read-only', false);
+
+        expect(policy).toEqual({
+            approvalPolicy: 'never',
+            sandbox: 'read-only',
+        });
+    });
+
+    it('maps safe-yolo mode to never + workspace-write without managed sandbox', () => {
+        const policy = resolveCodexExecutionPolicy('safe-yolo', false);
+
+        expect(policy).toEqual({
+            approvalPolicy: 'never',
+            sandbox: 'workspace-write',
+        });
+    });
+
+    it('maps yolo mode to never + danger-full-access without managed sandbox', () => {
+        const policy = resolveCodexExecutionPolicy('yolo', false);
+
+        expect(policy).toEqual({
+            approvalPolicy: 'never',
+            sandbox: 'danger-full-access',
+        });
+    });
+
+    it('maps bypassPermissions mode to never + danger-full-access without managed sandbox', () => {
+        const policy = resolveCodexExecutionPolicy('bypassPermissions', false);
+
+        expect(policy).toEqual({
+            approvalPolicy: 'never',
+            sandbox: 'danger-full-access',
+        });
+    });
+
+    it('auto-approves bridge prompts for no-prompt modes without managed sandbox', () => {
+        expect(shouldAutoApproveCodexApproval('default', false)).toBe(false);
+        expect(shouldAutoApproveCodexApproval('read-only', false)).toBe(false);
+        // safe-yolo must keep prompting: its turns run with approvalPolicy
+        // 'never' inside the workspace sandbox, so any approval codex still
+        // surfaces is a sandbox escalation — the one thing safe-yolo
+        // promises to ask the user about.
+        expect(shouldAutoApproveCodexApproval('safe-yolo', false)).toBe(false);
+        expect(shouldAutoApproveCodexApproval('yolo', false)).toBe(true);
+        expect(shouldAutoApproveCodexApproval('bypassPermissions', false)).toBe(true);
+    });
+
+    it('auto-approves bridge prompts when Happy owns sandboxing', () => {
+        expect(shouldAutoApproveCodexApproval('default', true)).toBe(true);
+        expect(shouldAutoApproveCodexApproval('read-only', true)).toBe(true);
+        expect(shouldAutoApproveCodexApproval('safe-yolo', true)).toBe(true);
+    });
+});
+
+const modes = ['auto', 'default', 'read-only', 'safe-yolo', 'yolo', 'bypassPermissions'] as const;
+
+describe('Codex hub approval boundary', () => {
+    it('does not use an old active yolo policy after an explicit tightening', () => {
+        expect(resolveCodexApprovalDecision('yolo', false, { latestPermissionMode: 'default' })).toBeUndefined();
+        expect(resolveCodexApprovalDecision('yolo', false, { latestPermissionMode: 'read-only' })).toBeUndefined();
+    });
+    it.each([false, true])('denies every hub approval with managed sandbox=%s, including a latest yolo override', (managed) => {
+        for (const mode of modes) {
+            expect(resolveCodexExecutionPolicy(mode, managed, true)).toEqual({ sandbox: 'read-only', approvalPolicy: 'never' });
+            expect(shouldAutoApproveCodexApproval(mode, managed, true)).toBe(false);
+            expect(resolveCodexApprovalDecision(mode, managed, { hubGuarded: true, latestPermissionMode: 'yolo' })).toBe('denied');
+        }
+    });
+
+    it('preserves normal approvals and the explicit mid-turn mode override', () => {
+        expect(resolveCodexApprovalDecision('default', false)).toBeUndefined();
+        expect(resolveCodexApprovalDecision('safe-yolo', false)).toBeUndefined();
+        expect(resolveCodexApprovalDecision('yolo', false)).toBe('approved');
+        expect(resolveCodexApprovalDecision('default', true)).toBe('approved');
+        expect(resolveCodexApprovalDecision('default', false, { latestPermissionMode: 'yolo' })).toBe('approved');
+        expect(resolveCodexExecutionPolicy('yolo', false)).toEqual({ sandbox: 'danger-full-access', approvalPolicy: 'never' });
+    });
+});

@@ -1,0 +1,20 @@
+import { afterAll, expect, it } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { db } from '@/storage/db';
+import { importSnapshot } from './migration';
+const ids:string[]=[];
+afterAll(async()=>{for(const id of ids){await db.sessionMessage.deleteMany({where:{session:{accountId:id}}});await db.session.deleteMany({where:{accountId:id}});await db.account.delete({where:{id}});}await db.$disconnect();});
+it('imports atomically, verifies retries, rejects other owners and newer live writes',async()=>{
+ const a=await db.account.create({data:{publicKey:randomUUID()}}),b=await db.account.create({data:{publicKey:randomUUID()}});ids.push(a.id,b.id);
+ const id='migration-'+randomUUID();
+ const snapshot={session:{id,seq:2,metadata:'encrypted-metadata',metadataVersion:4,agentState:null,agentStateVersion:0,dataEncryptionKey:Buffer.alloc(105).toString('base64'),createdAt:Date.now(),updatedAt:Date.now()},messages:[1,2].map(seq=>({id:randomUUID(),sessionId:id,seq,localId:null,content:{t:'encrypted',c:'message-'+seq},createdAt:Date.now(),updatedAt:Date.now()}))};
+ expect((await importSnapshot(db,a.id,snapshot)).inserted).toBe(2);
+ expect((await importSnapshot(db,a.id,snapshot)).inserted).toBe(0);
+ await expect(importSnapshot(db,b.id,snapshot)).rejects.toThrow('owner');
+ const corrupt=structuredClone(snapshot);corrupt.messages[1].content.c='changed';
+ await expect(importSnapshot(db,a.id,corrupt)).rejects.toThrow('conflict');
+ expect((await db.sessionMessage.findUniqueOrThrow({where:{id:snapshot.messages[1].id}})).content).toEqual(snapshot.messages[1].content);
+ await db.session.update({where:{id},data:{active:true}});
+ await expect(importSnapshot(db,a.id,snapshot)).rejects.toThrow('active');
+ expect(await db.sessionMessage.count({where:{sessionId:id}})).toBe(2);
+});

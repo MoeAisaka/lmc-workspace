@@ -1,0 +1,113 @@
+/**
+ * Global configuration for happy CLI
+ * 
+ * Centralizes all configuration including environment variables and paths
+ * Environment files should be loaded using Node's --env-file flag
+ */
+
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import packageJson from '../package.json'
+
+class Configuration {
+  public readonly serverUrl: string
+  public readonly webappUrl: string
+  public readonly isDaemonProcess: boolean
+
+  // Directories and paths (from persistence)
+  public readonly lmcHomeDir: string
+  public readonly logsDir: string
+  public readonly settingsFile: string
+  public readonly privateKeyFile: string
+  public readonly daemonStateFile: string
+  public readonly daemonLockFile: string
+  public readonly daemonTakeoverLockFile: string
+  public readonly sessionsFile: string
+  public readonly currentCliVersion: string
+
+  public readonly isExperimentalEnabled: boolean
+  public readonly disableCaffeinate: boolean
+  public readonly bootHappyAgent: boolean
+
+  constructor() {
+    // Check if we're running as daemon based on process args
+    const args = process.argv.slice(2)
+    // A trailing supervision flag must not stop this from being the daemon process.
+    this.isDaemonProcess = args.length >= 2 && args[0] === 'daemon' && (args[1] === 'start-sync')
+
+    // Directory configuration - Priority: LMC_HOME_DIR env > default home dir
+    if (process.env.LMC_HOME_DIR) {
+      // Expand ~ to home directory if present
+      const expandedPath = process.env.LMC_HOME_DIR.replace(/^~/, homedir())
+      this.lmcHomeDir = expandedPath
+    } else {
+      this.lmcHomeDir = join(homedir(), '.lmc', 'agent')
+    }
+
+    this.logsDir = join(this.lmcHomeDir, 'logs')
+    this.settingsFile = join(this.lmcHomeDir, 'settings.json')
+    this.privateKeyFile = join(this.lmcHomeDir, 'access.key')
+    this.daemonStateFile = join(this.lmcHomeDir, 'daemon.state.json')
+    this.daemonLockFile = join(this.lmcHomeDir, 'daemon.state.json.lock')
+    this.daemonTakeoverLockFile = join(this.lmcHomeDir, 'daemon.takeover.lock')
+    this.sessionsFile = join(this.lmcHomeDir, 'sessions.json')
+
+    // URL precedence (both): LMC_*_URL env > settings.<key> > default. The
+    // HAPPY_* names are not read — lmcConfiguration.test.ts asserts as much.
+    // Settings are read sync here (avoid circular import with persistence.ts).
+    // webappUrl must follow the same chain as serverUrl, otherwise `lmc server`
+    // self-host points the API at localhost but auth still opens the prod webapp.
+    this.serverUrl =
+      process.env.LMC_SERVER_URL ||
+      readSettingsStringSync(this.settingsFile, 'serverUrl') ||
+      'http://127.0.0.1:4193'
+    this.webappUrl =
+      process.env.LMC_WEBAPP_URL ||
+      readSettingsStringSync(this.settingsFile, 'webappUrl') ||
+      this.serverUrl
+
+    for (const endpoint of [this.serverUrl, this.webappUrl]) {
+      const url = new URL(endpoint);
+      if (!['http:', 'https:'].includes(url.protocol) || ['cluster-fluster.com', 'happy.engineering'].some(host => url.hostname === host || url.hostname.endsWith('.'+host))) throw new Error('请配置自托管 LMC 服务地址');
+    }
+
+    this.isExperimentalEnabled = ['true', '1', 'yes'].includes(process.env.HAPPY_EXPERIMENTAL?.toLowerCase() || '');
+    this.disableCaffeinate = ['true', '1', 'yes'].includes(process.env.HAPPY_DISABLE_CAFFEINATE?.toLowerCase() || '');
+    // Happy Agent is a second machine-level daemon with its own database and its own
+    // registration on the LMC account, so starting it is opted into rather than
+    // inherited by everyone who upgrades the CLI.
+    this.bootHappyAgent =
+      ['true', '1', 'yes'].includes(process.env.HAPPY_BOOT_AGENT?.toLowerCase() || '') ||
+      this.isExperimentalEnabled;
+
+    this.currentCliVersion = packageJson.version
+
+    // Visual indicator on CLI startup (only if not daemon process to avoid log clutter)
+    const variant = process.env.HAPPY_VARIANT || 'stable'
+    if (!this.isDaemonProcess && variant === 'dev') {
+      console.log('\x1b[33m🔧 DEV MODE\x1b[0m - Data: ' + this.lmcHomeDir)
+    }
+
+    if (!existsSync(this.lmcHomeDir)) {
+      mkdirSync(this.lmcHomeDir, { recursive: true })
+    }
+    // Ensure directories exist
+    if (!existsSync(this.logsDir)) {
+      mkdirSync(this.logsDir, { recursive: true })
+    }
+  }
+}
+
+function readSettingsStringSync(settingsFile: string, key: 'serverUrl' | 'webappUrl'): string | undefined {
+  try {
+    if (!existsSync(settingsFile)) return undefined
+    const raw = JSON.parse(readFileSync(settingsFile, 'utf8'))
+    const value = raw?.[key]
+    return typeof value === 'string' && value.length > 0 ? value : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export const configuration: Configuration = new Configuration()

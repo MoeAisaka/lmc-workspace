@@ -1,0 +1,20 @@
+import { expect, it, vi } from 'vitest';
+const { setAnchor, measure } = vi.hoisted(() => ({ setAnchor: vi.fn(), measure: vi.fn((cb: any) => cb(320, 8, 44, 44)) }));
+vi.mock('react', async (original) => ({ ...await original<typeof import('react')>(), useState: () => [null, setAnchor], useRef: () => ({ current: { measureInWindow: measure } }) }));
+vi.mock('react-native', () => ({ Pressable: 'button' }));
+vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme: { colors: { text: '#000' } } }) }));
+vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
+vi.mock('@/text', () => ({ t: () => '会话菜单' }));
+vi.mock('./SessionActionsPopover', () => ({ SessionActionsPopover: () => null }));
+import { SessionHeaderActions } from './SessionHeaderActions';
+import { SessionActionsPopover } from './SessionActionsPopover';
+it('opens the shared session actions popover at the header button and closes it', () => {
+    const [button, menu] = SessionHeaderActions({ sessionId: 's' }).props.children;
+    expect(button.props.accessibilityLabel).toBe('会话菜单');
+    expect(button.props.style.width).toBe(44);
+    button.props.onPress();
+    expect(setAnchor).toHaveBeenCalledWith({ type: 'rect', x: 320, y: 8, width: 44, height: 44 });
+    expect(menu.type).toBe(SessionActionsPopover);
+    expect(menu.props.sessionId).toBe('s');
+    menu.props.onClose(); expect(setAnchor).toHaveBeenLastCalledWith(null);
+});

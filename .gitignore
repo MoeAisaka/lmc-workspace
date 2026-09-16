@@ -1,0 +1,93 @@
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+/ios
+/android
+/packages/lmc-app/ios
+/packages/lmc-app/android
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env*.local
+.env
+.env.production
+
+# typescript
+*.tsbuildinfo
+
+.claude/settings.local.json
+.claude/*.lock
+.claude/worktrees/
+.plan
+
+CLAUDE.local.md
+CLAUDE.md
+.claude/CLAUDE.md
+
+.dev/worktree/*
+
+# Local dev environments
+.environments/
+environments/data/
+
+# Development planning notes (keep local, don't commit)
+notes/
+docs/notes/
+# ralphex progress logs
+progress*.txt
+
+# OpenCode trace output (script is committed, output is not)
+docs/competition/opencode/traces/
+
+# scratch tooling
+.cdp-scripts/
+happy-workspaces/
+
+# local HAPPY_HOME_DIR for self-host testing
+.happy-fully-local/
+.happy-dev/
+
+# third party tools
+.supervibe/
+
+.context/
+
+# LMC isolated generated MySQL client
+packages/lmc-server/sources/generated/
+
+# LMC deployment secrets and generated artifacts
+deploy/lmc/.env
+deploy/lmc/data/
+deploy/lmc/web/
+# Staged and archived web bundles: up.sh exports beside the served copy.
+deploy/lmc/web-*/
+
+# archify visual-check artefacts (regenerate with `archify visual-check`)
+docs/diagrams/*.visual-check.*

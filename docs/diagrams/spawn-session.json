@@ -1,0 +1,192 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Starting a Session on Another Machine",
+    "locale": "en",
+    "output": "spawn-session.html",
+    "viewBox": [
+      960,
+      480
+    ],
+    "column_fit": "spread",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "dispatch",
+        "label": "Dispatch",
+        "focus": [
+          "browser",
+          "centre",
+          "daemon"
+        ],
+        "note": "The centre only routes: it holds no session state of its own for this call."
+      },
+      {
+        "id": "spawn",
+        "label": "Spawn and report",
+        "focus": [
+          "daemon",
+          "session",
+          "engine"
+        ],
+        "note": "The daemon starts a detached process; the session reports itself back over a local webhook."
+      },
+      {
+        "id": "retry",
+        "label": "Why retries are safe",
+        "focus": [
+          "browser",
+          "centre",
+          "daemon"
+        ],
+        "note": "One idempotency key per request, reused on every retry."
+      }
+    ]
+  },
+  "participants": [
+    {
+      "id": "browser",
+      "type": "frontend",
+      "label": "Browser",
+      "sublabel": "web client"
+    },
+    {
+      "id": "centre",
+      "type": "backend",
+      "label": "Centre",
+      "sublabel": "Socket.IO router"
+    },
+    {
+      "id": "daemon",
+      "type": "backend",
+      "label": "Device Agent",
+      "sublabel": "on the target machine"
+    },
+    {
+      "id": "session",
+      "type": "backend",
+      "label": "Session",
+      "sublabel": "detached process"
+    },
+    {
+      "id": "engine",
+      "type": "external",
+      "label": "Engine",
+      "sublabel": "Claude Code / Codex"
+    }
+  ],
+  "segments": [
+    {
+      "from": 158,
+      "to": 226,
+      "label": "Dispatch"
+    },
+    {
+      "from": 238,
+      "to": 312,
+      "label": "Spawn"
+    },
+    {
+      "from": 324,
+      "to": 398,
+      "label": "Report back"
+    }
+  ],
+  "messages": [
+    {
+      "id": "rpc-call",
+      "from": "browser",
+      "to": "centre",
+      "y": 162,
+      "label": "rpc-call spawn-lmc-session",
+      "variant": "emphasis",
+      "note": "Carries clientRequestId, minted once per distinct request"
+    },
+    {
+      "id": "route",
+      "from": "centre",
+      "to": "daemon",
+      "y": 191,
+      "label": "rpc-request to that machine's room",
+      "variant": "default",
+      "note": "Waits up to 15s for the daemon socket if the room is briefly empty"
+    },
+    {
+      "id": "spawn",
+      "from": "daemon",
+      "to": "session",
+      "y": 220,
+      "label": "spawn detached, --starting-mode remote",
+      "variant": "emphasis",
+      "note": "Deduped on clientRequestId first: a retry returns the session the first call created"
+    },
+    {
+      "id": "ack",
+      "from": "daemon",
+      "to": "centre",
+      "y": 249,
+      "label": "sessionId",
+      "variant": "return"
+    },
+    {
+      "id": "ack-up",
+      "from": "centre",
+      "to": "browser",
+      "y": 278,
+      "label": "sessionId",
+      "variant": "return"
+    },
+    {
+      "id": "start-engine",
+      "from": "session",
+      "to": "engine",
+      "y": 307,
+      "label": "start engine process",
+      "variant": "default"
+    },
+    {
+      "id": "webhook",
+      "from": "session",
+      "to": "daemon",
+      "y": 336,
+      "label": "local webhook: I am alive, hostPid",
+      "variant": "dashed",
+      "note": "How the daemon learns the real pid it must track"
+    },
+    {
+      "id": "session-online",
+      "from": "session",
+      "to": "centre",
+      "y": 365,
+      "label": "connects, encrypted metadata",
+      "variant": "emphasis"
+    },
+    {
+      "id": "appears",
+      "from": "centre",
+      "to": "browser",
+      "y": 394,
+      "label": "session appears in the list",
+      "variant": "return"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "The centre only routes",
+      "items": [
+        "It forwards into the target machine's room and returns the ack",
+        "Empty room? It waits ~15s for a reconnecting agent instead of failing fast"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Retries are safe by key",
+      "items": [
+        "clientRequestId is minted once per request and reused on every retry",
+        "Without it a timed-out call that already spawned would spawn a second session"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+
+# Keep applied Prisma migrations byte-for-byte; generated SQL ends with a blank line.
+packages/lmc-server/prisma/migrations/**/*.sql whitespace=-blank-at-eof

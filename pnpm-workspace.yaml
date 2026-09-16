@@ -1,0 +1,9 @@
+packages:
+  - "packages/lmc-app"
+  - "packages/lmc-agent"
+  - "packages/lmc-cli"
+  - "packages/lmc-server"
+  - "packages/lmc-server-self-host"
+  - "packages/lmc-wire"
+  - "packages/lmc-app-logs"
+  - "packages/codium"

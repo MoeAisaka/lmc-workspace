@@ -1,0 +1,69 @@
+# Stage 1: install dependencies with workspace context
+FROM node:22 AS deps
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y python3 ffmpeg make g++ build-essential && rm -rf /var/lib/apt/lists/*
+RUN corepack enable && corepack prepare pnpm@10.11.0 --activate
+
+WORKDIR /repo
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY scripts ./scripts
+COPY patches ./patches
+
+RUN mkdir -p packages/lmc-app packages/lmc-server packages/lmc-cli packages/lmc-wire
+
+COPY packages/lmc-app/package.json packages/lmc-app/
+COPY packages/lmc-server/package.json packages/lmc-server/
+COPY packages/lmc-cli/package.json packages/lmc-cli/
+COPY packages/lmc-wire/package.json packages/lmc-wire/
+
+# Workspace postinstall requirements
+COPY packages/lmc-app/patches packages/lmc-app/patches
+COPY packages/lmc-server/prisma packages/lmc-server/prisma
+COPY packages/lmc-cli/scripts packages/lmc-cli/scripts
+COPY packages/lmc-cli/tools packages/lmc-cli/tools
+
+# Only the server and what it depends on. A full workspace install drags in the
+# app's and editor's native postinstalls (react-native-skia, node-pty), which
+# have no business in a server image and fail to build in it.
+#
+# The linker override is what makes `--filter` actually prune: the repo's
+# .npmrc sets node-linker=hoisted for the app's sake, and a hoisted install is
+# workspace-wide by nature — it put the Anthropic SDK, Skia, Electron and Expo
+# in this image and took it past 11GB.
+RUN SKIP_LMC_WIRE_BUILD=1 pnpm install --frozen-lockfile \
+        --filter lmc-server... \
+        --config.node-linker=isolated
+
+# Stage 2: build and run the server, continuing the layer chain its
+# dependencies were installed into.
+#
+# The obvious shape here is a slim third stage that copies node_modules from a
+# builder. It cannot work with pnpm: the store under node_modules/.pnpm is a
+# web of hardlinks, and a cross-stage COPY materialises every link as a full
+# file. This workspace's 5.1GB / 149k-file node_modules expanded past the
+# build host's disk and failed every time. Staying on one chain keeps the
+# links, at the cost of carrying the toolchain in the final image.
+FROM deps AS runner
+
+COPY packages/lmc-wire ./packages/lmc-wire
+COPY packages/lmc-server ./packages/lmc-server
+
+# happy-server's `build` script is only `tsc --noEmit`; the center runs from
+# TypeScript via tsx, so the image gains nothing from typechecking and would
+# instead inherit whichever @types the app happened to hoist into scope.
+RUN pnpm --filter @lmc/wire --fail-if-no-match build
+
+# Baked in rather than bind-mounted: a host mount depends on Docker Desktop's
+# file sharing, which silently yields an empty directory for paths it does not
+# share (an external disk, for one) and leaves the center serving 404s.
+COPY deploy/lmc/web /srv/web
+
+ENV NODE_ENV=production
+
+# The LMC center's default; compose publishes whatever PORT says.
+EXPOSE 4193
+
+WORKDIR /repo/packages/lmc-server
+CMD ["pnpm", "run", "start"]

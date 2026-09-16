@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Who Holds Which Key",
+    "locale": "en",
+    "output": "encryption.html",
+    "viewBox": [
+      980,
+      480
+    ],
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "record-path",
+        "label": "Record path",
+        "focus": [
+          "dek",
+          "record",
+          "mysql"
+        ],
+        "note": "Content is encrypted before it leaves the client."
+      },
+      {
+        "id": "account-path",
+        "label": "Account secret",
+        "focus": [
+          "secret",
+          "sealed",
+          "master"
+        ],
+        "note": "The one secret the centre stores in a form it can open."
+      }
+    ]
+  },
+  "stages": [
+    {
+      "label": "On the client"
+    },
+    {
+      "label": "Encrypted"
+    },
+    {
+      "label": "Stored"
+    },
+    {
+      "label": "Operator"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "dek",
+      "type": "security",
+      "label": "Data Key",
+      "sublabel": "per session / machine",
+      "stage": 0,
+      "row": 0,
+      "tag": "AES-256-GCM"
+    },
+    {
+      "id": "secret",
+      "type": "security",
+      "label": "Account Secret",
+      "sublabel": "32 random bytes",
+      "stage": 0,
+      "row": 1,
+      "width": 140
+    },
+    {
+      "id": "record",
+      "type": "backend",
+      "label": "Encrypted Record",
+      "sublabel": "metadata, messages, state",
+      "stage": 1,
+      "row": 0,
+      "width": 150
+    },
+    {
+      "id": "mysql",
+      "type": "database",
+      "label": "MySQL 8.4",
+      "sublabel": "opaque base64",
+      "stage": 2,
+      "row": 0
+    },
+    {
+      "id": "sealed",
+      "type": "database",
+      "label": "Sealed Secret",
+      "sublabel": "AAD = accountId",
+      "stage": 2,
+      "row": 1,
+      "width": 140
+    },
+    {
+      "id": "master",
+      "type": "security",
+      "label": "LMC_MASTER_KEY",
+      "sublabel": "the centre's env",
+      "stage": 3,
+      "row": 1,
+      "width": 150
+    }
+  ],
+  "flows": [
+    {
+      "id": "dek-record",
+      "from": "dek",
+      "to": "record",
+      "label": "encrypts content",
+      "labelDy": -26,
+      "fromSide": "right",
+      "toSide": "left",
+      "route": "straight"
+    },
+    {
+      "id": "secret-record",
+      "from": "secret",
+      "to": "record",
+      "label": "its keypair wraps it",
+      "variant": "security"
+    },
+    {
+      "id": "record-db",
+      "from": "record",
+      "to": "mysql",
+      "label": "server never decodes",
+      "variant": "emphasis",
+      "labelDy": -26
+    },
+    {
+      "id": "secret-sealed",
+      "from": "secret",
+      "to": "sealed",
+      "label": "sealed at sign-up",
+      "variant": "dashed",
+      "labelDy": -26,
+      "fromSide": "right",
+      "toSide": "left",
+      "route": "straight"
+    },
+    {
+      "id": "master-sealed",
+      "from": "master",
+      "to": "sealed",
+      "label": "opens it",
+      "variant": "security"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "The centre cannot read records",
+      "items": [
+        "Metadata, messages and state arrive already encrypted",
+        "MySQL holds base64 the server never decodes"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "But it can open the account secret",
+      "items": [
+        "lmc/auth.ts seals it with LMC_MASTER_KEY, AAD bound to accountId",
+        "Whoever holds that key and the database can unwrap an account — the boundary self-hosting moves to you"
+      ]
+    }
+  ]
+}

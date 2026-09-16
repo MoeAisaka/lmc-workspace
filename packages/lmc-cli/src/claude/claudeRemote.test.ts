@@ -1,0 +1,164 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { claudeRemote } from './claudeRemote';
+import { query } from '@/claude/sdk';
+import type { EnhancedMode } from './loop';
+
+vi.mock('@/claude/sdk', () => ({
+    query: vi.fn(),
+    AbortError: class AbortError extends Error {},
+}));
+
+const mode: EnhancedMode = {
+    permissionMode: 'default',
+};
+
+describe('claudeRemote', () => {
+    beforeEach(() => {
+        vi.mocked(query).mockReset();
+    });
+
+    it('restores working state on a second turn and keeps it while tools await approval', async () => {
+        const states: boolean[] = [];
+        let deliverSecond!: (message: { message: string; mode: EnhancedMode }) => void;
+        const second = new Promise<{ message: string; mode: EnhancedMode }>(resolve => { deliverSecond = resolve; });
+        let calls = 0;
+        vi.mocked(query).mockImplementation(({ prompt, options }: any) => ({
+            async *[Symbol.asyncIterator]() {
+                const input = prompt[Symbol.asyncIterator]();
+                await input.next();
+                yield { type: 'result', subtype: 'success' };
+                expect(states).toEqual([true, false]);
+                deliverSecond({ message: 'second', mode });
+                await input.next();
+                expect(states).toEqual([true, false, true]);
+                await options.canCallTool('Read', {}, {});
+                expect(states.at(-1)).toBe(true);
+                yield { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'read-1' }] } };
+                expect(states.at(-1)).toBe(true);
+                yield { type: 'result', subtype: 'success' };
+            },
+        }) as any);
+        await claudeRemote({
+            sessionId: null, path: process.cwd(), allowedTools: [],
+            hookSettingsPath: '/tmp/happy-test-settings.json',
+            nextMessage: async () => ++calls === 1 ? { message: 'first', mode } : calls === 2 ? second : null,
+            onReady: vi.fn(), canCallTool: async () => {
+                expect(states.at(-1)).toBe(true);
+                await Promise.resolve();
+                expect(states.at(-1)).toBe(true);
+                return { behavior: 'allow' } as any;
+            },
+            isAborted: () => false, onSessionFound: vi.fn(), onMessage: vi.fn(),
+            onThinkingChange: value => states.push(value),
+        });
+        expect(states).toEqual([true, false, true, false]);
+    });
+
+    it('awaits the safe refresh boundary before consuming another prompt', async () => {
+        let boundaryCompleted = false;
+        let calls = 0;
+        vi.mocked(query).mockReturnValue({
+            async *[Symbol.asyncIterator]() { yield { type:'result', subtype:'success' }; }
+        } as any);
+        await claudeRemote({
+            sessionId:null, path:process.cwd(), allowedTools:[], hookSettingsPath:'/tmp/happy-test-settings.json',
+            nextMessage:async()=> {
+                if (++calls === 1) return {message:'first',mode};
+                expect(boundaryCompleted).toBe(true); return null;
+            },
+            onReady: async()=>{ await Promise.resolve(); boundaryCompleted=true; },
+            canCallTool:async()=>({behavior:'allow'} as any),isAborted:()=>false,
+            onSessionFound:vi.fn(),onThinkingChange:vi.fn(),onMessage:vi.fn(),
+        });
+        expect(calls).toBe(2);
+    });
+
+    it('marks /clear as a completed reset turn', async () => {
+        const callbackOrder: string[] = [];
+        const onCompletionEvent = vi.fn((message: string) => {
+            callbackOrder.push(`event:${message}`);
+        });
+        const onSessionReset = vi.fn(() => {
+            callbackOrder.push('reset');
+        });
+        const onReady = vi.fn(() => {
+            callbackOrder.push('ready');
+        });
+
+        await claudeRemote({
+            sessionId: null,
+            path: process.cwd(),
+            allowedTools: [],
+            hookSettingsPath: '/tmp/happy-test-settings.json',
+            nextMessage: async () => ({
+                message: '/clear',
+                mode,
+            }),
+            onReady,
+            canCallTool: async () => ({ behavior: 'allow' }) as any,
+            isAborted: () => false,
+            onSessionFound: vi.fn(),
+            onThinkingChange: vi.fn(),
+            onMessage: vi.fn(),
+            onCompletionEvent,
+            onSessionReset,
+        });
+
+        expect(onCompletionEvent).toHaveBeenCalledWith('Context was reset');
+        expect(onSessionReset).toHaveBeenCalledOnce();
+        expect(onReady).toHaveBeenCalledOnce();
+        expect(callbackOrder).toEqual(['event:Context was reset', 'reset', 'ready']);
+    });
+
+    it('marks assistant messages from /compact as compact summaries', async () => {
+        const setPermissionMode = vi.fn();
+        vi.mocked(query).mockReturnValue({
+            setPermissionMode,
+            async *[Symbol.asyncIterator]() {
+                yield {
+                    type: 'assistant',
+                    message: {
+                        role: 'assistant',
+                        content: [{ type: 'text', text: 'Long compaction summary' }],
+                    },
+                };
+                yield {
+                    type: 'result',
+                    subtype: 'success',
+                };
+            },
+        } as any);
+
+        const onMessage = vi.fn();
+        let messageCount = 0;
+
+        await claudeRemote({
+            sessionId: null,
+            path: process.cwd(),
+            allowedTools: [],
+            hookSettingsPath: '/tmp/happy-test-settings.json',
+            nextMessage: async () => {
+                messageCount += 1;
+                return messageCount === 1
+                    ? {
+                        message: '/compact',
+                        mode,
+                    }
+                    : null;
+            },
+            onReady: vi.fn(),
+            canCallTool: async () => ({ behavior: 'allow' }) as any,
+            isAborted: () => false,
+            onSessionFound: vi.fn(),
+            onThinkingChange: vi.fn(),
+            onMessage,
+            onCompletionEvent: vi.fn(),
+            onSessionReset: vi.fn(),
+        });
+
+        expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({
+            type: 'assistant',
+            isCompactSummary: true,
+        }));
+    });
+});

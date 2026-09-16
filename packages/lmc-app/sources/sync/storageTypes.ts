@@ -1,0 +1,691 @@
+import { z } from "zod";
+
+//
+// Agent states
+//
+
+// One task as the runner's board records it: kept in metadata so the list can
+// show a hub's tasks without loading anyone's messages. See the CLI's board.ts.
+const BoardEntrySchema = z.object({
+    dispatchId: z.string().optional(),
+    id: z.string(),
+    title: z.string(),
+    stage: z.string().optional(),
+    scope: z.string().optional(),
+    reason: z.enum(['quota']).optional(),
+    cost: z.string().optional(),
+    model: z.string().optional(),
+    state: z.enum(['dispatched', 'done', 'blocked', 'failed', 'accepted', 'rejected']),
+    attempt: z.number(),
+    counterpart: z.string().nullable(),
+    firstAt: z.number(),
+    updatedAt: z.number(),
+});
+export type BoardEntry = z.infer<typeof BoardEntrySchema>;
+
+// A hub's request for a worker on a machine its runner cannot reach; an app
+// on the account carries it out and records the outcome here. See the CLI's
+// tools.ts and sync/orchestrationSpawnRelay.ts.
+const SpawnRequestSchema = z.object({
+    id: z.string(),
+    machine: z.string(),
+    directory: z.string(),
+    agent: z.enum(['claude', 'codex']),
+    model: z.string().optional(),
+    effort: z.string().optional(),
+    permissionMode: z.string().optional(),
+    title: z.string(),
+    requestedAt: z.number(),
+    state: z.enum(['pending', 'claimed', 'done', 'failed']),
+    claimedAt: z.number().optional(),
+    sessionId: z.string().optional(),
+    error: z.string().optional(),
+});
+export type SpawnRequest = z.infer<typeof SpawnRequestSchema>;
+
+export const MetadataSchema = z.object({
+    agentBuild: z.string().optional(),
+    engineRuntime: z.object({engine:z.string(),version:z.string(),packageVersion:z.string().optional(),source:z.string(),path:z.string()}).optional(),
+    sessionCapabilities: z.object({ refresh: z.boolean(), authentication: z.boolean(), runtimeConfiguration: z.boolean(), resourceFiles: z.boolean().optional(), fileInbox: z.boolean().optional(), resume:z.boolean().optional(), model:z.boolean().optional(),effort:z.boolean().optional(),context:z.boolean().optional(),serviceTier:z.boolean().optional(), cancelRefresh: z.boolean().optional() }).optional(),
+    engineAuth: z.object({ status: z.enum(['ready', 'required', 'unknown']), checkedAt: z.number() }).optional(),
+    sessionConfiguration: z.boolean().optional(),
+    sessionConfigState: z.enum(['queued', 'applied', 'error', 'refreshing', 'verifying']).optional(),
+    sessionConfigUpdatedAt: z.number().optional(),
+    sessionConfigError: z.string().optional(),
+    // Set by the runner while a queued refresh checks the login of the engine it
+    // will relaunch as; cleared after. The switch card shows it as its own step.
+    sessionConfigStage: z.enum(['preflight']).optional(),
+    // 'auth' marks a failure the person can fix with a login command on the device.
+    sessionConfigErrorKind: z.enum(['auth', 'preflight', 'relaunch', 'verify']).optional(),
+    // When the refresh entered the queue, stamped by the runner so every device measures the same duration.
+    sessionConfigRequestedAt: z.number().optional(),
+    models: z.array(z.object({
+        code: z.string(),
+        value: z.string(),
+        description: z.string().nullish(),
+        id: z.string().optional(),
+        name: z.string().optional(),
+        providerId: z.string().optional(),
+        providerKind: z.string().optional(),
+        providerName: z.string().optional(),
+        provider: z.object({
+            id: z.string(),
+            kind: z.string(),
+            name: z.string(),
+        }).passthrough().optional(),
+        contextWindow: z.number().optional(),
+        serviceTiers: z.array(z.string()).optional(),
+        thinkingLevels: z.array(z.string()).optional(),
+        defaultThinkingLevel: z.string().optional(),
+    }).passthrough()).optional(),
+    currentModelCode: z.string().optional(),
+    operatingModes: z.array(z.object({
+        code: z.string(),
+        value: z.string(),
+        description: z.string().nullish(),
+        kind: z.string().optional(),
+    }).passthrough()).optional(),
+    currentOperatingModeCode: z.string().optional(),
+    thoughtLevels: z.array(z.object({
+        code: z.string(),
+        value: z.string(),
+        description: z.string().nullish(),
+    })).optional(),
+    currentThoughtLevelCode: z.string().optional(),
+    rigMetadataVersion: z.number().int().positive().optional(),
+    client: z.object({
+        id: z.string(),
+        name: z.string(),
+        version: z.string(),
+    }).passthrough().optional(),
+    provider: z.object({
+        id: z.string(),
+        kind: z.string(),
+        name: z.string(),
+    }).passthrough().optional(),
+    providers: z.array(z.object({
+        id: z.string(),
+        kind: z.string(),
+        name: z.string(),
+    }).passthrough()).optional(),
+    model: z.object({
+        providerId: z.string(),
+        id: z.string(),
+    }).passthrough().optional(),
+    currentModelProviderId: z.string().optional(),
+    reasoning: z.object({
+        current: z.string().nullable(),
+        levels: z.array(z.string()),
+    }).passthrough().optional(),
+    session: z.object({
+        status: z.string(),
+        permissionMode: z.string(),
+        modelLocked: z.boolean(),
+        serviceTier: z.string().optional(),
+    }).passthrough().optional(),
+    capabilities: z.object({
+        abort: z.boolean(),
+        attachments: z.object({
+            enabled: z.boolean(),
+            maxBytes: z.number(),
+            mediaTypes: z.array(z.string()),
+        }).passthrough(),
+        files: z.object({
+            browse: z.boolean(),
+            read: z.boolean(),
+            search: z.boolean(),
+            write: z.boolean(),
+        }).passthrough(),
+        modelSelection: z.boolean(),
+        reasoningSelection: z.boolean(),
+        permissionModeSelection: z.boolean(),
+        resume: z.boolean(),
+        rpcMethods: z.array(z.string()),
+        shell: z.boolean(),
+        steering: z.boolean(),
+    }).passthrough().optional(),
+    activity: z.object({
+        subagents: z.object({
+            running: z.number(),
+            queued: z.number(),
+            total: z.number(),
+        }).passthrough(),
+        workflows: z.object({
+            running: z.number(),
+            total: z.number(),
+        }).passthrough(),
+        processes: z.object({ running: z.number() }).passthrough(),
+        tasks: z.object({
+            pending: z.number(),
+            inProgress: z.number(),
+            completed: z.number(),
+            total: z.number(),
+        }).passthrough(),
+    }).passthrough().optional(),
+    path: z.string(),
+    host: z.string(),
+    version: z.string().optional(),
+    name: z.string().optional(),
+    os: z.string().optional(),
+    summary: z.object({
+        text: z.string(),
+        updatedAt: z.number()
+    }).optional(),
+    /**
+     * When the session last did something a person would call activity: the
+     * newest visible user message, visible agent text, or user-facing question.
+     * Tool calls, tool results, reasoning, permission prompts, heartbeats and
+     * metadata writes deliberately do not advance it, so a long tool-only tail
+     * cannot float a session to the top of the list.
+     *
+     * The agent publishes it, so every device sorts the same way — unlike
+     * `Session.lastMessageSentAt`, which only knows what this device sent.
+     */
+    lastMeaningfulMessageAt: z.number().optional(),
+    /** Rig's branch/worktree comparison against its merge base with origin/main. */
+    git: z.object({
+        changedFiles: z.number().int().nonnegative(),
+        countsExact: z.boolean(),
+        deletions: z.number().int().nonnegative(),
+        insertions: z.number().int().nonnegative(),
+    }).passthrough().optional(),
+    machineId: z.string().optional(),
+    claudeSessionId: z.string().optional(), // Claude Code session ID
+    codexThreadId: z.string().optional(), // Codex app-server thread ID
+    // Set while a session is moving between engines; the runner taking over
+    // consumes it and clears it. See engineHandoff.ts.
+    pendingHandoff: z.object({
+        from: z.string(),
+        fromFlavor: z.enum(['claude', 'codex']).optional(),
+        source: z.enum(['engine', 'compiled']),
+        briefing: z.string(),
+        // The engine-native conversation being left; a reference, not something
+        // a relaunch can resume. See the CLI's Metadata for why.
+        priorThread: z.object({
+            engine: z.string(),
+            id: z.string(),
+            transcriptPath: z.string().optional(),
+        }).optional(),
+    }).optional(),
+    // This session's place in a hub-and-workers arrangement. Keyed by LMC
+    // session id, so it survives refreshes and engine switches; written on
+    // both sides so either can rebuild the other. See sync/orchestration.ts.
+    orchestration: z.discriminatedUnion('role', [
+        z.object({ role: z.literal('hub'), workers: z.array(z.object({ sessionId: z.string(), boundAt: z.number(), by: z.enum(['auto', 'manual']) })), board: z.array(BoardEntrySchema).optional(), spawnRequests: z.array(SpawnRequestSchema).optional() }),
+        z.object({ role: z.literal('worker'), hub: z.object({ sessionId: z.string(), boundAt: z.number(), by: z.enum(['auto', 'manual']), autonomy: z.boolean().optional() }), board: z.array(BoardEntrySchema).optional() }),
+    ]).optional(),
+    // Every engine-native conversation the session has had, oldest first;
+    // references the briefing lists, never something a relaunch resumes.
+    engineThreadHistory: z.array(z.object({
+        engine: z.string(),
+        flavor: z.enum(['claude', 'codex']),
+        id: z.string(),
+        transcriptPath: z.string().optional(),
+        endedAt: z.number(),
+    })).optional(),
+    /** Agent-to-agent mail; on unless this is explicitly false. */
+    agentMail: z.boolean().optional(),
+    tools: z.array(z.string()).optional(),
+    slashCommands: z.array(z.string()).optional(),
+    mcpServers: z.array(z.object({ name: z.string(), status: z.string() })).optional(),
+    skills: z.array(z.string()).optional(),
+    homeDir: z.string().optional(), // User's home directory on the machine
+    happyHomeDir: z.string().optional(), // Configuration directory (pre-rename name)
+    lmcHomeDir: z.string().optional(), // Same value under the new name
+    startedFromDaemon: z.boolean().optional(),
+    hostPid: z.number().optional(), // Process ID of the session
+    startedBy: z.enum(['daemon', 'terminal']).optional(),
+    flavor: z.string().nullish(), // Session flavor/variant identifier
+    /**
+     * Rig's project / worktree identity. Every worktree of the same repo
+     * reports the same `project.id`, and `workspace` names the individual git
+     * worktree (absent when the session runs in the primary tree). `kind` is a
+     * plain string so newer Rig builds can add values without failing here.
+     */
+    project: z.object({
+        id: z.string(),
+        kind: z.string(),
+        name: z.string(),
+    }).passthrough().optional(),
+    workspace: z.object({
+        id: z.string(),
+        kind: z.string(),
+        name: z.string(),
+    }).passthrough().optional(),
+    sandbox: z.any().nullish(), // Sandbox config metadata from CLI (or null when disabled)
+    dangerouslySkipPermissions: z.boolean().nullish(), // Claude --dangerously-skip-permissions mode (or null when unknown)
+    lifecycleState: z.string().optional(),
+    lifecycleStateSince: z.number().optional(),
+    archivedBy: z.string().optional(),
+    archiveReason: z.string().optional(),
+    /**
+     * Lineage for sessions created via the fork / duplicate flow.
+     * `parentSessionId` is the LMC session this one was branched from.
+     * `forkedFromMessageId` is the in-app message id used as the rewind
+     * point (only set for "duplicate from message", not for plain fork).
+     * Both ride inside encrypted metadata so the server stays oblivious.
+     */
+    parentSessionId: z.string().optional(),
+    forkedFromMessageId: z.string().optional(),
+    /**
+     * Marks this session as a hidden "side chat" forked from `parentSessionId`.
+     * Side chats never appear in the top-level session list — they render only
+     * inside the parent session's sidebar panel (see `useSideChatSession`).
+     */
+    isSideChat: z.boolean().optional(),
+    /**
+     * Per-session permission / model / effort picks made in any client.
+     * Synced through session metadata so every device shows the same
+     * selection (#1492). Explicit null means "reset to default"; absent
+     * means "never picked".
+     */
+    permissionMode: z.string().nullish(),
+    permissionModeSource: z.enum(['ambient', 'explicit']).optional(),
+    modelMode: z.string().nullish(),
+    effortLevel: z.string().nullish(),
+    // Passthrough so read-modify-write metadata updates from this app never
+    // drop fields written by newer CLI or app versions.
+}).passthrough().transform((metadata) => {
+    // Same staged rename as machine metadata: read both, hand readers one.
+    const merged = { ...metadata };
+    const homeDir = metadata.lmcHomeDir ?? metadata.happyHomeDir;
+    if (homeDir !== undefined) merged.happyHomeDir = homeDir;
+    return merged;
+});
+
+export type Metadata = z.infer<typeof MetadataSchema>;
+
+export const AgentGoalSourceSchema = z.enum(['claude', 'codex']);
+
+export const AgentGoalProgressStepSchema = z.object({
+    text: z.string().trim().min(1),
+    status: z.enum(['pending', 'in_progress', 'completed']),
+}).strict();
+
+export const AgentGoalProgressSchema = z.object({
+    currentStep: z.number().int().positive().optional(),
+    totalSteps: z.number().int().positive().optional(),
+    steps: z.array(AgentGoalProgressStepSchema).optional(),
+}).strict();
+
+export const AgentGoalCapabilitiesSchema = z.object({
+    clear: z.boolean().optional(),
+    stop: z.boolean().optional(),
+    edit: z.boolean().optional(),
+}).strict();
+
+const AgentGoalStatusBaseSchema = z.object({
+    source: AgentGoalSourceSchema,
+    observedAt: z.number().int().nonnegative(),
+    sourceSessionId: z.string().trim().min(1).optional(),
+    sourceRevision: z.union([z.string().trim().min(1), z.number()]).optional(),
+});
+
+export const AgentGoalStatusSchema = z.discriminatedUnion('status', [
+    AgentGoalStatusBaseSchema.extend({
+        status: z.literal('unavailable'),
+        reason: z.enum(['unsupported', 'not_loaded', 'stale', 'malformed', 'error', 'unknown']).optional(),
+    }).strict(),
+    AgentGoalStatusBaseSchema.extend({
+        status: z.literal('inactive'),
+        reason: z.enum(['none', 'cleared', 'completed', 'unknown']).optional(),
+    }).strict(),
+    AgentGoalStatusBaseSchema.extend({
+        status: z.literal('active'),
+        sourceSessionId: z.string().trim().min(1),
+        text: z.string().trim().min(1),
+        capabilities: AgentGoalCapabilitiesSchema.optional(),
+        progress: AgentGoalProgressSchema.optional(),
+    }).strict(),
+]);
+
+export type AgentGoalStatus = z.infer<typeof AgentGoalStatusSchema>;
+
+const UsageLimitsSchema = z.object({
+    capturedAt: z.number(),
+    windows: z.array(z.object({
+        id: z.string(),
+        label: z.string().optional(),
+        // Plain string so statuses introduced by newer CLIs degrade safely.
+        status: z.string().optional(),
+        utilization: z.number().nullish(),
+        resetsAt: z.number().nullish(),
+    }).passthrough()),
+}).passthrough().optional().catch(undefined);
+
+/**
+ * Agent-to-user communication, kept deliberately separate from permissions.
+ * A permission gates an action the agent wants to take; a communication asks
+ * the user for information the agent does not have.
+ *
+ * The top-level `kind` selects the payload and is an open string rather than an
+ * enum, so newer agents can introduce other kinds (a notice, a file pick, a
+ * diff to review) without older clients failing to parse the session. A client
+ * that does not know a kind still sees the communication and tells the user it
+ * cannot be answered here, rather than silently dropping it and leaving the
+ * agent waiting forever.
+ *
+ * Today the only kind is `form`, whose payload is a list of questions.
+ */
+export const AgentQuestionOptionSchema = z.object({
+    label: z.string(),
+    description: z.string().nullish(),
+}).passthrough();
+
+export const AgentQuestionSchema = z.object({
+    id: z.string(),
+    header: z.string(),
+    question: z.string(),
+    options: z.array(AgentQuestionOptionSchema).default([]),
+    multiSelect: z.boolean().nullish(),
+    // Lets the user write an answer the agent did not offer.
+    allowCustom: z.boolean().nullish(),
+    // When false the user may submit without choosing anything.
+    required: z.boolean().nullish(),
+}).passthrough();
+
+/** Payload for `kind: 'form'`. */
+export const AgentFormSchema = z.object({
+    questions: z.array(AgentQuestionSchema).default([]),
+}).passthrough();
+
+export const AgentCommunicationSchema = z.object({
+    kind: z.string(),
+    createdAt: z.number().nullish(),
+    // Joins the communication to the tool call that raised it, when there is one.
+    toolUseId: z.string().nullish(),
+    // Shown when the client does not understand `kind`, so the user learns what
+    // is being asked even though this build cannot render the payload.
+    title: z.string().nullish(),
+    // Present when kind === 'form'.
+    form: AgentFormSchema.nullish(),
+}).passthrough();
+
+export const AgentQuestionAnswerSchema = z.object({
+    options: z.array(z.string()).default([]),
+    custom: z.string().nullish(),
+}).passthrough();
+
+export const CompletedAgentCommunicationSchema = AgentCommunicationSchema.extend({
+    completedAt: z.number().nullish(),
+    status: z.enum(['answered', 'cancelled']),
+    answers: z.record(z.string(), AgentQuestionAnswerSchema).nullish(),
+});
+
+export type AgentQuestionOption = z.infer<typeof AgentQuestionOptionSchema>;
+export type AgentQuestion = z.infer<typeof AgentQuestionSchema>;
+export type AgentForm = z.infer<typeof AgentFormSchema>;
+export type AgentCommunication = z.infer<typeof AgentCommunicationSchema>;
+export type AgentQuestionAnswer = z.infer<typeof AgentQuestionAnswerSchema>;
+export type CompletedAgentCommunication = z.infer<typeof CompletedAgentCommunicationSchema>;
+
+export const AgentStateSchema = z.object({
+    runtime: z.object({phase:z.enum(['working','idle']),pid:z.number(),updatedAt:z.number()}).optional(),
+    controlledByUser: z.boolean().nullish(),
+    // Ephemeral runtime state. A malformed snapshot must not invalidate
+    // permission requests or the rest of the agent state.
+    usageLimits: UsageLimitsSchema,
+    // Pending agent-to-user communications, keyed by request id.
+    communications: z.record(z.string(), AgentCommunicationSchema).nullish(),
+    completedCommunications: z.record(z.string(), CompletedAgentCommunicationSchema).nullish(),
+    requests: z.record(z.string(), z.object({
+        tool: z.string(),
+        arguments: z.any(),
+        createdAt: z.number().nullish(),
+        // Raw provider tool-use id when the request id is scoped (e.g. claude
+        // subagent ids are `agentID:toolUseID`); used to join the permission
+        // to its tool call, while the request id stays the response key.
+        toolUseId: z.string().nullish()
+    })).nullish(),
+    completedRequests: z.record(z.string(), z.object({
+        tool: z.string(),
+        arguments: z.any(),
+        createdAt: z.number().nullish(),
+        completedAt: z.number().nullish(),
+        status: z.enum(['canceled', 'denied', 'approved']),
+        reason: z.string().nullish(),
+        mode: z.string().nullish(),
+        allowedTools: z.array(z.string()).nullish(),
+        // The CLI completes a request by echoing the RPC's own field name,
+        // `allowTools`, so every deployed CLI reports the "don't ask again"
+        // grant under this key. Declared here so parsing keeps it; the
+        // reducer folds it into `allowedTools` when reading.
+        allowTools: z.array(z.string()).nullish(),
+        decision: z.enum(['approved', 'approved_for_session', 'denied', 'abort']).nullish(),
+        toolUseId: z.string().nullish()
+    })).nullish(),
+    agentGoalStatus: AgentGoalStatusSchema.optional(),
+});
+
+export type AgentState = z.infer<typeof AgentStateSchema>;
+
+export const TodoItemSchema = z.object({
+    content: z.string(),
+    status: z.enum(['pending', 'in_progress', 'completed']),
+    priority: z.enum(['high', 'medium', 'low']).optional(),
+    id: z.string().optional(),
+});
+
+export const TodoItemsSchema = z.array(TodoItemSchema);
+
+export type TodoItem = z.infer<typeof TodoItemSchema>;
+
+/**
+ * Per-session agent mode picks that sync across devices via session metadata (#1492).
+ * null clears a pick back to defaults, undefined leaves the field untouched.
+ */
+export interface SessionAgentModesPatch {
+    permissionMode?: string | null;
+    modelMode?: string | null;
+    effortLevel?: string | null;
+}
+
+export interface Session {
+    /** User-owned account setting; never taken from CLI metadata. */
+    customName?: string | null;
+    id: string,
+    seq: number,
+    createdAt: number,
+    updatedAt: number,
+    active: boolean,
+    activeAt: number,
+    /** Account-scoped Project linkage supplied beside the encrypted session. */
+    projectId?: string | null,
+    metadata: Metadata | null,
+    metadataVersion: number,
+    agentState: AgentState | null,
+    agentStateVersion: number,
+    thinking: boolean,
+    thinkingAt: number,
+    presence: "online" | number, // "online" when active, timestamp when last seen
+    todos?: TodoItem[];
+    draft?: string | null; // Local draft message, not synced to server
+    permissionMode?: string | null; // Permission pick; local mirror of synced metadata.permissionMode (#1492)
+    modelMode?: string | null; // Model pick; local mirror of synced metadata.modelMode (#1492)
+    effortLevel?: string | null; // Effort pick; local mirror of synced metadata.effortLevel (#1492)
+    lastMessageSentAt?: number; // Local timestamp of last user-sent message, not synced to server; used for activity-based sort
+    // IMPORTANT: latestUsage is extracted from reducerState.latestUsage after message processing.
+    // We store it directly on Session to ensure it's available immediately on load.
+    // Do NOT store reducerState itself on Session - it's mutable and should only exist in SessionMessages.
+    latestUsage?: {
+        inputTokens: number;
+        outputTokens: number;
+        cacheCreation: number;
+        cacheRead: number;
+        contextSize: number;
+        contextWindow?: number;
+        timestamp: number;
+    } | null;
+}
+
+export interface DecryptedMessage {
+    id: string,
+    seq: number | null,
+    localId: string | null,
+    content: any,
+    createdAt: number,
+}
+
+//
+// Machine states
+//
+
+export const MachineMetadataSchema = z.object({
+    managedUpgrades: z.boolean().optional(),
+    host: z.string(),
+    platform: z.string(),
+    // Renaming happy -> lmc on the wire is staged: readers learn the new names
+    // first, writers switch second, the old names go last. Both spellings are
+    // optional here so neither a pre-rename nor a post-rename CLI fails to
+    // parse — and a machine that fails to parse disappears from the app
+    // entirely, rather than degrading. The transform below settles which wins.
+    happyCliVersion: z.string().optional(),
+    lmcCliVersion: z.string().optional(),
+    happyHomeDir: z.string().optional(), // Directory for auth, settings, logs
+    lmcHomeDir: z.string().optional(),
+    homeDir: z.string(), // User's home directory (matches CLI field name)
+    // Optional fields that may be added in future versions
+    username: z.string().optional(),
+    arch: z.string().optional(),
+    displayName: z.string().optional(), // Custom display name for the machine
+    // Daemon status fields
+    daemonLastKnownStatus: z.enum(['running', 'shutting-down']).optional(),
+    daemonLastKnownPid: z.number().optional(),
+    shutdownRequestedAt: z.number().optional(),
+    shutdownSource: z.enum(['happy-app', 'happy-cli', 'os-signal', 'unknown']).optional(),
+    cliAvailability: z.object({
+        claude: z.boolean(),
+        codex: z.boolean(),
+        gemini: z.boolean(),
+        openclaw: z.boolean(),
+        agy: z.boolean().optional(), // optional: older CLIs don't report agy
+        rig: z.boolean().optional(), // Rig runs its own Happy-connected daemon
+        detectedAt: z.number(),
+    }).optional(),
+    // Rig registers as its own machine instead of being launched by happy-cli.
+    // Keep its creation catalog so the new-session UI can send Rig-native
+    // provider/model identifiers to the machine RPC.
+    machineKind: z.string().optional(),
+    rigOnly: z.boolean().optional(),
+    rigMetadataVersion: z.number().int().positive().optional(),
+    client: z.object({
+        id: z.string(),
+        name: z.string(),
+        version: z.string(),
+    }).passthrough().optional(),
+    capabilities: z.object({
+        newSession: z.boolean().optional(),
+        resume: z.boolean().optional(),
+        worktrees: z.boolean().optional(),
+    }).passthrough().optional(),
+    // The Rig catalog below mirrors the optionality of MetadataSchema at the top
+    // of this file, which models the same payload for a session. Rig is a
+    // separate codebase shipping on its own schedule, so a field it omits or
+    // sends as null must not fail the parse: a rejected parse returns null for
+    // the ENTIRE machine metadata (see machineEncryption.ts), which would strip
+    // host, platform and CLI availability over an unread reasoning level.
+    // Each block also catches independently, so an unforeseen shape degrades to
+    // "no Rig session creation" rather than "no machine".
+    defaults: z.object({
+        effort: z.string().optional(),
+        modelId: z.string().optional(),
+        permissionMode: z.string().optional(),
+        providerId: z.string().optional(),
+    }).passthrough().optional().catch(undefined),
+    providers: z.array(z.object({
+        id: z.string(),
+        kind: z.string().optional(),
+        name: z.string().optional(),
+    }).passthrough()).optional().catch(undefined),
+    models: z.array(z.object({
+        code: z.string(),
+        value: z.string(),
+        description: z.string().nullish(),
+        id: z.string().optional(),
+        name: z.string().optional(),
+        providerId: z.string().optional(),
+        providerKind: z.string().optional(),
+        providerName: z.string().optional(),
+        provider: z.object({
+            id: z.string(),
+            kind: z.string(),
+            name: z.string(),
+        }).passthrough().optional(),
+        contextWindow: z.number().optional(),
+        serviceTiers: z.array(z.string()).optional(),
+        thinkingLevels: z.array(z.string()).optional(),
+        defaultThinkingLevel: z.string().nullish(),
+    }).passthrough()).optional().catch(undefined),
+    operatingModes: z.array(z.object({
+        code: z.string(),
+        value: z.string(),
+        description: z.string().nullish(),
+        kind: z.string().optional(),
+    }).passthrough()).optional().catch(undefined),
+    sessionCreation: z.object({
+        idempotencyKey: z.string().optional(),
+        pendingRetryAfterMs: z.number().optional(),
+        resultKinds: z.array(z.string()).optional(),
+    }).passthrough().optional().catch(undefined),
+    resumeSupport: z.object({
+        rpcAvailable: z.boolean().optional(),
+        requiresSameMachine: z.boolean().optional(),
+        requiresHappyAgentAuth: z.boolean().optional(),
+        happyAgentAuthenticated: z.boolean().optional(),
+        detectedAt: z.number().optional(),
+    }).passthrough().optional().catch(undefined),
+}).passthrough().transform((metadata) => {
+    // One canonical spelling for every reader. Keeping the old key as the
+    // canonical one means no call site changes now; step three drops the new
+    // key into it and deletes this transform. Assigning conditionally keeps
+    // these keys optional — spreading a resolved value would make them
+    // required in the inferred type and break every metadata literal.
+    const merged = { ...metadata };
+    const cliVersion = metadata.lmcCliVersion ?? metadata.happyCliVersion;
+    const homeDir = metadata.lmcHomeDir ?? metadata.happyHomeDir;
+    if (cliVersion !== undefined) merged.happyCliVersion = cliVersion;
+    if (homeDir !== undefined) merged.happyHomeDir = homeDir;
+    return merged;
+});
+
+export type MachineMetadata = z.infer<typeof MachineMetadataSchema>;
+
+export interface Machine {
+    id: string;
+    seq: number;
+    createdAt: number;
+    updatedAt: number;
+    active: boolean;
+    activeAt: number;  // Changed from lastActiveAt to activeAt for consistency
+    metadata: MachineMetadata | null;
+    metadataVersion: number;
+    daemonState: any | null;  // Dynamic daemon state (runtime info)
+    daemonStateVersion: number;
+}
+
+//
+// Git Status
+//
+
+export interface GitStatus {
+    branch: string | null;
+    isDirty: boolean;
+    modifiedCount: number;
+    untrackedCount: number;
+    stagedCount: number;
+    lastUpdatedAt: number;
+    // Line change statistics - separated by staged vs unstaged
+    stagedLinesAdded: number;
+    stagedLinesRemoved: number;
+    unstagedLinesAdded: number;
+    unstagedLinesRemoved: number;
+    // Computed totals
+    linesAdded: number;      // stagedLinesAdded + unstagedLinesAdded
+    linesRemoved: number;    // stagedLinesRemoved + unstagedLinesRemoved
+    linesChanged: number;    // Total lines that were modified (added + removed)
+    // Branch tracking information (from porcelain v2)
+    upstreamBranch?: string | null; // Name of upstream branch
+    aheadCount?: number; // Commits ahead of upstream
+    behindCount?: number; // Commits behind upstream
+    stashCount?: number; // Number of stash entries
+}

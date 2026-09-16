@@ -1,0 +1,20 @@
+.git
+.DS_Store
+.claude
+.dev
+node_modules
+**/node_modules
+**/dist
+**/.claude
+**/.expo
+**/.turbo
+**/.next
+**/ios/Pods
+**/src-tauri/target
+**/target
+
+# Self-hosted center: built web bundles and runtime data are mounted at run
+# time, and are large enough to slow every image build if sent as context.
+deploy/lmc/web-*
+deploy/lmc/data
+deploy/lmc/.env

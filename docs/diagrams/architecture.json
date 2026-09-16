@@ -1,0 +1,265 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "LMC — Self-Hosted Agent Workspace",
+    "locale": "en",
+    "output": "architecture.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "browser-path",
+        "label": "Browser to durable state",
+        "focus": [
+          "browser",
+          "proxy",
+          "centre",
+          "mysql"
+        ],
+        "note": "The request path a signed-in operator takes, ending in the database you run."
+      },
+      {
+        "id": "device-path",
+        "label": "Device agents and engines",
+        "focus": [
+          "agent",
+          "centre",
+          "engines"
+        ],
+        "note": "Agents dial out; the centre reaches back over the same socket to start work."
+      },
+      {
+        "id": "trust",
+        "label": "Trust boundary",
+        "focus": [
+          "keys",
+          "browser",
+          "centre",
+          "mysql"
+        ],
+        "note": "What the centre can read, and what it only ever stores as ciphertext."
+      }
+    ],
+    "viewBox": [
+      1000,
+      500
+    ]
+  },
+  "components": [
+    {
+      "id": "keys",
+      "type": "security",
+      "label": "Account Keys",
+      "sublabel": "held by the client",
+      "pos": [
+        40,
+        90
+      ],
+      "size": [
+        140,
+        60
+      ],
+      "tag": "E2E"
+    },
+    {
+      "id": "redis",
+      "type": "database",
+      "label": "Redis",
+      "sublabel": "streams adapter",
+      "pos": [
+        820,
+        90
+      ],
+      "size": [
+        140,
+        60
+      ],
+      "tag": "multi-process only"
+    },
+    {
+      "id": "browser",
+      "type": "frontend",
+      "label": "Browser Client",
+      "sublabel": "Expo web build",
+      "pos": [
+        40,
+        250
+      ],
+      "size": [
+        140,
+        60
+      ]
+    },
+    {
+      "id": "proxy",
+      "type": "cloud",
+      "label": "Reverse Proxy",
+      "sublabel": "terminates TLS",
+      "pos": [
+        250,
+        250
+      ],
+      "size": [
+        140,
+        60
+      ]
+    },
+    {
+      "id": "centre",
+      "type": "backend",
+      "label": "Centre",
+      "sublabel": "Fastify + Socket.IO",
+      "pos": [
+        460,
+        250
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "mysql",
+      "type": "database",
+      "label": "MySQL 8.4",
+      "sublabel": "Prisma schema",
+      "pos": [
+        820,
+        250
+      ],
+      "size": [
+        140,
+        60
+      ]
+    },
+    {
+      "id": "engines",
+      "type": "external",
+      "label": "Coding Engines",
+      "sublabel": "Claude Code · Codex",
+      "pos": [
+        690,
+        390
+      ],
+      "size": [
+        170,
+        60
+      ]
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "Device Agent",
+      "sublabel": "lmc-cli daemon",
+      "pos": [
+        460,
+        390
+      ],
+      "size": [
+        150,
+        60
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Infrastructure you run",
+      "wraps": [
+        "proxy",
+        "centre",
+        "mysql",
+        "redis"
+      ]
+    },
+    {
+      "kind": "security-group",
+      "label": "stores ciphertext only",
+      "wraps": [
+        "centre",
+        "mysql"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "keys-stay-client",
+      "from": "keys",
+      "to": "browser",
+      "label": "never sent to the centre",
+      "variant": "security",
+      "labelDy": 24
+    },
+    {
+      "id": "browser-in",
+      "from": "browser",
+      "to": "proxy",
+      "label": "HTTPS + WebSocket",
+      "variant": "emphasis",
+      "labelDy": -34
+    },
+    {
+      "id": "proxy-in",
+      "from": "proxy",
+      "to": "centre",
+      "label": "loopback only"
+    },
+    {
+      "id": "centre-sql",
+      "from": "centre",
+      "to": "mysql",
+      "label": "SQL"
+    },
+    {
+      "id": "centre-streams",
+      "from": "centre",
+      "to": "redis",
+      "label": "fan-out across processes",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "left"
+    },
+    {
+      "id": "agent-link",
+      "from": "agent",
+      "to": "centre",
+      "label": "outbound Socket.IO; centre calls RPC back over it",
+      "variant": "emphasis",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "agent-engines",
+      "from": "agent",
+      "to": "engines",
+      "label": "spawns"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Centre",
+      "items": [
+        "Fastify + Socket.IO on one Docker Compose stack",
+        "MySQL 8.4 through Prisma",
+        "Redis only to fan out across processes"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Devices",
+      "items": [
+        "Agents dial out, so no machine needs an inbound port",
+        "The centre reaches back over that same socket to start a session"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Trust boundary",
+      "items": [
+        "Records reach the centre already encrypted",
+        "The operator holds the key that wraps account keys — self-hosting moves that trust to you, it does not remove it"
+      ]
+    }
+  ]
+}
