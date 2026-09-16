@@ -13,6 +13,8 @@ import packageJson from '../../package.json';
 import { Credentials, readSettings } from '@/persistence';
 import { EnhancedMode, PermissionMode } from './loop';
 import { MessageQueue2 } from '@/utils/MessageQueue2';
+import { attachQueuePublisher } from '@/utils/sessionQueueControl';
+import { readMessageIntent } from '@/utils/queueControlRequest';
 import { hashObject } from '@/utils/deterministicJson';
 import { parseSpecialCommand } from '@/parsers/specialCommands';
 import { getEnvironmentInfo } from '@/ui/doctor';
@@ -598,6 +600,9 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         disallowedTools: mode.disallowedTools,
         effort: mode.effort,
     }));
+    // The app sees the queue through agentState; the consumption mode survives
+    // relaunches through metadata.
+    attachQueuePublisher(messageQueue, session, session.getMetadata()?.queueMode);
 
     // Forward messages to the queue
     // Permission modes: Use the unified 7-mode type, mapping happens at SDK boundary in claudeRemote.ts
@@ -916,8 +921,29 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
             }
         }
 
-        // Push with resolved permission mode, model, system prompts, and tools
-        messageQueue.push(message.content.text, currentEnhancedMode(), attachmentsForThisMessage);
+        // Push with resolved permission mode, model, system prompts, and tools.
+        // The app's localKey travels as the queue key so the strip can match
+        // the entry to the message it already shows.
+        const intent = readMessageIntent(message.meta);
+        const queueKey = message.localKey;
+        if (intent === 'interrupt') {
+            // Goes next. Only a running turn needs stopping; an idle engine picks
+            // the head up on its own. The queue survives the abort.
+            messageQueue.unshift(message.content.text, currentEnhancedMode(), attachmentsForThisMessage, { key: queueKey });
+            const busy = currentSession?.thinking === true && currentSession.interruptTurn !== null;
+            if (busy) {
+                session.sendSessionEvent({ type: 'message', message: '已打断当前回合，接下来处理这条。' });
+                await currentSession!.interruptTurn!();
+            }
+            logger.debugLargeJson(`User message ${busy ? 'interrupted the turn and' : ''} went to the queue head:`, message);
+            return;
+        }
+        if (intent === 'steer' && currentSession?.thinking) {
+            // The Claude Agent SDK has no way to add to a running turn. Not an
+            // interrupt in disguise: the message waits, and the transcript says so.
+            session.sendSessionEvent({ type: 'message', message: 'Claude Code 无法把消息补充进正在进行的回合；这条已排队，本轮结束后处理。' });
+        }
+        messageQueue.push(message.content.text, currentEnhancedMode(), attachmentsForThisMessage, { key: queueKey });
         logger.debugLargeJson('User message pushed to queue:', message)
     });
 

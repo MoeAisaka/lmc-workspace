@@ -1,4 +1,4 @@
-# @lmc/wire
+# lmc-wire
 
 Canonical wire specification package for LMC clients and services.
 
@@ -105,7 +105,7 @@ Wire-level encrypted container (same for legacy and new):
 
 ## Purpose
 
-`@lmc/wire` centralizes definitions for:
+`lmc-wire` centralizes definitions for:
 - encrypted message/update payloads
 - session protocol envelope and event stream
 - helper for creating valid session envelopes
@@ -114,7 +114,7 @@ The goal is to keep CLI/app/server/agent on the same wire contract and avoid sch
 
 ## Package Identity
 
-- Name: `@lmc/wire`
+- Name: `lmc-wire`
 - Workspace path: `packages/lmc-wire`
 - Consumers declare it as `workspace:*`, not a version range
 - Entry: `src/index.ts`
@@ -671,7 +671,7 @@ Output:
 import {
   CoreUpdateContainerSchema,
   sessionEnvelopeSchema,
-} from '@lmc/wire';
+} from 'lmc-wire';
 
 const maybeUpdate = CoreUpdateContainerSchema.safeParse(input);
 if (!maybeUpdate.success) {
@@ -708,10 +708,10 @@ Published files:
 
 ## Monorepo Build Dependency Behavior
 
-In this repository, consumer workspaces import `@lmc/wire` through package exports that point at `dist/*`.
+In this repository, consumer workspaces import `lmc-wire` through package exports that point at `dist/*`.
 
 That means on a clean checkout:
-1. Build wire first: `pnpm --filter @lmc/wire build`
+1. Build wire first: `pnpm --filter lmc-wire build`
 2. Then build/typecheck dependents.
 
 After publishing to npm, dependents consume prebuilt artifacts from the published tarball.
@@ -728,8 +728,8 @@ When modifying wire schemas:
 
 ```bash
 # from repository root
-pnpm --filter @lmc/wire build
-pnpm --filter @lmc/wire test
+pnpm --filter lmc-wire build
+pnpm --filter lmc-wire test
 ```
 
 ## Release Commands (maintainers)
@@ -739,7 +739,7 @@ pnpm --filter @lmc/wire test
 pnpm release
 
 # direct release invocation
-pnpm --filter @lmc/wire release
+pnpm --filter lmc-wire release
 ```
 
 This prepares release artifacts using the same `release-it` flow as other publishable libraries in the monorepo.

@@ -28,7 +28,7 @@ const preactCjsPath = require.resolve('preact');
 const preactHooksCjsPath = require.resolve('preact/hooks');
 const baseResolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
-  if (moduleName === '@lmc/wire') {
+  if (moduleName === 'lmc-wire') {
     return { filePath: path.resolve(__dirname, '../lmc-wire/dist/index.mjs'), type: 'sourceFile' };
   }
   if (moduleName === 'preact') {

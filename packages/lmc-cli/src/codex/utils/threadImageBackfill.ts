@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 
-import type { CreateEnvelopeOptions, SessionEnvelope } from '@lmc/wire';
-import { createEnvelope } from '@lmc/wire';
+import type { CreateEnvelopeOptions, SessionEnvelope } from 'lmc-wire';
+import { createEnvelope } from 'lmc-wire';
 
 import { logger } from '@/ui/logger';
 

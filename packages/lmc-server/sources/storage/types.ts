@@ -1,6 +1,6 @@
 import { GitHubProfile as GitHubProfileType, GitHubOrg as GitHubOrgType } from "../app/api/types";
 import { ImageRef as ImageRefType } from "./files";
-import type { SessionMessageContent as WireSessionMessageContent } from "@lmc/wire";
+import type { SessionMessageContent as WireSessionMessageContent } from "lmc-wire";
 declare global {
     namespace PrismaJson {
         // Session message content types

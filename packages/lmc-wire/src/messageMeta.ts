@@ -14,5 +14,8 @@ export const MessageMetaSchema = z.object({
   disallowedTools: z.array(z.string()).nullable().optional(),
   effort: z.string().nullable().optional(),
   displayText: z.string().optional(),
+  // What to do with a message that arrives while the engine is busy;
+  // absent from older apps. See docs/plans/turn-queue-and-interrupt.md.
+  intent: z.enum(['queue', 'steer', 'interrupt']).optional(),
 });
 export type MessageMeta = z.infer<typeof MessageMetaSchema>;

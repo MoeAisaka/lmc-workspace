@@ -1,11 +1,14 @@
 {
   "name": "link-my-cli",
-  "version": "1.2.42",
+  "version": "1.2.45",
   "description": "Link my Cli device Agent for Codex and Claude Code",
   "author": "Kirill Dubovitskiy",
   "license": "MIT",
   "type": "module",
   "homepage": "https://github.com/MoeAisaka/lmc-workspace",
+  "bugs": {
+    "url": "https://github.com/MoeAisaka/lmc-workspace/issues"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/MoeAisaka/link-my-cli",
@@ -54,7 +57,10 @@
   "files": [
     "dist",
     "bin",
-    "scripts",
+    "scripts/unpack-tools.cjs",
+    "scripts/bundle-server.cjs",
+    "scripts/bundle-webapp.cjs",
+    "scripts/install-local.cjs",
     "tools/archives",
     "tools/licenses",
     "package.json"
@@ -110,7 +116,7 @@
   },
   "devDependencies": {
     "@eslint/compat": "^1",
-    "@lmc/wire": "workspace:*",
+    "lmc-wire": "workspace:*",
     "@types/inquirer": "^9.0.9",
     "@types/node": ">=20",
     "@types/ws": "^8.18.1",

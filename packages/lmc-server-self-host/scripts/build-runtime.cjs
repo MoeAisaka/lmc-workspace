@@ -64,10 +64,10 @@ if (drift.length > 0) {
 }
 
 const bundledDependencies = new Set([
-  // Must stay bundled: @lmc/wire has never been published (the old
+  // Must stay bundled: lmc-wire has never been published (the old
   // @slopus/happy-wire@0.1.0 was, and lacked the newest voice schemas). Marking it
   // --external would emit a runtime import of a package that does not exist on npm.
-  '@lmc/wire',
+  'lmc-wire',
 ]);
 
 for (const dependency of Object.keys(pkg.dependencies ?? {})) {

@@ -75,6 +75,37 @@ describe('worker config', () => {
         expect(state.currentPermissionMode).toBe('yolo');
     });
 
+    it('keeps a non-worker on its launch mode when metadata never carried one', () => {
+        // A reconnect publishes the runner's own metadata first, then the
+        // server's — and the server's may have no permissionMode at all. That
+        // absence used to demote the session to the engine default, so a
+        // session relaunched with --permission-mode yolo came back on auto and
+        // started asking for approvals.
+        const events = new EventEmitter();
+        const state = new CodexRemoteModeState({ permissionMode: 'yolo', model: 'gpt-6-astra', effort: 'medium' });
+        const apply = (patch: any) => { state.resolve({ ...(patch.permissionMode ? { permissionMode: patch.permissionMode } : {}) }); };
+        const metadata = { flavor: 'codex', permissionMode: 'yolo' };
+        const stop = watchSessionConfiguration(Object.assign(events, { getMetadata: () => metadata, sendSessionEvent: vi.fn() }) as any, 'codex', apply);
+        events.emit('metadata', { flavor: 'codex', permissionMode: 'yolo' });
+        expect(state.currentPermissionMode).toBe('yolo');
+        events.emit('metadata', { flavor: 'codex' });
+        expect(state.currentPermissionMode).toBe('yolo');
+        stop();
+    });
+
+    it('still falls back to the engine default when a worker loses its derived mode', () => {
+        const events = new EventEmitter();
+        const state = new CodexRemoteModeState({ permissionMode: 'yolo', model: 'gpt-6-astra', effort: 'medium' });
+        const apply = (patch: any) => { state.resolve({ ...(patch.permissionMode ? { permissionMode: patch.permissionMode } : {}) }); };
+        const worker = { flavor: 'codex', permissionMode: 'yolo', orchestration: { role: 'worker', hub: { sessionId: 'H', boundAt: 1, autonomy: true } } };
+        const stop = watchSessionConfiguration(Object.assign(events, { getMetadata: () => worker, sendSessionEvent: vi.fn() }) as any, 'codex', apply);
+        events.emit('metadata', worker);
+        expect(state.currentPermissionMode).toBe('yolo');
+        events.emit('metadata', { flavor: 'codex', orchestration: { role: 'worker', hub: { sessionId: 'H', boundAt: 1, autonomy: true } } });
+        expect(state.currentPermissionMode).toBe('auto');
+        stop();
+    });
+
     it('reads model, effort and permission directives from a run line or a config mail', () => {
         expect(configDirectives('worker_default=full')).toEqual({ workerDefault: true });
         expect(configDirectives('Sonnet, quick pass · model=claude-sonnet-5 effort=high')).toEqual({ model: 'claude-sonnet-5', effort: 'high' });

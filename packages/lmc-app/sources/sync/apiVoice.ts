@@ -3,7 +3,7 @@ import {
     VoiceUsageResponseSchema,
     type VoiceConversationResponse,
     type VoiceUsageResponse,
-} from '@lmc/wire';
+} from 'lmc-wire';
 import { AuthCredentials } from '@/auth/tokenStorage';
 import { getServerUrl, getVoiceServerUrl } from './serverConfig';
 import { getLmcClientId } from './apiSocket';

@@ -17,7 +17,7 @@ describe('enqueueCodexUserText', () => {
         });
 
         expect(result).toBe('clear');
-        expect(queue.pushIsolateAndClear).toHaveBeenCalledWith('  /clear  ', mode, undefined);
+        expect(queue.pushIsolateAndClear).toHaveBeenCalledWith('  /clear  ', mode, undefined, { key: undefined });
         expect(queue.push).not.toHaveBeenCalled();
     });
 
@@ -41,7 +41,7 @@ describe('enqueueCodexUserText', () => {
         });
 
         expect(result).toBe('queued');
-        expect(queue.push).toHaveBeenCalledWith('inspect this image', mode, attachments);
+        expect(queue.push).toHaveBeenCalledWith('inspect this image', mode, attachments, { key: undefined });
         expect(queue.pushIsolateAndClear).not.toHaveBeenCalled();
     });
 
@@ -65,7 +65,15 @@ describe('enqueueCodexUserText', () => {
         });
 
         expect(result).toBe('clear');
-        expect(queue.pushIsolateAndClear).toHaveBeenCalledWith('/clear', mode, attachments);
+        expect(queue.pushIsolateAndClear).toHaveBeenCalledWith('/clear', mode, attachments, { key: undefined });
         expect(queue.push).not.toHaveBeenCalled();
+    });
+});
+
+describe('enqueueCodexUserText key', () => {
+    it('hands the app localKey to the queue as the entry key', () => {
+        const queue = { push: vi.fn(), pushIsolateAndClear: vi.fn() };
+        enqueueCodexUserText({ text: 'hi', mode: 'm', queue, key: 'local-1' });
+        expect(queue.push).toHaveBeenCalledWith('hi', 'm', undefined, { key: 'local-1' });
     });
 });

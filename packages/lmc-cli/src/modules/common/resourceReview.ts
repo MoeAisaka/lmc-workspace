@@ -1,7 +1,7 @@
 import {mkdir,readFile,writeFile,rename} from 'node:fs/promises';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
-import type {SessionEnvelope} from '@lmc/wire';
+import type {SessionEnvelope} from 'lmc-wire';
 export type ReviewEntry={id:string;revision:number;turn:string;path:string;kind:'add'|'update'|'delete'|'rename';destination?:string;patch:string;patchFile?:string};
 type ReviewData={revision:number;viewed:number;turn:string;entries:ReviewEntry[]};
 function safePath(path:unknown):path is string{return typeof path==='string'&&path.length>0&&path.length<4096&&!path.includes('\0')&&!/^[a-z]+:/i.test(path);}

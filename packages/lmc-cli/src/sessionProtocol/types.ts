@@ -1,1 +1,1 @@
-export * from '@lmc/wire';
+export * from 'lmc-wire';

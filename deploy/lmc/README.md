@@ -83,7 +83,7 @@ or to run the centre outside a container.
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm --filter @lmc/wire build
+pnpm --filter lmc-wire build
 pnpm --filter lmc-server generate
 pnpm --filter link-my-cli typecheck
 pnpm --filter link-my-cli exec pkgroll

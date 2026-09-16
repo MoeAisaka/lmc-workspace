@@ -56,7 +56,7 @@ say "Installing workspace dependencies"
 "${pnpm[@]}" install --frozen-lockfile
 
 say "Building the wire protocol and Prisma client"
-"${pnpm[@]}" --filter @lmc/wire build
+"${pnpm[@]}" --filter lmc-wire build
 "${pnpm[@]}" --filter lmc-server generate
 
 say "Building the device agent"

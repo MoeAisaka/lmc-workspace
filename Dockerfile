@@ -35,7 +35,7 @@ FROM deps AS builder
 COPY packages/lmc-wire ./packages/lmc-wire
 COPY packages/lmc-server ./packages/lmc-server
 
-RUN pnpm --filter @lmc/wire --fail-if-no-match build
+RUN pnpm --filter lmc-wire --fail-if-no-match build
 RUN pnpm --filter lmc-server --fail-if-no-match build
 
 # Stage 3: runtime

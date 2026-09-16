@@ -29,16 +29,27 @@ export function watchSessionConfiguration(
     const keys = ['modelMode', 'effortLevel', 'permissionMode'] as const;
     let previous: Pick<Metadata, typeof keys[number]> | undefined;
     let previousWorker = false;
+    let previousWasWorker = false;
     let previousBinding: string | undefined;
     let revision = 0;
     let stopped = false;
     const fieldRevision = new Map<string, number>();
     const changed = (metadata: Metadata | null) => {
         if (!metadata || (metadata.flavor && metadata.flavor !== engine)) return;
+        const isWorkerNow = metadata.orchestration?.role === 'worker';
         metadata = { ...metadata, permissionMode: resolveWorkerPermissionMode(metadata, engine) };
-        if (metadata.permissionMode === undefined && previous?.permissionMode !== undefined) {
+        // A worker's full permission is derived, so losing the derivation means
+        // falling back to the engine default. For every other session the field
+        // simply may never have been written — plenty of sessions predate it —
+        // and reading that absence as "cleared" silently demoted a session the
+        // daemon had just relaunched with `--permission-mode yolo` down to
+        // `auto`, which then asked for approvals it had been told never to ask
+        // for. Absence is not an instruction.
+        if (metadata.permissionMode === undefined && previous?.permissionMode !== undefined
+            && (isWorkerNow || previousWasWorker)) {
             metadata.permissionMode = engine === 'codex' ? 'auto' : 'default';
         }
+        previousWasWorker = isWorkerNow;
         const entries: Array<[typeof keys[number], string | null | undefined]> = keys
             .filter(key => metadata[key] !== previous?.[key]).map(key => [key, metadata[key]]);
         const worker = metadata.orchestration?.role === 'worker' ? metadata.orchestration.hub : undefined;

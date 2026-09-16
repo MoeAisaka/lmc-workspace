@@ -1,6 +1,6 @@
 import * as z from 'zod';
 import { isCuid } from '@paralleldrive/cuid2';
-import { stripLeadingTaskNotificationWrappers } from '@lmc/wire';
+import { stripLeadingTaskNotificationWrappers } from 'lmc-wire';
 import { MessageMetaSchema, MessageMeta } from './typesMessageMeta';
 
 //
@@ -463,6 +463,8 @@ const rawRecordSchema = z.preprocess(
                 type: z.literal('text'),
                 text: z.string()
             }),
+            // The sender's own message id; the CLI keys its queue entry by it.
+            localKey: z.string().optional(),
             meta: MessageMetaSchema.optional()
         }),
         z.object({

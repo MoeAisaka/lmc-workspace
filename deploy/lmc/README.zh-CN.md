@@ -42,7 +42,7 @@ Web 包在构建时打进镜像（`/srv/web`），运行时数据放在命名卷
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm --filter @lmc/wire build
+pnpm --filter lmc-wire build
 pnpm --filter lmc-server generate
 pnpm --filter link-my-cli typecheck
 pnpm --filter link-my-cli exec pkgroll

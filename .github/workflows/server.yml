@@ -5,9 +5,7 @@ on:
     branches: [ main ]
     paths:
       - 'packages/lmc-server/**'
-      - 'packages/lmc-server-self-host/**'
       - 'packages/lmc-wire/**'
-      - 'Dockerfile'
       - 'Dockerfile.server'
       - 'package.json'
       - 'pnpm-lock.yaml'
@@ -15,14 +13,13 @@ on:
       - '.npmrc'
       - 'scripts/**'
       - 'patches/**'
+      - 'deploy/lmc/**'
       - '.github/workflows/server.yml'
   pull_request:
     branches: [ main ]
     paths:
       - 'packages/lmc-server/**'
-      - 'packages/lmc-server-self-host/**'
       - 'packages/lmc-wire/**'
-      - 'Dockerfile'
       - 'Dockerfile.server'
       - 'package.json'
       - 'pnpm-lock.yaml'
@@ -30,6 +27,7 @@ on:
       - '.npmrc'
       - 'scripts/**'
       - 'patches/**'
+      - 'deploy/lmc/**'
       - '.github/workflows/server.yml'
   workflow_dispatch:
 
@@ -48,14 +46,14 @@ jobs:
     - name: Setup Node
       uses: actions/setup-node@v4
       with:
-        node-version: 20
+        node-version: 24
         cache: pnpm
 
     - name: Install dependencies
       run: pnpm install --frozen-lockfile
 
     - name: Build happy-wire
-      run: pnpm --filter @lmc/wire --fail-if-no-match build
+      run: pnpm --filter lmc-wire --fail-if-no-match build
 
     # `build` is the production typecheck (tsconfig.build.json, specs excluded).
     # This is exactly what Dockerfile.server runs, so a break here is a break there.
@@ -73,140 +71,113 @@ jobs:
   # Builds the production image and proves it actually serves traffic.
   # A container whose CMD silently no-ops exits 0 immediately and would pass
   # every check except starting it, which is how a broken image shipped before.
-  docker-production:
+  # Builds the image the deployment guide tells people to run, against the
+  # database it actually targets, and proves it serves traffic.
+  #
+  # It used to run two jobs: this one against Postgres, and a standalone image
+  # with an embedded PGlite. Both were upstream's shapes. LMC's Prisma provider
+  # is mysql, so the standalone image died applying `202609060001_lmc_mysql`
+  # ("syntax error at or near `"), and the production job pointed at a Postgres
+  # service it can no longer speak to. One job, MySQL, matching deploy/lmc.
+  docker-centre:
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
     services:
-      postgres:
-        image: postgres:16
+      mysql:
+        image: mysql:8.4
         env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: handy
+          MYSQL_ROOT_PASSWORD: ci-not-a-secret
+          MYSQL_DATABASE: lmc
         ports:
-          - 5432:5432
+          - 3306:3306
         options: >-
-          --health-cmd pg_isready
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci-not-a-secret"
           --health-interval 10s
           --health-timeout 5s
-          --health-retries 10
+          --health-retries 20
 
     env:
-      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/handy
-      HANDY_MASTER_SECRET: ci-master-secret-not-used-in-production
-      PORT: "3005"
+      DATABASE_URL: mysql://root:ci-not-a-secret@127.0.0.1:3306/lmc
+      # 32 bytes of hex, as lmc/auth.ts requires. A published CI value seals
+      # nothing: the database it protects lives and dies with this job.
+      LMC_MASTER_KEY: 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
+      PORT: "4193"
 
     steps:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Build production image
-      run: docker build -t happy-server:ci -f Dockerfile.server .
+    # Dockerfile.server bakes the exported web bundle into the image. `up.sh`
+    # exports it first; here a placeholder stands in, because what this job
+    # proves is that the centre boots and reaches its database — exporting the
+    # Expo bundle would add minutes and test a different thing.
+    - name: Stand in for the exported web bundle
+      run: |
+        mkdir -p deploy/lmc/web
+        printf '<!doctype html><title>ci</title>' > deploy/lmc/web/index.html
+
+    - name: Build centre image
+      run: docker build -t lmc-centre:ci -f Dockerfile.server .
 
     - name: Apply migrations
       run: |
         docker run --rm --network host \
           -e DATABASE_URL="$DATABASE_URL" \
           -w /repo/packages/lmc-server \
-          --entrypoint sh happy-server:ci \
+          --entrypoint sh lmc-centre:ci \
           -c '../../node_modules/.bin/prisma migrate deploy'
 
     - name: Start container
       run: |
-        docker run -d --name lmc-server-ci --network host \
+        docker run -d --name lmc-centre-ci --network host \
           -e DATABASE_URL="$DATABASE_URL" \
-          -e HANDY_MASTER_SECRET="$HANDY_MASTER_SECRET" \
+          -e LMC_MASTER_KEY="$LMC_MASTER_KEY" \
+          -e LMC_BIND_HOST=0.0.0.0 \
+          -e LMC_WEB_DIR=/srv/web \
           -e PORT="$PORT" \
           -e METRICS_ENABLED=false \
-          happy-server:ci
+          lmc-centre:ci
 
     - name: Wait for health
       run: |
         UP=0
         for i in $(seq 1 60); do
           if curl -sf -m 2 "http://127.0.0.1:${PORT}/health" -o /dev/null; then
-            UP=1; echo "server healthy after ${i}s"; break
+            UP=1; echo "centre healthy after ${i}s"; break
           fi
           # A no-op CMD exits immediately — fail fast and loudly rather than
           # waiting out the full timeout.
-          if [ "$(docker inspect -f '{{.State.Running}}' lmc-server-ci)" != "true" ]; then
+          if [ "$(docker inspect -f '{{.State.Running}}' lmc-centre-ci)" != "true" ]; then
             echo "Error: container exited before becoming healthy"
-            echo "exit code: $(docker inspect -f '{{.State.ExitCode}}' lmc-server-ci)"
-            docker logs lmc-server-ci
+            echo "exit code: $(docker inspect -f '{{.State.ExitCode}}' lmc-centre-ci)"
+            docker logs lmc-centre-ci
             exit 1
           fi
           sleep 1
         done
         if [ "$UP" != "1" ]; then
-          echo "Error: server did not become healthy"
-          docker logs lmc-server-ci
+          echo "Error: centre did not become healthy"
+          docker logs lmc-centre-ci
           exit 1
         fi
 
     - name: Exercise endpoints
       run: |
         echo "--- /health"
+        # /health itself runs `SELECT 1` through Prisma, so a green answer here
+        # means the query engine and the schema are usable in the image.
         curl -sf -m 5 "http://127.0.0.1:${PORT}/health"; echo
-        # Hits the database through Prisma, so this fails if the query engine
-        # or the schema is not actually usable in the image.
-        echo "--- /v1/auth/request/status"
-        PK=$(node -e "console.log(Buffer.alloc(32).toString('base64'))")
-        BODY=$(curl -sf -m 5 -G "http://127.0.0.1:${PORT}/v1/auth/request/status" --data-urlencode "publicKey=$PK")
-        echo "$BODY"
-        echo "$BODY" | grep -q '"status"' || { echo "Error: Prisma-backed endpoint did not respond"; exit 1; }
-
-    - name: Container logs
-      if: always()
-      run: docker logs lmc-server-ci || true
-
-    - name: Stop container
-      if: always()
-      run: docker rm -f lmc-server-ci || true
-
-  # The standalone image is the self-host path: embedded PGlite, local files,
-  # no external services.
-  docker-standalone:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-
-    - name: Build standalone image
-      run: docker build -t happy-server-standalone:ci -f Dockerfile .
-
-    - name: Start container
-      run: |
-        docker run -d --name lmc-standalone-ci -p 3005:3005 \
-          -e HANDY_MASTER_SECRET=ci-master-secret-not-used-in-production \
-          happy-server-standalone:ci
-
-    - name: Wait for health
-      run: |
-        UP=0
-        for i in $(seq 1 90); do
-          if curl -sf -m 2 http://127.0.0.1:3005/health -o /dev/null; then
-            UP=1; echo "standalone healthy after ${i}s"; break
-          fi
-          if [ "$(docker inspect -f '{{.State.Running}}' lmc-standalone-ci)" != "true" ]; then
-            echo "Error: container exited before becoming healthy"
-            echo "exit code: $(docker inspect -f '{{.State.ExitCode}}' lmc-standalone-ci)"
-            docker logs lmc-standalone-ci
-            exit 1
-          fi
-          sleep 1
-        done
-        if [ "$UP" != "1" ]; then
-          echo "Error: standalone server did not become healthy"
-          docker logs lmc-standalone-ci
+        echo "--- the web bundle is served"
+        curl -sf -m 5 "http://127.0.0.1:${PORT}/" | grep -q '<title>' || {
+          echo "Error: the centre did not serve LMC_WEB_DIR"
           exit 1
-        fi
+        }
 
     - name: Container logs
       if: always()
-      run: docker logs lmc-standalone-ci || true
+      run: docker logs lmc-centre-ci || true
 
     - name: Stop container
       if: always()
-      run: docker rm -f lmc-standalone-ci || true
+      run: docker rm -f lmc-centre-ci || true

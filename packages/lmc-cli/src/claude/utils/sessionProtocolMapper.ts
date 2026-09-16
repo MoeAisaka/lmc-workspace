@@ -6,7 +6,7 @@ import {
     type SessionEnvelope,
     type SessionUsage,
     type SessionTurnEndStatus,
-} from '@lmc/wire';
+} from 'lmc-wire';
 
 export type ClaudeSessionProtocolState = {
     currentTurnId: string | null;

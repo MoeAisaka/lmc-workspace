@@ -340,7 +340,7 @@ importers:
 
   packages/lmc-agent:
     dependencies:
-      '@lmc/wire':
+      lmc-wire:
         specifier: workspace:*
         version: link:../lmc-wire
       axios:
@@ -479,7 +479,7 @@ importers:
       '@shopify/react-native-skia':
         specifier: ~2.5.3
         version: 2.5.3(react-native-reanimated@4.2.3(react-native-worklets@0.7.2(@babel/core@7.28.6)(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0))(react@19.2.0))(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0))(react@19.2.0))(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.1.17)(react@19.2.0))(react@19.2.0)
-      '@lmc/wire':
+      lmc-wire:
         specifier: workspace:*
         version: link:../lmc-wire
       '@tauri-apps/api':
@@ -982,7 +982,7 @@ importers:
       '@eslint/compat':
         specifier: ^1
         version: 1.4.1(eslint@9.39.2(jiti@2.6.1))
-      '@lmc/wire':
+      lmc-wire:
         specifier: workspace:*
         version: link:../lmc-wire
       '@types/inquirer':
@@ -1045,7 +1045,7 @@ importers:
       '@prisma/client':
         specifier: 6.19.2
         version: 6.19.2(prisma@6.19.2(typescript@5.9.3))(typescript@5.9.3)
-      '@lmc/wire':
+      lmc-wire:
         specifier: workspace:*
         version: link:../lmc-wire
       '@socket.io/redis-streams-adapter':
@@ -1196,7 +1196,7 @@ importers:
       '@prisma/client':
         specifier: 6.19.2
         version: 6.19.2(prisma@6.19.2(typescript@6.0.3))(typescript@6.0.3)
-      '@lmc/wire':
+      lmc-wire:
         specifier: workspace:*
         version: link:../lmc-wire
       '@socket.io/redis-streams-adapter':

@@ -10,10 +10,10 @@ require('../patches/fix-react-native-audio-api-size-t.cjs');
 require('../patches/fix-unistyles-detached-refs.cjs');
 
 if (process.env.SKIP_LMC_WIRE_BUILD === '1') {
-  console.log('[postinstall] SKIP_LMC_WIRE_BUILD=1, skipping @lmc/wire build');
+  console.log('[postinstall] SKIP_LMC_WIRE_BUILD=1, skipping lmc-wire build');
   process.exit(0);
 }
 
-execSync('pnpm --filter @lmc/wire build', {
+execSync('pnpm --filter lmc-wire build', {
   stdio: 'inherit',
 });

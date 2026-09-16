@@ -3,6 +3,7 @@ import { claudeTurnTotal, claudeTurnUsage } from '@/modules/orchestration/meter'
 import { engineCapabilities } from '@/runtime/managedRuntime';
 import { SafeSessionRefresh } from '@/utils/safeSessionRefresh';
 import { readFallbackBriefing, readSwitchEngine } from '@/utils/engineSwitchRequest';
+import { applyQueueModeRequest, registerQueueControlHandlers } from '@/utils/sessionQueueControl';
 import { checkEngineAuth, isEngineAuthError } from '@/utils/engineAuth';
 import { EngineAuthPreflightError } from '@/utils/refreshErrors';
 import { isPendingState } from '@/utils/refreshState';
@@ -113,6 +114,14 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
     // When to abort
     session.client.rpcHandlerManager.registerHandler('abort', doAbort); // When abort clicked
     session.client.rpcHandlerManager.registerHandler('switch', doSwitch); // When switch clicked
+    // A message sent with intent 'interrupt' (runClaude) and the strip's
+    // promote button both stop the running turn this way; the queue keeps
+    // what is waiting and the loop picks the head up next.
+    session.interruptTurn = abort;
+    registerQueueControlHandlers(session.client, session.queue, {
+        isBusy: () => session.thinking,
+        interrupt: abort,
+    });
     // Removed catch-all stdin handler - now handled by RemoteModeDisplay keyboard handlers
 
     // True only before input is consumed or after the SDK emits a result.
@@ -212,6 +221,8 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
     // taking over instead of aging the notes it is about to read.
     if (session.handoff) session.handoff.onSubmitted = () => refresh.hold();
     session.client.rpcHandlerManager.registerHandler('configure-session', async (request: unknown) => {
+        // Consumption mode only; no relaunch involved, so it applies at once.
+        if (applyQueueModeRequest(request, session.queue, session.client)) return { status: 'applied' };
         const engine = readSwitchEngine(request);
         if (engine) {
             switchPermissionMode = typeof (request as any).permissionMode === 'string' ? (request as any).permissionMode : undefined;
@@ -625,6 +636,15 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                 if (process.env.HAPPY_REFRESH_RECEIVE_SEQ !== undefined && e instanceof Error && e.message.includes('恢复记录不可用')) {
                     await session.client.updateMetadata(m => ({ ...m, sessionConfigState: 'error', sessionConfigError: e.message, sessionConfigUpdatedAt: Date.now() }));
                     exitReason = 'exit';
+                }
+                // The SDK reports our own abort as a thrown error ("Claude Code
+                // process aborted by user"), which used to reach the transcript
+                // as "Process exited unexpectedly". Stop, 打断 and promote all
+                // land here; it is a cancelled turn, not a failure.
+                if (!exitReason && abortController?.signal.aborted) {
+                    session.client.closeClaudeSessionTurn('cancelled');
+                    session.client.sendSessionEvent({ type: 'message', message: 'Aborted by user' });
+                    continue;
                 }
                 if (!exitReason) {
                     session.client.closeClaudeSessionTurn('failed');

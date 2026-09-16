@@ -45,7 +45,7 @@ ENV HAPPY_BUILD_COMMIT_TIMESTAMP=$HAPPY_BUILD_COMMIT_TIMESTAMP
 COPY packages/lmc-wire ./packages/lmc-wire
 COPY packages/lmc-app ./packages/lmc-app
 
-RUN pnpm --filter @lmc/wire build
+RUN pnpm --filter lmc-wire build
 RUN pnpm --filter lmc-app exec expo export --platform web --output-dir dist
 
 # Stage 3: runtime with Nginx

@@ -33,6 +33,9 @@ export class Session {
     onTurnUsage: ((usage: { inputTokens: number; outputTokens: number; usd?: number }) => void) | null = null;
     /** Set by the runner: the engine's total for a finished turn, to reconcile the meter. */
     onTurnTotal: ((total: { inputTokens: number; outputTokens: number; usd?: number }) => void) | null = null;
+    // Set by the remote launcher: stops the running turn so the queue head goes
+    // next. Null in local mode, where the terminal owns the turn.
+    interruptTurn: (() => Promise<void>) | null = null;
     sessionId: string | null;
     mode: 'local' | 'remote' = 'local';
     thinking: boolean = false;

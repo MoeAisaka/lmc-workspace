@@ -41,6 +41,7 @@ import { ENGINE_NAMES } from '@/sync/engineModelCatalog';
 import { sessionCapabilities } from '@/sync/sessionCapabilities';
 import { gitStatusSync } from '@/sync/gitStatusSync';
 import { sessionAbort, sessionCancelCommunication, sessionGoalAction, sessionSetAgentModes, spawnSideChat, sessionKill, sessionArchive } from '@/sync/ops';
+import { queueSteerState, sessionDequeue, sessionPromoteQueued, sessionSetQueueMode, sessionSteerQueued, sessionSupportsTurnQueue, steerFailureKey, type MessageIntent, type QueueMode } from '@/sync/turnQueue';
 import { storage, useIsDataReady, useLocalSetting, useRealtimeStatus, useSessionGitStatus, useSessionMessages, useSessionPendingCommunications, useSessionUsage, useSetting, useSideChatSessions } from '@/sync/storage';
 import { useSession } from '@/sync/storage';
 import { getSessionForkSource } from '@/utils/sessionFork';
@@ -1073,9 +1074,10 @@ export function SessionViewLoaded({
         },
     }), []);
 
-    // handleSend reads the live message via the composer ref, so it doesn't
-    // need to re-create on every keystroke.
-    const handleSend = React.useCallback(() => {
+    // sendComposer reads the live message via the composer ref, so it doesn't
+    // need to re-create on every keystroke. `intent` says what a busy engine
+    // should do with the message; see sync/turnQueue.ts.
+    const sendComposer = React.useCallback((intent?: MessageIntent) => {
         const liveMessage = composerHandleRef.current?.getMessage() ?? '';
         if (liveMessage.trim() || selectedImages.length > 0) {
             try {
@@ -1102,6 +1104,7 @@ export function SessionViewLoaded({
                         source: 'chat',
                         attachments,
                         awaitDelivery: communicationsToDismiss.length > 0,
+                        intent,
                     });
                     const dismissals = await Promise.allSettled(communicationsToDismiss.map(communication => (
                         sessionCancelCommunication(sessionId, communication.id, communication.kind)
@@ -1117,6 +1120,50 @@ export function SessionViewLoaded({
             })();
         }
     }, [session, sessionId, selectedImages, clearImages, pendingCommunications]);
+
+    // Plain Send while the engine works is an explicit 'queue' so a CLI that
+    // knows intents never steers it on its own; idle sends carry none.
+    const queueSupported = sessionSupportsTurnQueue(session.metadata);
+    const handleSend = React.useCallback(() => {
+        sendComposer(queueSupported && session.thinking ? 'queue' : undefined);
+    }, [queueSupported, sendComposer, session.thinking]);
+    const handleQueueWithdraw = React.useCallback((key: string) => {
+        sessionDequeue(sessionId, key).then((removed) => {
+            if (!removed) Modal.alert(t('lmc.queue.withdrawTooLate'));
+        }).catch((error) => { console.error('dequeue failed:', error); });
+    }, [sessionId]);
+    const handleQueuePromote = React.useCallback((key: string) => {
+        sessionPromoteQueued(sessionId, key).then((result) => {
+            if (!result.promoted) Modal.alert(t('lmc.queue.promoteTooLate'));
+        }).catch((error) => { console.error('promote failed:', error); });
+    }, [sessionId]);
+    const handleQueueSteer = React.useCallback((key: string) => {
+        sessionSteerQueued(sessionId, key).then((result) => {
+            // A refusal is not a failure: the prompt is still queued, and the
+            // runner said which condition stopped it.
+            if (!result.steered) Modal.alert(t(steerFailureKey(result.reason)));
+        }).catch((error) => { console.error('steer failed:', error); });
+    }, [sessionId]);
+    const handleQueueModeChange = React.useCallback((mode: QueueMode) => {
+        sessionSetQueueMode(sessionId, mode).catch((error) => { console.error('queue mode change failed:', error); });
+    }, [sessionId]);
+    const queuedPrompts = session.agentState?.queue;
+    const queueMode: QueueMode = session.metadata?.queueMode ?? 'batch';
+    // Handed over whenever the session can queue at all; the strip shows
+    // nothing until something is actually waiting.
+    const queueProps = React.useMemo(() => (
+        queueSupported
+            ? {
+                items: queuedPrompts ?? [],
+                mode: queueMode,
+                steerState: queueSteerState(session.metadata),
+                onSteer: handleQueueSteer,
+                onPromote: handleQueuePromote,
+                onWithdraw: handleQueueWithdraw,
+                onModeChange: handleQueueModeChange,
+            }
+            : undefined
+    ), [queueSupported, queuedPrompts, queueMode, session.metadata, handleQueueSteer, handleQueueWithdraw, handleQueuePromote, handleQueueModeChange]);
 
     const handleAbort = React.useCallback(() => {
         // Stop cancels only the active turn. Permission, model, and effort are
@@ -1277,6 +1324,7 @@ export function SessionViewLoaded({
                 connectionStatus={connectionStatus}
                 blockSend={isRig && session.thinking && session.metadata?.capabilities?.steering !== true}
                 onSend={handleSend}
+                queue={queueProps}
                 onAbort={isDisconnected || !rigCanAbort(session.metadata) ? undefined : handleAbort}
                 showAbortButton={rigCanAbort(session.metadata) && (
                     sessionStatus.state === 'thinking'

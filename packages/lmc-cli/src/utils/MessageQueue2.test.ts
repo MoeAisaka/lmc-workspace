@@ -459,6 +459,8 @@ describe('MessageQueue2', () => {
         
         // Manually add an isolated message without clearing (simulating edge case)
         queue.queue.push({
+            key: 'manual',
+            createdAt: Date.now(),
             message: 'isolated',
             mode: { type: 'A' },
             modeHash: 'A',
@@ -513,5 +515,118 @@ describe('MessageQueue2', () => {
         const batch3 = await queue.waitForMessagesAndGetAsString();
         expect(batch3?.message).toBe('after-isolated');
         expect(batch3?.mode.type).toBe('B');
+    });
+});
+
+describe('MessageQueue2 queue control', () => {
+    it('keeps the caller key and mints one otherwise', () => {
+        const queue = new MessageQueue2<string>(mode => mode);
+        queue.push('a', 'm', undefined, { key: 'app-1' });
+        queue.push('b', 'm');
+        const snap = queue.snapshot();
+        expect(snap[0].key).toBe('app-1');
+        expect(snap[1].key).toMatch(/[0-9a-f-]{36}/);
+        expect(snap.map(s => s.preview)).toEqual(['a', 'b']);
+    });
+
+    it('previews are one line and capped', () => {
+        const queue = new MessageQueue2<string>(mode => mode);
+        queue.push('first line\n\n  second   line ' + 'x'.repeat(200), 'm');
+        const [item] = queue.snapshot();
+        expect(item.preview).not.toContain('\n');
+        expect(item.preview.startsWith('first line second line')).toBe(true);
+        expect(item.preview.length).toBe(120);
+        expect(item.preview.endsWith('…')).toBe(true);
+    });
+
+    it('removeByKey drops only that message', async () => {
+        const queue = new MessageQueue2<string>(mode => mode);
+        queue.push('a', 'm', undefined, { key: 'ka' });
+        queue.push('b', 'm', undefined, { key: 'kb' });
+        queue.push('c', 'm', undefined, { key: 'kc' });
+        expect(queue.removeByKey('kb')).toBe(true);
+        expect(queue.removeByKey('kb')).toBe(false);
+        const result = await queue.waitForMessagesAndGetAsString();
+        expect(result?.message).toBe('a\nc');
+    });
+
+    it('promote moves a message to the front', async () => {
+        const queue = new MessageQueue2<string>(mode => mode);
+        queue.push('a', 'm', undefined, { key: 'ka' });
+        queue.push('b', 'm', undefined, { key: 'kb' });
+        queue.push('c', 'm', undefined, { key: 'kc' });
+        expect(queue.promote('kc')).toBe(true);
+        expect(queue.promote('missing')).toBe(false);
+        expect(queue.snapshot().map(s => s.key)).toEqual(['kc', 'ka', 'kb']);
+    });
+
+    it('unshift carries attachments and a key', async () => {
+        const queue = new MessageQueue2<string>(mode => mode);
+        queue.push('a', 'm');
+        const att = { data: new Uint8Array([1]), mimeType: 'image/png', name: 'x.png' };
+        queue.unshift('urgent', 'm', [att], { key: 'ku' });
+        expect(queue.snapshot()[0].key).toBe('ku');
+        const result = await queue.waitForMessagesAndGetAsString();
+        expect(result?.message).toBe('urgent\na');
+        expect(result?.attachments).toEqual([att]);
+    });
+
+    it('sequential mode hands out one message per batch', async () => {
+        const queue = new MessageQueue2<string>(mode => mode);
+        queue.setQueueMode('sequential');
+        queue.push('a', 'm');
+        queue.push('b', 'm');
+        expect((await queue.waitForMessagesAndGetAsString())?.message).toBe('a');
+        expect(queue.size()).toBe(1);
+        expect((await queue.waitForMessagesAndGetAsString())?.message).toBe('b');
+        queue.setQueueMode('batch');
+        queue.push('c', 'm');
+        queue.push('d', 'm');
+        expect((await queue.waitForMessagesAndGetAsString())?.message).toBe('c\nd');
+    });
+
+    it('onChange fires on every mutation with the current snapshot', async () => {
+        const queue = new MessageQueue2<string>(mode => mode);
+        const seen: string[][] = [];
+        queue.setOnChange(snap => seen.push(snap.map(s => s.key)));
+        queue.push('a', 'm', undefined, { key: 'ka' });
+        queue.push('b', 'm', undefined, { key: 'kb' });
+        queue.promote('kb');
+        queue.removeByKey('ka');
+        await queue.waitForMessagesAndGetAsString();
+        queue.reset(); // empty: no extra event
+        expect(seen).toEqual([['ka'], ['ka', 'kb'], ['kb', 'ka'], ['kb'], []]);
+    });
+});
+
+describe('MessageQueue2 takeByKey / restore', () => {
+    it('lifts a message out and puts it back where it was', async () => {
+        const queue = new MessageQueue2<string>(mode => mode);
+        queue.push('a', 'm', undefined, { key: 'ka' });
+        queue.push('b', 'm', undefined, { key: 'kb' });
+        queue.push('c', 'm', undefined, { key: 'kc' });
+        const taken = queue.takeByKey('kb');
+        expect(taken?.index).toBe(1);
+        expect(taken?.message).toBe('b');
+        expect(queue.snapshot().map(s => s.key)).toEqual(['ka', 'kc']);
+        queue.restore(taken!);
+        expect(queue.snapshot().map(s => s.key)).toEqual(['ka', 'kb', 'kc']);
+        const result = await queue.waitForMessagesAndGetAsString();
+        expect(result?.message).toBe('a\nb\nc');
+    });
+
+    it('restores at the end when the queue shrank meanwhile', () => {
+        const queue = new MessageQueue2<string>(mode => mode);
+        queue.push('a', 'm', undefined, { key: 'ka' });
+        queue.push('b', 'm', undefined, { key: 'kb' });
+        const taken = queue.takeByKey('kb')!;
+        queue.removeByKey('ka');
+        queue.restore(taken);
+        expect(queue.snapshot().map(s => s.key)).toEqual(['kb']);
+    });
+
+    it('returns null for a key that is not waiting', () => {
+        const queue = new MessageQueue2<string>(mode => mode);
+        expect(queue.takeByKey('nope')).toBeNull();
     });
 });

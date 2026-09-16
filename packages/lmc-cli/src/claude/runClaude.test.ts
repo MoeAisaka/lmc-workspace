@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 
+// Only the writes that touch agentGoalStatus. The queue mirror also goes
+// through updateAgentState (see sessionQueueControl), and these tests are
+// about goal state staying untouched until the side channel confirms it.
+function goalUpdaters(spy: { mock: { calls: unknown[][] } }): Array<(state: any) => any> {
+    return spy.mock.calls
+        .map((call) => call[0] as (state: any) => any)
+        .filter((updater) => 'agentGoalStatus' in (updater({}) ?? {}));
+}
+
 const {
     mockApiClientCreate,
     mockCreateSessionScanner,
@@ -483,14 +492,14 @@ describe('runClaude remote JSONL scanner', () => {
                 condition: 'Wrong session goal',
             },
         });
-        expect(sessionClient.updateAgentState).toHaveBeenCalledTimes(1);
+        expect(goalUpdaters(sessionClient.updateAgentState)).toHaveLength(0);
 
         const userMessageHandler = sessionClient.onUserMessage.mock.calls[0][0];
         await userMessageHandler({
             content: { text: '/goal Ship goal observation' },
             meta: {},
         });
-        expect(sessionClient.updateAgentState).toHaveBeenCalledTimes(1);
+        expect(goalUpdaters(sessionClient.updateAgentState)).toHaveLength(0);
 
         scannerOptions.onTranscriptEvent({
             type: 'goal_status',
@@ -505,8 +514,8 @@ describe('runClaude remote JSONL scanner', () => {
             },
         });
 
-        expect(sessionClient.updateAgentState).toHaveBeenCalledTimes(2);
-        const goalUpdater = sessionClient.updateAgentState.mock.calls[1][0];
+        expect(goalUpdaters(sessionClient.updateAgentState)).toHaveLength(1);
+        const goalUpdater = goalUpdaters(sessionClient.updateAgentState)[0];
         const nextState = goalUpdater({ controlledByUser: false });
         expect(nextState).toMatchObject({
             controlledByUser: false,
@@ -543,13 +552,13 @@ describe('runClaude remote JSONL scanner', () => {
             met: false,
             condition: 'finish rpc test',
         });
-        expect(harness.updateAgentState).toHaveBeenCalledTimes(2);
+        expect(goalUpdaters(harness.updateAgentState)).toHaveLength(1);
 
         const promise = handler({ action: 'clear' });
         expect(harness.loopOptions.messageQueue.queue).toEqual([
             expect.objectContaining({ message: '/goal clear', isolate: true }),
         ]);
-        expect(harness.updateAgentState).toHaveBeenCalledTimes(2);
+        expect(goalUpdaters(harness.updateAgentState)).toHaveLength(1);
 
         emitClaudeGoalStatus(harness.scannerOptions, {
             uuid: 'goal-att-cleared',
@@ -707,7 +716,7 @@ describe('runClaude remote JSONL scanner', () => {
         expect(harness.loopOptions.messageQueue.queue).toEqual([
             expect.objectContaining({ message: '/goal revised rpc goal', isolate: true }),
         ]);
-        expect(harness.updateAgentState).toHaveBeenCalledTimes(2);
+        expect(goalUpdaters(harness.updateAgentState)).toHaveLength(1);
 
         emitClaudeGoalStatus(harness.scannerOptions, {
             uuid: 'goal-att-not-matching',

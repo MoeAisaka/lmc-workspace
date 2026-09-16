@@ -3,7 +3,7 @@ import { log } from "@/utils/log";
 import { GitHubProfile } from "@/app/api/types";
 import { AccountProfile } from "@/types";
 import { getPublicUrl } from "@/storage/files";
-import type { SessionMessageContent } from "@lmc/wire";
+import type { SessionMessageContent } from "lmc-wire";
 
 /**
  * Cross-replica presence lookups must stay well inside the CLI's 15s push

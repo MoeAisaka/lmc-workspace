@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createEnvelope } from '@lmc/wire';
+import { createEnvelope } from 'lmc-wire';
 
 vi.mock('@/ui/logger', () => ({
     logger: { debug: vi.fn() },

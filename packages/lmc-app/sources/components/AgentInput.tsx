@@ -29,6 +29,7 @@ import { useSetting } from '@/sync/storage';
 import { hackMode, hackModes } from '@/sync/modeHacks';
 import { getPermissionModeMenuLabel, getPermissionModeShortLabel } from '@/utils/permissionModeLabels';
 import { lmcElevation } from '@/components/lmc/elevation';
+import { QueueStrip, type QueueStripProps } from '@/components/lmc/QueueStrip';
 import { installLmcRainbow } from '@/utils/lmcRainbow';
 import { getUsageLimitDisplayPercentage, getUsageLimitRows, formatUsageLimitResetTime, type UsageLimitsLike } from '@/utils/sessionStatusBar';
 import { compactCount } from '@/utils/rigGitLineChanges';
@@ -144,6 +145,12 @@ interface AgentInputProps {
     agentWorking?: boolean;
     onRemoveImage?: (id: string) => void;
     onAddImages?: (images: AttachmentPreview[]) => void;
+    /**
+     * Prompts waiting for the engine — the strip above the composer (Figma
+     * D16). Sending while the agent works only queues; what to do with a
+     * queued prompt is chosen on its own row, not here.
+     */
+    queue?: QueueStripProps;
 }
 
 function permissionKindIcon(kind: string | null | undefined): React.ComponentProps<typeof Ionicons>['name'] {
@@ -923,6 +930,8 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     // existing composer affordances rather than inheriting it.
     const runningOnMac = isRunningOnMac();
     const compactMobileComposer = Platform.OS !== 'web' && !runningOnMac && screenWidth <= 700;
+    // Phone-width web keeps the desktop action row but not room for two more
+    // pills: 补充 / 打断 move behind a long-press on Send there, as on native (D14 ④).
     // iOS only. On Android the settings/model/effort triggers are React Native
     // subtrees hosted inside a Jetpack Compose DropdownMenu, and expo-modules-core
     // pins such a child to `Modifier.size(view.width, view.height)` sampled once at
@@ -1782,6 +1791,12 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                     />
                 </AnimatedFade>
 
+                {/* Waiting prompts, above the card and outside the working glow. */}
+                {props.queue && (
+                    <View style={Platform.OS === 'web' ? { paddingHorizontal: 16 } : undefined}>
+                        <QueueStrip {...props.queue} />
+                    </View>
+                )}
                 {/* Box 2: Action Area (Input + Send) */}
                 <Shaker ref={sendBlockShakerRef} onLayout={handleActionAreaLayout}>
                     {props.agentWorking && Platform.OS === 'web' && (
@@ -1986,7 +2001,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                             </BubblePressable>
                         )}
 
-                        <Shaker ref={shakerRef}>
+                            <Shaker ref={shakerRef}>
                             <View
                                 style={[
                                     styles.sendButton,

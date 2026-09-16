@@ -8,7 +8,7 @@ import {
     type CreateEnvelopeOptions,
     type SessionEnvelope,
     type SessionUsage,
-} from '@lmc/wire';
+} from 'lmc-wire';
 import type { Thread, ThreadItem, ThreadTurn } from '../codexAppServerTypes';
 import { stripLmcSystemBlocks } from '../codexPrompt';
 

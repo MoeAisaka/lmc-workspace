@@ -107,6 +107,12 @@ type SendMessageOptions = {
     attachments?: AttachmentPreview[];
     /** Wait until the outbox reaches the server before resolving. */
     awaitDelivery?: boolean;
+    /**
+     * What the engine should do if it is busy: wait ('queue'), add to the
+     * running turn ('steer', Codex only), or stop it and go next
+     * ('interrupt'). Omitted for sends that predate the queue strip.
+     */
+    intent?: 'queue' | 'steer' | 'interrupt';
 };
 
 function sameBytes(a: Uint8Array | null | undefined, b: Uint8Array | null): boolean {
@@ -684,7 +690,7 @@ class Sync {
             }
             throw error;
         }
-        const { displayText, source = 'chat', attachments, awaitDelivery = false } = options ?? {};
+        const { displayText, source = 'chat', attachments, awaitDelivery = false, intent } = options ?? {};
 
         const flavor = session.metadata?.flavor;
         const rigAttachmentPolicy = isRigMetadataV1(session.metadata)
@@ -803,6 +809,9 @@ class Sync {
         // Create user message content with metadata
         const content: RawRecord = {
             role: 'user',
+            // The CLI keys its queue entry by this, so the queue strip can match
+            // the entry to the message the app already shows.
+            localKey: localId,
             content: {
                 type: 'text',
                 text
@@ -814,7 +823,8 @@ class Sync {
                 ...(modeMeta.model !== undefined ? { model: modeMeta.model } : {}),
                 ...(modeMeta.modelProviderId !== undefined ? { modelProviderId: modeMeta.modelProviderId } : {}),
                 ...(modeMeta.effort !== undefined ? { effort: modeMeta.effort } : {}),
-                ...(displayText && { displayText }) // Add displayText if provided
+                ...(displayText && { displayText }), // Add displayText if provided
+                ...(intent ? { intent } : {})
             }
         };
         const encryptedRawRecord = await encryption.encryptRawRecord(content);

@@ -46,10 +46,11 @@ export type SpawnRequest = z.infer<typeof SpawnRequestSchema>;
 export const MetadataSchema = z.object({
     agentBuild: z.string().optional(),
     engineRuntime: z.object({engine:z.string(),version:z.string(),packageVersion:z.string().optional(),source:z.string(),path:z.string()}).optional(),
-    sessionCapabilities: z.object({ refresh: z.boolean(), authentication: z.boolean(), runtimeConfiguration: z.boolean(), resourceFiles: z.boolean().optional(), fileInbox: z.boolean().optional(), resume:z.boolean().optional(), model:z.boolean().optional(),effort:z.boolean().optional(),context:z.boolean().optional(),serviceTier:z.boolean().optional(), cancelRefresh: z.boolean().optional() }).optional(),
+    sessionCapabilities: z.object({ refresh: z.boolean(), authentication: z.boolean(), runtimeConfiguration: z.boolean(), resourceFiles: z.boolean().optional(), fileInbox: z.boolean().optional(), resume:z.boolean().optional(), model:z.boolean().optional(),effort:z.boolean().optional(),context:z.boolean().optional(),serviceTier:z.boolean().optional(), cancelRefresh: z.boolean().optional(), turnQueue: z.boolean().optional() }).optional(),
     engineAuth: z.object({ status: z.enum(['ready', 'required', 'unknown']), checkedAt: z.number() }).optional(),
     sessionConfiguration: z.boolean().optional(),
     sessionConfigState: z.enum(['queued', 'applied', 'error', 'refreshing', 'verifying']).optional(),
+    queueMode: z.enum(['batch', 'sequential']).optional(),
     sessionConfigUpdatedAt: z.number().optional(),
     sessionConfigError: z.string().optional(),
     // Set by the runner while a queued refresh checks the login of the engine it
@@ -455,6 +456,9 @@ export const AgentStateSchema = z.object({
         toolUseId: z.string().nullish()
     })).nullish(),
     agentGoalStatus: AgentGoalStatusSchema.optional(),
+    // Prompts waiting for the engine, in order, published by the CLI. Keys
+    // echo the localKey the app sent so entries match the messages it shows.
+    queue: z.array(z.object({ key: z.string(), preview: z.string(), createdAt: z.number() })).nullish(),
 });
 
 export type AgentState = z.infer<typeof AgentStateSchema>;

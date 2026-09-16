@@ -1,7 +1,7 @@
 import type { CodexServiceTier } from '@/codex/serviceTier';
 import type { CodexContextLimits } from '@/codex/contextLimits';
 import { z } from 'zod'
-import type { Update, UpdateMachineBody } from '@lmc/wire';
+import type { Update, UpdateMachineBody } from 'lmc-wire';
 import { UsageSchema } from '@/claude/types'
 import type { SandboxConfig } from '@/persistence'
 
@@ -12,7 +12,7 @@ export {
   UpdateMachineBodySchema,
   UpdateSchema,
   UpdateSessionBodySchema,
-} from '@lmc/wire';
+} from 'lmc-wire';
 export type {
   SessionMessage,
   SessionMessageContent,
@@ -20,7 +20,7 @@ export type {
   UpdateBody,
   UpdateMachineBody,
   UpdateSessionBody,
-} from '@lmc/wire';
+} from 'lmc-wire';
 
 /**
  * Permission mode type - includes both Claude and Codex modes
@@ -218,7 +218,10 @@ export const MessageMetaSchema = z.object({
   appendSystemPrompt: z.string().nullable().optional(), // Append to system prompt for this message (null = reset)
   allowedTools: z.array(z.string()).nullable().optional(), // Allowed tools for this message (null = reset)
   disallowedTools: z.array(z.string()).nullable().optional(), // Disallowed tools for this message (null = reset)
-  effort: z.string().nullable().optional() // Effort level for this message (null = reset). happy-app sends this key; without it Zod strips the value before runClaude reads it.
+  effort: z.string().nullable().optional(), // Effort level for this message (null = reset). happy-app sends this key; without it Zod strips the value before runClaude reads it.
+  // What to do with a message that arrives while the engine is busy. Absent
+  // from older apps, which keep the pre-intent behaviour.
+  intent: z.enum(['queue', 'steer', 'interrupt']).optional(),
 })
 
 export type MessageMeta = z.infer<typeof MessageMetaSchema>
@@ -379,10 +382,14 @@ export type Metadata = {
   engineRuntime?: {engine:string;version:string;packageVersion?:string;source:string;path:string};
   sessionCapabilities?: { refresh: boolean; authentication: boolean; runtimeConfiguration: boolean; resourceFiles?: boolean; fileInbox?: boolean; resume?:boolean;model?:boolean;effort?:boolean;context?:boolean;serviceTier?:boolean;
     /** The runner answers `cancel-session-refresh` while a refresh or switch is still queued. */
-    cancelRefresh?: boolean };
+    cancelRefresh?: boolean;
+    /** The runner publishes agentState.queue and answers dequeue / promote; messages may carry meta.intent. */
+    turnQueue?: boolean };
   engineAuth?: { status: 'ready' | 'required' | 'unknown'; checkedAt: number };
   sessionConfiguration?: boolean;
   sessionConfigState?: 'queued' | 'applied' | 'error' | 'refreshing' | 'verifying';
+  // How queued prompts are consumed: joined into one turn (default) or one per turn.
+  queueMode?: 'batch' | 'sequential';
   sessionConfigUpdatedAt?: number;
   sessionConfigError?: string;
   /** Set while a queued refresh is checking the engine it will relaunch as; cleared after. */
@@ -590,4 +597,7 @@ export type AgentState = {
     }
   }
   agentGoalStatus?: AgentGoalStatus
+  // Prompts waiting for the engine, in order. Keys echo the app's localKey
+  // when it sent one. Absent on CLIs that predate the queue strip.
+  queue?: Array<{ key: string; preview: string; createdAt: number }>
 }

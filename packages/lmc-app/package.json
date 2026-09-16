@@ -75,7 +75,7 @@
     "@react-navigation/native-stack": "^7.14.7",
     "@shopify/flash-list": "~2.3.0",
     "@shopify/react-native-skia": "~2.5.3",
-    "@lmc/wire": "workspace:*",
+    "lmc-wire": "workspace:*",
     "@tauri-apps/api": "2.9.1",
     "@tauri-apps/cli": "^2.8.1",
     "@tauri-apps/plugin-http": "^2.5.2",

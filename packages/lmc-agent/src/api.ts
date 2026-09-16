@@ -1,5 +1,5 @@
 import axios, { AxiosError } from 'axios';
-import type { SessionMessage as WireSessionMessage } from '@lmc/wire';
+import type { SessionMessage as WireSessionMessage } from 'lmc-wire';
 import type { Config } from './config';
 import type { Credentials } from './credentials';
 import {

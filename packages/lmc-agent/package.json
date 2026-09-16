@@ -6,6 +6,9 @@
   "license": "MIT",
   "type": "module",
   "homepage": "https://github.com/MoeAisaka/lmc-workspace",
+  "bugs": {
+    "url": "https://github.com/MoeAisaka/lmc-workspace/issues"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/MoeAisaka/link-my-cli",
@@ -44,7 +47,7 @@
     "release": "npx --no-install release-it"
   },
   "dependencies": {
-    "@lmc/wire": "workspace:*",
+    "lmc-wire": "workspace:*",
     "axios": "^1.13.2",
     "chalk": "^5.6.2",
     "commander": "^13.1.0",

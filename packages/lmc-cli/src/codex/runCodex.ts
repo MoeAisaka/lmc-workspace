@@ -8,6 +8,7 @@ import { EngineAuthPreflightError, refreshErrorKind, tagRefreshError } from '@/u
 import { isPendingState } from '@/utils/refreshState';
 import { prepareDaemonSessionRefresh } from '@/daemon/controlClient';
 import { readFallbackBriefing, readSwitchEngine } from '@/utils/engineSwitchRequest';
+import { applyQueueModeRequest, registerQueueControlHandlers } from '@/utils/sessionQueueControl';
 import { validateCodexServiceTier, type CodexServiceTier } from '@/codex/serviceTier';
 import { validateCodexContextLimits, type CodexContextLimits } from './contextLimits';
 import { render } from "ink";
@@ -26,6 +27,8 @@ import { initialMachineMetadata } from '@/daemon/run';
 import { configuration } from '@/configuration';
 import packageJson from '../../package.json';
 import { MessageQueue2, type PendingAttachment } from '@/utils/MessageQueue2';
+import { attachQueuePublisher } from '@/utils/sessionQueueControl';
+import { readMessageIntent } from '@/utils/queueControlRequest';
 import { projectPath } from '@/projectPath';
 import { join } from 'node:path';
 import { createSessionMetadata } from '@/utils/createSessionMetadata';
@@ -315,6 +318,9 @@ export async function runCodex(opts: {
     }
 
     const messageQueue = new MessageQueue2<EnhancedMode>(hashCodexEnhancedMode);
+    // The app sees the queue through agentState; the consumption mode survives
+    // relaunches through metadata.
+    attachQueuePublisher(messageQueue, session, session.getMetadata()?.queueMode);
     let activeTurnModeHash: string | null = null;
     let activeTurnIsHub = false;
 
@@ -404,16 +410,33 @@ export async function runCodex(opts: {
             appendSystemPrompt: messageAppendSystemPrompt,
             effort: modeResolution.effort,
         };
-        // Plain follow-up text with unchanged settings belongs to the running
-        // turn. Preserve FIFO/config boundaries for queued work and commands.
-        if (activeTurnModeHash === hashCodexEnhancedMode(enhancedMode)
+        const intent = readMessageIntent(message.meta);
+        const queueKey = message.localKey;
+        const turnRunning = activeTurnModeHash !== null || thinking;
+        if (intent === 'interrupt') {
+            // Goes next: head of the queue, and the running turn is stopped.
+            // An idle engine just picks it up. The queue survives the abort.
+            messageQueue.unshift(message.content.text, enhancedMode, attachmentsForThisMessage, { key: queueKey });
+            if (turnRunning) {
+                session.sendSessionEvent({ type: 'message', message: '已打断当前回合，接下来处理这条。' });
+                await handleAbort();
+            }
+            return;
+        }
+        // Steering belongs to the running turn only when nothing about it
+        // changes: same settings, no attachments, not a command, nothing
+        // already waiting ahead. Apps that predate `intent` send none and get
+        // the old behaviour (steer when possible); an explicit 'queue' never
+        // steers, and an explicit 'steer' that cannot be honoured says why.
+        const steerEligible = activeTurnModeHash === hashCodexEnhancedMode(enhancedMode)
             // A role change needs a new guarded turn, not a steer into the
             // existing turn's old sandbox policy.
             && activeTurnIsHub === isHub(session.getMetadata())
             && messageQueue.size() === 0
             && attachmentsForThisMessage.length === 0
             && message.content.text.trim().length > 0
-            && !message.content.text.trimStart().startsWith('/')) {
+            && !message.content.text.trimStart().startsWith('/');
+        if ((intent === 'steer' || intent === undefined) && steerEligible) {
             try {
                 if (await client.steerTurn(message.content.text)) {
                     if (client.hasPendingTurnCompletion()) {
@@ -435,8 +458,12 @@ export async function runCodex(opts: {
             mode: enhancedMode,
             queue: messageQueue,
             attachments: attachmentsForThisMessage,
+            key: queueKey,
         });
-        if (activeTurnModeHash !== null && enqueueResult === 'queued') {
+        if (intent === 'steer' && turnRunning && enqueueResult === 'queued') {
+            session.sendSessionEvent({ type: 'message', message: '这条无法补充进当前回合（设置有变、带附件、是命令，或前面还有排队消息），已排队，本轮结束后处理。' });
+        } else if (intent === undefined && activeTurnModeHash !== null && enqueueResult === 'queued') {
+            // Older apps have no queue strip; the transcript is their only notice.
             session.sendSessionEvent({ type: 'message', message: '回复已排队，将在当前轮次结束后发送（含附件、命令或配置变化的消息不插入当前轮次）。' });
         }
         if (enqueueResult === 'clear') {
@@ -534,6 +561,8 @@ export async function runCodex(opts: {
         session.updateMetadata(m => m.sessionConfigState === 'queued' ? { ...m, sessionConfigError: reason ?? undefined } : m);
     };
     session.rpcHandlerManager.registerHandler('configure-session', async (params: any) => {
+        // Consumption mode only; no relaunch involved, so it applies at once.
+        if (applyQueueModeRequest(params, messageQueue, session)) return { status: 'applied' };
         if (refreshHandoff) return { status: 'refreshing' };
         // A switch rides the refresh queue: same wait for a real boundary, but
         // the relaunch comes back as the other engine.
@@ -665,6 +694,39 @@ export async function runCodex(opts: {
 
     // Register abort handler
     session.rpcHandlerManager.registerHandler('abort', handleAbort);
+    // The queue strip's withdraw / go-next buttons.
+    registerQueueControlHandlers(session, messageQueue, {
+        isBusy: () => thinking || activeTurnModeHash !== null,
+        interrupt: handleAbort,
+        // Same conditions the send path checks before steering: the running
+        // turn must still be the one this prompt was written against, and the
+        // prompt must be plain text. Each refusal names itself so the app can
+        // say which condition failed rather than "not possible".
+        steer: async (item) => {
+            if (activeTurnModeHash === null) return { steered: false, reason: 'idle' };
+            if (activeTurnModeHash !== hashCodexEnhancedMode(item.mode)) return { steered: false, reason: 'settings' };
+            // A role change needs a new guarded turn, not a steer into the
+            // existing turn's old sandbox policy.
+            if (activeTurnIsHub !== isHub(session.getMetadata())) return { steered: false, reason: 'settings' };
+            if (item.attachments && item.attachments.length > 0) return { steered: false, reason: 'attachments' };
+            if (item.isolate || item.message.trimStart().startsWith('/')) return { steered: false, reason: 'command' };
+            if (item.message.trim().length === 0) return { steered: false, reason: 'command' };
+            try {
+                if (!await client.steerTurn(item.message)) return { steered: false, reason: 'refused' };
+            } catch {
+                // A lost response is not evidence of failed delivery. Never
+                // put it back where it would be sent a second time.
+                session.sendSessionEvent({ type: 'message', message: '补充回复尚未确认送达 Codex；未自动重复发送，请检查连接和后续回应。' });
+                return { steered: false, reason: 'unconfirmed', restore: false };
+            }
+            if (client.hasPendingTurnCompletion()) {
+                thinking = true;
+                session.keepAlive(true, 'remote');
+            }
+            session.sendSessionEvent({ type: 'message', message: 'Codex 已接收补充回复，将在当前工作中处理。' });
+            return { steered: true };
+        },
+    });
 
     registerKillSessionHandler(session.rpcHandlerManager, handleKillSession);
 

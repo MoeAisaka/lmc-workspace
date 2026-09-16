@@ -53,7 +53,7 @@ COPY packages/lmc-server ./packages/lmc-server
 # happy-server's `build` script is only `tsc --noEmit`; the center runs from
 # TypeScript via tsx, so the image gains nothing from typechecking and would
 # instead inherit whichever @types the app happened to hoist into scope.
-RUN pnpm --filter @lmc/wire --fail-if-no-match build
+RUN pnpm --filter lmc-wire --fail-if-no-match build
 
 # Baked in rather than bind-mounted: a host mount depends on Docker Desktop's
 # file sharing, which silently yields an empty directory for paths it does not
