@@ -36,6 +36,32 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
+    # Several specs are written against a real database on purpose — a socket
+    # that must drop when its login is revoked, the MySQL-specific migration,
+    # the v3 message routes. Giving the job a MySQL means they run here the way
+    # they run on a maintainer's machine, instead of being skipped or mocked
+    # into agreeing with themselves.
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-not-a-secret
+          MYSQL_DATABASE: lmc
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci-not-a-secret"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: mysql://root:ci-not-a-secret@127.0.0.1:3306/lmc
+      # 32 bytes of hex, as lmc/auth.ts requires. A published CI value seals
+      # nothing: the database it protects lives and dies with this job.
+      LMC_MASTER_KEY: 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
+      HANDY_MASTER_SECRET: 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
+
     steps:
     - name: Checkout
       uses: actions/checkout@v4
@@ -65,12 +91,12 @@ jobs:
     - name: Full typecheck
       run: pnpm --filter lmc-server --fail-if-no-match typecheck
 
+    - name: Apply migrations
+      run: pnpm --filter lmc-server --fail-if-no-match exec prisma migrate deploy
+
     - name: Unit tests
       run: pnpm --filter lmc-server --fail-if-no-match test
 
-  # Builds the production image and proves it actually serves traffic.
-  # A container whose CMD silently no-ops exits 0 immediately and would pass
-  # every check except starting it, which is how a broken image shipped before.
   # Builds the image the deployment guide tells people to run, against the
   # database it actually targets, and proves it serves traffic.
   #
