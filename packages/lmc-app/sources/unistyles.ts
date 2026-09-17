@@ -96,15 +96,26 @@ if (Platform.OS !== 'web') {
 // scheduled light/dark switch never fires visibilitychange, so the media query
 // is watched too. Both paths force the theme rather than trusting adaptive to
 // have noticed.
-if (Platform.OS === 'web' && themePreference === 'adaptive') {
+if (Platform.OS === 'web') {
     const resync = () => {
+        // The appearance setting can change without reloading this module.
+        // A listener installed at adaptive startup must not undo a later
+        // explicit choice; a fixed startup can also become adaptive later.
+        if (loadThemePreference() !== 'adaptive') return;
         const themeName = Appearance.getColorScheme() === 'dark' ? 'dark' : 'light';
-        if (UnistylesRuntime.themeName === themeName) return;
-        // Toggle adaptive off, set correct theme, toggle back on
-        UnistylesRuntime.setAdaptiveThemes(false);
-        UnistylesRuntime.setTheme(themeName);
-        UnistylesRuntime.setAdaptiveThemes(true);
-        UnistylesRuntime.setRootViewBackgroundColor(appThemes[themeName].colors.groupped.background);
+        if (UnistylesRuntime.themeName !== themeName) {
+            // Toggle adaptive off, set correct theme, toggle back on.
+            UnistylesRuntime.setAdaptiveThemes(false);
+            UnistylesRuntime.setTheme(themeName);
+            UnistylesRuntime.setAdaptiveThemes(true);
+        }
+        // Enabling adaptive can leave the new fixed class behind when
+        // Unistyles switches themes internally. That class overrides its
+        // media-query CSS even if the runtime already reports the right theme.
+        document.documentElement.classList.remove('light', 'dark');
+        const color = appThemes[themeName].colors.groupped.background;
+        UnistylesRuntime.setRootViewBackgroundColor(color);
+        SystemUI.setBackgroundColorAsync(color);
     };
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') resync();
