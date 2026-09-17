@@ -4,6 +4,10 @@ A self-hosted web workspace for your coding agents. Run **Codex** and **Claude C
 your own machines, drive them from a browser, and keep every byte on infrastructure you
 control.
 
+![LMC UI preview — multiple devices and sessions, execution approvals, and live agent output with queued messages](docs/images/lmc-ui-showcase.png)
+
+*High-fidelity UI preview with demo content: manage sessions, approve actions, and queue the next instruction from your browser.*
+
 LMC is a fork of [Happy](https://github.com/slopus/happy) that removes the dependency on
 any hosted account: no vendor sign-in, no phone app, no telemetry. You run the centre, you
 hold the keys.
