@@ -145,6 +145,56 @@ const CLAUDE_BEFORE = {
 
 const CODEX_AFTER = { flavor: 'codex', path: '/p', host: 'h', version: '1.0.0' };
 
+describe('applySessions with delayed session updates', () => {
+    const queued = { queue: [{ key: 'reply', preview: 'next reply', createdAt: 1 }] };
+
+    it('does not resurrect a consumed prompt when an older state finishes decrypting last', () => {
+        const initial = session(CLAUDE_BEFORE, 'queue-race');
+        storage.getState().applySessions([{ ...initial, agentState: queued, agentStateVersion: 10 }]);
+        storage.getState().applySessions([{ ...initial, agentState: {}, agentStateVersion: 11 }]);
+        storage.getState().applySessions([{ ...initial, agentState: queued, agentStateVersion: 10 }]);
+        expect(storage.getState().sessions[initial.id]).toMatchObject({ agentStateVersion: 11, agentState: {} });
+        expect(storage.getState().sessions[initial.id].agentState?.queue).toBeUndefined();
+    });
+
+    it('applies new metadata without restoring the queued state captured before decryption', () => {
+        const initial = session(CLAUDE_BEFORE, 'metadata-race');
+        storage.getState().applySessions([{ ...initial, agentState: {}, agentStateVersion: 11 }]);
+        storage.getState().applySessions([{
+            ...initial, metadata: { ...initial.metadata, effortLevel: 'high' }, metadataVersion: 2,
+            agentState: queued, agentStateVersion: 10,
+        }]);
+        const current = storage.getState().sessions[initial.id];
+        expect(current.agentStateVersion).toBe(11);
+        expect(current.agentState?.queue).toBeUndefined();
+        expect(current.effortLevel).toBe('high');
+        expect(current.metadataVersion).toBe(2);
+    });
+
+    it('accepts a new queue while preserving newer metadata and its model/effort mirrors', () => {
+        const initial = session(CLAUDE_BEFORE, 'state-race');
+        storage.getState().applySessions([{
+            ...initial, metadata: { ...initial.metadata, effortLevel: 'high' }, metadataVersion: 2,
+        }]);
+        storage.getState().applySessions([{ ...initial, agentState: queued, agentStateVersion: 2 }]);
+        const current = storage.getState().sessions[initial.id];
+        expect(current.agentState?.queue).toEqual(queued.queue);
+        expect(current.agentStateVersion).toBe(2);
+        expect(current.metadataVersion).toBe(2);
+        expect(current.metadata?.effortLevel).toBe('high');
+        expect(current.effortLevel).toBe('high');
+    });
+
+    it('allows a newer explicit state reset and a subsequent genuinely queued prompt', () => {
+        const initial = session(CLAUDE_BEFORE, 'queue-reset');
+        storage.getState().applySessions([{ ...initial, agentState: queued, agentStateVersion: 10 }]);
+        storage.getState().applySessions([{ ...initial, agentState: null, agentStateVersion: 11 }]);
+        expect(storage.getState().sessions[initial.id].agentState).toBeNull();
+        storage.getState().applySessions([{ ...initial, agentState: queued, agentStateVersion: 12 }]);
+        expect(storage.getState().sessions[initial.id].agentState?.queue).toEqual(queued.queue);
+    });
+});
+
 /** What the picker would show for a session, the way the composer resolves it. */
 function shown(merged: any) {
     const models = getAvailableModels('codex', merged.metadata, translate, merged.modelMode);

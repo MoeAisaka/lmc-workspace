@@ -538,7 +538,24 @@ export const storage = create<StorageState>()((set, get) => {
             const mergedSessions: Record<string, Session> = indexSessionsById(Object.values(state.sessions));
 
             // Update sessions with calculated presence using centralized resolver
-            sessions.forEach(session => {
+            sessions.forEach(incoming => {
+                // Socket decryption and session fetches can finish out of order.
+                // Each encrypted document has its own version: a new metadata
+                // update may still carry an old agentState captured before await.
+                // Preserve the newer document before deriving model/permission UI
+                // or an already consumed prompt can reappear in the queue strip.
+                const existing = state.sessions[incoming.id];
+                const session = {
+                    ...incoming,
+                    ...(existing && existing.agentStateVersion > incoming.agentStateVersion ? {
+                        agentState: existing.agentState,
+                        agentStateVersion: existing.agentStateVersion,
+                    } : {}),
+                    ...(existing && existing.metadataVersion > incoming.metadataVersion ? {
+                        metadata: existing.metadata,
+                        metadataVersion: existing.metadataVersion,
+                    } : {}),
+                };
                 // Use centralized resolver for consistent state management
                 const presence = resolveSessionOnlineState(session);
 
