@@ -3,9 +3,9 @@
 给编码 Agent 用的自托管 Web 工作空间。在你自己的机器上跑 **Codex** 与 **Claude Code**，
 从浏览器驱动它们，所有数据留在你控制的基础设施里。
 
-![LMC 高保真界面预览：多设备会话、执行审批、实时输出与消息排队](docs/images/lmc-ui-showcase.png)
+![LMC 桌面工作空间：多设备会话、实时输出与消息排队操作](docs/images/lmc-ui-showcase.png)
 
-*高保真 UI 预览，使用演示内容：在浏览器里管理会话、审批操作，并排队下一条指令。*
+*Web 客户端截图，使用演示内容：跨设备管理会话、查看 Agent 进度，并排队或引导下一条指令。*
 
 LMC 是 [Happy](https://github.com/slopus/happy) 的分叉，去掉了对托管账号的依赖：
 不需要厂商登录、不需要手机 App、没有遥测。中心由你运行，密钥在你手里。
