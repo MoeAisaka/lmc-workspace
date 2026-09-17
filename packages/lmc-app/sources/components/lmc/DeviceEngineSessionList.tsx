@@ -26,7 +26,7 @@ import type { BoardEntry, Machine } from '@/sync/storageTypes';
 import { isClosedState } from './orchestrationTone';
 import { hasTaskAttention, resolveSessionRowTone, taskRowTone } from './sessionRowTone';
 import { ProviderIcon } from '@/components/ProviderIcon';
-import { effortDisplayName, getAvailableModels } from '@/components/modelModeOptions';
+import { resolveSessionModelDisplay } from './sessionModelDisplay';
 
 /** Keys built at runtime have no static parameter type. */
 const tk = (key: string): string => (t as unknown as (k: string) => string)(key);
@@ -325,15 +325,6 @@ const SessionRow = React.memo(({ session, selected, now, onNavigate, engineBadge
     );
 });
 
-/** The model a session is on, by its display name, or null. */
-function modelNameOf(session: Session): string | null {
-    const key = session.modelMode ?? session.metadata?.modelMode ?? null;
-    if (!key || key === 'default') return null;
-    const flavor = session.metadata?.flavor;
-    if (flavor !== 'claude' && flavor !== 'codex') return null;
-    return getAvailableModels(flavor, session.metadata, t as any, key).find((m) => m.key === key)?.name ?? null;
-}
-
 const ENGINE_ICONS: Record<string, number> = {
     claude: require('@/assets/images/icon-claude.png'),
     codex: require('@/assets/images/icon-gpt.png'),
@@ -378,6 +369,8 @@ const EngineHeader = React.memo(({ group, engine }: { group: LmcDeviceGroup; eng
 
 const DeviceSection = React.memo(({ group, selectedSessionId, now, onNavigate, onDropOn }: { group: LmcDeviceGroup; selectedSessionId?: string; now: number; onNavigate?: () => void; onDropOn?: (sessionId: string, target: string) => void }) => {
     const { theme } = useUnistyles();
+    const agentDefaultOverrides = useSetting('agentDefaultOverrides');
+    const modelNameOf = (session: Session) => resolveSessionModelDisplay(session, agentDefaultOverrides, t as any).modelName;
     const groupByEngine = useSetting('sessionListGroupByEngine');
     const colors = lmcColors(theme);
     const router = useRouter();
@@ -507,8 +500,8 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
     const deviceOf = (session: Session) => machineDisplayName(machines.find((m) => m.id === session.metadata?.machineId), session.metadata?.host ?? '');
     const engineOf = (session: Session): 'claude' | 'codex' | null => { const k = engineKeyForSession(session); return k === 'other' ? null : k; };
     const hubSelected = group.hub.id === selectedSessionId;
-    const hubModel = modelNameOf(group.hub);
-    const hubEffort = group.hub.metadata?.effortLevel;
+    const agentDefaultOverrides = useSetting('agentDefaultOverrides');
+    const { modelName: hubModel, effortName: hubEffort } = resolveSessionModelDisplay(group.hub, agentDefaultOverrides, t as any);
     const orchestration = group.hub.metadata?.orchestration;
     const board: BoardEntry[] = orchestration?.role === 'hub' ? (orchestration.board ?? []) : [];
     const [, bump] = React.useState(0);
@@ -628,7 +621,7 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
                         {engineOf(group.hub) && <ProviderIcon kind={engineOf(group.hub)} size={12} />}
                         {hubModel && (
                             <RNText numberOfLines={1} ellipsizeMode="tail" style={[styles.metaText, { color: colors.tertiary, flexShrink: 1 }]}>
-                                {hubModel}{hubEffort ? ` · ${effortDisplayName(hubEffort)}` : ''}
+                                {hubModel}{hubEffort ? ` · ${hubEffort}` : ''}
                             </RNText>
                         )}
                     </View>
