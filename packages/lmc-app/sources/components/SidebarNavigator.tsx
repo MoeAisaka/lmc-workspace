@@ -26,6 +26,7 @@ const TAURI_HEADER_CONTROL_LEFT = Math.ceil(92 / DEFAULT_APP_ZOOM);
 
 export const SidebarNavigator = React.memo(() => {
     const auth = useAuth();
+    const { theme } = useUnistyles();
     React.useEffect(installSidebarMotion, []);
     const isTablet = useIsTablet();
     const zenMode = useLocalSetting('zenMode');
@@ -74,7 +75,7 @@ export const SidebarNavigator = React.memo(() => {
             headerShown: false,
             drawerType: 'permanent' as const,
             drawerStyle: {
-                backgroundColor: 'white',
+                backgroundColor: theme.colors.surface,
                 borderRightWidth: 0,
                 width: drawerWidth,
                 overflow: 'hidden' as const,
@@ -85,7 +86,7 @@ export const SidebarNavigator = React.memo(() => {
             drawerItemStyle: { display: 'none' as const },
             drawerLabelStyle: { display: 'none' as const },
         };
-    }, [isDesktopLayout, drawerWidth]);
+    }, [isDesktopLayout, drawerWidth, theme.colors.surface]);
 
     const drawerContent = React.useCallback(
         // One view-transition name across both states lets the browser morph the
