@@ -602,9 +602,11 @@ export const SessionView = React.memo((props: { id: string }) => {
                             pointerEvents="none"
                             // Mirrors the dock's gradient at the bottom of the
                             // pane, so the transcript leaves the page the same
-                            // way at both ends.
+                            // way at both ends. Match the web chat surface:
+                            // a black wash over #212121 creates a dark band
+                            // with a hard seam against the sidebar.
                             colors={theme.dark
-                                ? ['rgba(0,0,0,0.66)', 'rgba(0,0,0,0.20)', 'rgba(0,0,0,0)']
+                                ? ['rgba(33,33,33,0.66)', 'rgba(33,33,33,0.20)', 'rgba(33,33,33,0)']
                                 : ['rgba(255,255,255,0.74)', 'rgba(255,255,255,0.18)', 'rgba(255,255,255,0)']}
                             locations={[0, 0.58, 1]}
                             style={{ position: 'absolute', top: 0, left: 0, right: 0, height: safeArea.top + (isTablet ? DESKTOP_HEADER_HEIGHT : headerHeight) + 24 }}

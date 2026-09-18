@@ -1,6 +1,6 @@
 import { useHeaderHeight } from '@/utils/responsive';
 import * as React from 'react';
-import { LayoutChangeEvent, View } from 'react-native';
+import { LayoutChangeEvent, Platform, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ScrollView } from 'react-native-gesture-handler';
 import { useKeyboardState } from 'react-native-keyboard-controller';
@@ -25,6 +25,9 @@ export const AgentContentView: React.FC<AgentContentViewProps> = React.memo(({
     onDockInsetChange,
 }) => {
     const { theme } = useUnistyles();
+    // Fade into the chat surface instead of painting black bands over the
+    // desktop's graphite background. Native retains its black surface.
+    const darkFadeRgb = Platform.OS === 'web' ? '33, 33, 33' : '0, 0, 0';
     const safeArea = useSafeAreaInsets();
     const headerHeight = useHeaderHeight();
     const state = useKeyboardState();
@@ -80,7 +83,7 @@ export const AgentContentView: React.FC<AgentContentViewProps> = React.memo(({
                     >
                         <LinearGradient
                             colors={theme.dark
-                                ? ['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0.20)', 'rgba(0, 0, 0, 0.66)']
+                                ? [`rgba(${darkFadeRgb}, 0)`, `rgba(${darkFadeRgb}, 0.20)`, `rgba(${darkFadeRgb}, 0.66)`]
                                 : ['rgba(255, 255, 255, 0)', 'rgba(255, 255, 255, 0.18)', 'rgba(255, 255, 255, 0.74)']}
                             locations={[0, 0.42, 1]}
                             start={{ x: 0.5, y: 0 }}
