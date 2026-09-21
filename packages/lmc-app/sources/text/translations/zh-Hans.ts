@@ -580,6 +580,16 @@ export const zhHans: TranslationStructure = {
     },
 
     toolGroup: {
+        timeline: {
+            running: '正在执行', waiting: '等待你确认', completed: '已完成', error: '失败', stopped: '已停止', unknown: '未记录完成状态',
+            unrecorded: '耗时未记录', ended: '本轮已结束', started: '开始', finished: '结束', elapsed: '耗时',
+            operations: ({ count }: { count: number }) => `${count} 项操作`,
+            errors: ({ count }: { count: number }) => `${count} 项失败步骤`,
+            parallel: ({ count }: { count: number }) => `并行检查 · ${count} 项`,
+            total: ({ duration }: { duration: string }) => `共 ${duration}`,
+            workingFor: ({ duration }: { duration: string }) => `正在处理 · ${duration}`,
+            waitingFor: ({ duration }: { duration: string }) => `等待你确认 · ${duration}`,
+        },
         editedFiles: ({ count }: { count: number }) => `编辑了 ${count} 个文件`,
         readFiles: ({ count }: { count: number }) => `读取了 ${count} 个文件`,
         ranCommands: ({ count }: { count: number }) => `执行了 ${count} 个命令`,

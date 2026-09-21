@@ -52,6 +52,35 @@ function namedToolMessage(id: string, name: string, createdAt: number): ToolCall
 }
 
 describe('useGroupedMessages', () => {
+    it.each(['Bash', 'exec_command'])('keeps the %s timeline identity through streaming and completion', name => {
+        const user: Message = { kind: 'user-text', id: 'prompt', localId: null, createdAt: 1, text: 'check' };
+        const call = namedToolMessage('first', name, 2);
+        const answer: Message = { kind: 'agent-text', id: 'answer', localId: null, createdAt: 5, text: 'done' };
+        const active = groupMessagesForDisplay([call, user], true, { collapseCurrentTurn: false, timelineCurrentTurn: true });
+        expect(active[0]).toMatchObject({ type: 'agent-work-group', id: 'work-first', completedAt: null, hasRunning: true });
+        const finished = groupMessagesForDisplay([answer, call, user], true, { timelineCurrentTurn: true });
+        expect(finished[0]).toMatchObject({ type: 'message', id: 'answer' });
+        expect(finished[1]).toMatchObject({ type: 'agent-work-group', id: 'work-first', completedAt: 5, hasRunning: false });
+    });
+    it('keeps approval actionable, questions outside the timeline, and older turns separate', () => {
+        const question = namedToolMessage('question', 'AskUserQuestion', 6);
+        const call = toolMessage('approval', 5, { pendingPermission: true, state: 'running' });
+        const prompt: Message = { kind: 'user-text', id: 'prompt', localId: null, createdAt: 4, text: 'next' };
+        const previous: Message = { kind: 'agent-text', id: 'previous', localId: null, createdAt: 3, text: 'done' };
+        const items = groupMessagesForDisplay([question, call, prompt, previous, toolMessage('old', 1)], true, { collapseCurrentTurn: false, timelineCurrentTurn: true });
+        expect(items[0]).toMatchObject({ type: 'message', id: 'question' });
+        expect(items[1]).toMatchObject({ type: 'agent-work-group', hasPendingPermission: true, completedAt: null });
+        expect(items.at(-1)).toMatchObject({ type: 'agent-work-group', id: 'work-old', completedAt: 3 });
+    });
+    it('retains a failed tool-only turn without inventing a final response', () => {
+        const items = groupMessagesForDisplay([toolMessage('failed', 2, { state: 'error' })], true, { timelineCurrentTurn: true });
+        expect(items).toHaveLength(1);
+        expect(items[0]).toMatchObject({ type: 'agent-work-group', hasRunning: false, completedAt: 3 });
+    });
+    it('leaves text-only streaming replies visible', () => {
+        const answer: Message = { kind: 'agent-text', id: 'answer', localId: null, createdAt: 5, text: 'hello' };
+        expect(groupMessagesForDisplay([answer], true, { collapseCurrentTurn: false, timelineCurrentTurn: true })).toEqual([{ type: 'message', id: answer.id, message: answer }]);
+    });
     it('classifies Rig tool families in group summaries', () => {
         const messages = [
             namedToolMessage('terminal', 'exec_command', 1),

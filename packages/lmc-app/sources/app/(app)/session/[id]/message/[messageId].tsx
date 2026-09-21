@@ -10,6 +10,7 @@ import { ToolStatusIndicator } from '@/components/tools/ToolStatusIndicator';
 import { Message } from '@/sync/typesMessage';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
+import { isCurrentTurnMessage } from '@/utils/turnTimeline';
 
 const stylesheet = StyleSheet.create((theme) => ({
     loadingContainer: {
@@ -33,8 +34,10 @@ export default React.memo(() => {
     const { id: sessionId, messageId, file } = useLocalSearchParams<{ id: string; messageId: string; file?: string }>();
     const router = useRouter();
     const session = useSession(sessionId!);
-    const { isLoaded: messagesLoaded } = useSessionMessages(sessionId!);
+    const { isLoaded: messagesLoaded, messages } = useSessionMessages(sessionId!);
     const message = useMessage(sessionId!, messageId!);
+    const active = (session?.thinking === true || Boolean(session?.agentState?.requests && Object.keys(session.agentState.requests).length))
+        && isCurrentTurnMessage(messages, messageId ?? '');
     const { theme } = useUnistyles();
     const styles = stylesheet;
     
@@ -84,25 +87,26 @@ export default React.memo(() => {
                 <Stack.Screen
                     options={{
                         headerTitle: () => <ToolHeader tool={message.tool} />,
-                        headerRight: () => <ToolStatusIndicator tool={message.tool} />,
+                        headerRight: () => <ToolStatusIndicator tool={message.tool} active={active} />,
                         headerTintColor: theme.colors.header.tint,
                         headerShadowVisible: false,
                     }}
                 />
             )}
             <Deferred>
-                <FullView message={message} focusFile={file ? decodeURIComponent(file) : undefined} />
+                <FullView message={message} focusFile={file ? decodeURIComponent(file) : undefined}
+                    active={active} />
             </Deferred>
         </>
     );
 });
 
-function FullView(props: { message: Message; focusFile?: string }) {
+function FullView(props: { message: Message; focusFile?: string; active?: boolean }) {
     const { theme } = useUnistyles();
     const styles = stylesheet;
     
     if (props.message.kind === 'tool-call') {
-        return <ToolFullView tool={props.message.tool} messages={props.message.children} focusFile={props.focusFile} />
+        return <ToolFullView tool={props.message.tool} messages={props.message.children} focusFile={props.focusFile} active={props.active} />
     }
     if (props.message.kind === 'agent-text') {
         return (

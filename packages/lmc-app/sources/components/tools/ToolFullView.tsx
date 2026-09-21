@@ -9,6 +9,7 @@ import { layout } from '../layout';
 import { useLocalSetting } from '@/sync/storage';
 import { StyleSheet } from 'react-native-unistyles';
 import { t } from '@/text';
+import { ToolTimelineTiming } from './ToolTimelineTiming';
 
 interface ToolFullViewProps {
     tool: ToolCall;
@@ -16,9 +17,10 @@ interface ToolFullViewProps {
     messages?: Message[];
     /** Show only this file, for when the user tapped one diff out of many. */
     focusFile?: string;
+    active?: boolean;
 }
 
-export function ToolFullView({ tool, metadata, messages = [], focusFile }: ToolFullViewProps) {
+export function ToolFullView({ tool, metadata, messages = [], focusFile, active }: ToolFullViewProps) {
     // Check if there's a specialized content view for this tool
     const SpecializedFullView = getToolFullViewComponent(tool.name);
     const screenWidth = useWindowDimensions().width;
@@ -27,6 +29,7 @@ export function ToolFullView({ tool, metadata, messages = [], focusFile }: ToolF
     return (
         <ScrollView style={[styles.container, { paddingHorizontal: screenWidth > 700 ? 16 : 0 }]}>
             <View style={styles.contentWrapper}>
+                <ToolTimelineTiming tool={tool} active={active} />
                 {/* Tool-specific content or generic fallback */}
                 {SpecializedFullView ? (
                     <SpecializedFullView tool={tool} metadata={metadata || null} messages={messages} focusFile={focusFile} />

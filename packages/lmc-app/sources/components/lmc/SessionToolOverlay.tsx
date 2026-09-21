@@ -5,7 +5,8 @@ import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from '
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
-import { useMessage } from '@/sync/storage';
+import { useMessage, useSession, useSessionMessages } from '@/sync/storage';
+import { isCurrentTurnMessage } from '@/utils/turnTimeline';
 import { ToolFullView } from '@/components/tools/ToolFullView';
 import { ToolHeader } from '@/components/tools/ToolHeader';
 import { ToolStatusIndicator } from '@/components/tools/ToolStatusIndicator';
@@ -56,6 +57,10 @@ export const SessionToolOverlay = React.memo(({ sessionId, messageId, filePath, 
 }) => {
     const { theme } = useUnistyles();
     const message = useMessage(sessionId, messageId ?? '');
+    const session = useSession(sessionId);
+    const { messages } = useSessionMessages(sessionId);
+    const active = (session?.thinking === true || Boolean(session?.agentState?.requests && Object.keys(session.agentState.requests).length))
+        && isCurrentTurnMessage(messages, messageId ?? '');
     const chatMaxWidth = useChatMaxWidth();
     const progress = useSharedValue(0);
     React.useEffect(() => {
@@ -75,7 +80,7 @@ export const SessionToolOverlay = React.memo(({ sessionId, messageId, filePath, 
                             ? <ToolHeader tool={message.tool} />
                             : <Text style={{ fontSize: 15, color: theme.colors.text, ...Typography.default('semiBold') }}>详情</Text>}
                     </View>
-                    {!filePath && message?.kind === 'tool-call' && <ToolStatusIndicator tool={message.tool} />}
+                    {!filePath && message?.kind === 'tool-call' && <ToolStatusIndicator tool={message.tool} active={active} />}
                     <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={t('lmc.common.close')}
@@ -93,7 +98,7 @@ export const SessionToolOverlay = React.memo(({ sessionId, messageId, filePath, 
                             <ActivityIndicator size="small" color={theme.colors.textSecondary} />
                         </View>
                     ) : message.kind === 'tool-call' ? (
-                        <ToolFullView tool={message.tool} messages={message.children} />
+                        <ToolFullView tool={message.tool} messages={message.children} active={active} />
                     ) : message.kind === 'agent-text' || message.kind === 'user-text' ? (
                         <ScrollView contentContainerStyle={{ padding: 16 }}>
                             <Text style={{ fontSize: 15, lineHeight: 24, color: theme.colors.text, ...Typography.default() }}>{message.text}</Text>

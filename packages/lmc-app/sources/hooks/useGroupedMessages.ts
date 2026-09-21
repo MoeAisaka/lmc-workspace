@@ -32,6 +32,8 @@ export type AgentWorkGroupItem = {
 export type ToolDisplayItem = TextItem | ToolGroupItem;
 export type DisplayItem = TextItem | ToolGroupItem | AgentWorkGroupItem;
 
+type GroupingOptions = { collapseCurrentTurn?: boolean; timelineCurrentTurn?: boolean };
+
 /**
  * The messages array is newest-first for the inverted FlatList.
  *
@@ -43,18 +45,19 @@ export type DisplayItem = TextItem | ToolGroupItem | AgentWorkGroupItem;
 export function useGroupedMessages(
     messages: Message[],
     enabled: boolean = true,
-    options: { collapseCurrentTurn?: boolean } = {},
+    options: GroupingOptions = {},
 ): DisplayItem[] {
     const collapseCurrentTurn = options.collapseCurrentTurn ?? true;
+    const timelineCurrentTurn = options.timelineCurrentTurn ?? false;
     return React.useMemo(() => {
-        return groupMessagesForDisplay(messages, enabled, { collapseCurrentTurn });
-    }, [messages, enabled, collapseCurrentTurn]);
+        return groupMessagesForDisplay(messages, enabled, { collapseCurrentTurn, timelineCurrentTurn });
+    }, [messages, enabled, collapseCurrentTurn, timelineCurrentTurn]);
 }
 
 export function groupMessagesForDisplay(
     messages: Message[],
     enabled: boolean = true,
-    options: { collapseCurrentTurn?: boolean } = {},
+    options: GroupingOptions = {},
 ): DisplayItem[] {
     if (!enabled) {
         return messages.map((msg) => ({ type: 'message', id: msg.id, message: msg } as TextItem));
@@ -62,7 +65,7 @@ export function groupMessagesForDisplay(
 
     const collapseCurrentTurn = options.collapseCurrentTurn ?? true;
     const turnOf = getTurnAssignments(messages);
-    const workGroups = collectAgentWorkGroups(messages, turnOf, collapseCurrentTurn);
+    const workGroups = collectAgentWorkGroups(messages, turnOf, collapseCurrentTurn, options.timelineCurrentTurn ?? false);
     const hiddenWorkIndexes = new Set<number>();
     const workGroupByOldestIndex = new Map<number, AgentWorkGroupItem>();
 
@@ -245,7 +248,7 @@ function collectToolRuns(
     return runsByIndex;
 }
 
-function collectAgentWorkGroups(messages: Message[], turnOf: number[], collapseCurrentTurn: boolean): Array<{
+function collectAgentWorkGroups(messages: Message[], turnOf: number[], collapseCurrentTurn: boolean, timelineCurrentTurn: boolean): Array<{
     item: AgentWorkGroupItem;
     hiddenIndexes: number[];
     oldestIdx: number;
@@ -266,28 +269,32 @@ function collectAgentWorkGroups(messages: Message[], turnOf: number[], collapseC
     }> = [];
 
     for (const [turn, indexes] of segments) {
-        if (turn === 0 && !collapseCurrentTurn) {
+        const active = turn === 0 && !collapseCurrentTurn;
+        if (active && !timelineCurrentTurn) {
             continue;
         }
 
         const visibleAgentIndexes = indexes.filter((index) => {
             const msg = messages[index];
-            if (msg.kind === 'user-text') return false;
+            if (msg.kind === 'user-text' || msg.kind === 'agent-event') return false;
             if (isInvisibleMessage(msg) || isUserAttachment(msg)) return false;
             if (msg.kind === 'tool-call' && isInteractiveQuestionToolName(msg.tool.name)) return false;
             return true;
         });
 
         const finalTextIndex = visibleAgentIndexes.find((index) => messages[index].kind === 'agent-text');
-        if (finalTextIndex === undefined) continue;
+        if (!active && finalTextIndex === undefined && !timelineCurrentTurn) continue;
+        if (active && !visibleAgentIndexes.some(index => messages[index].kind === 'tool-call')) continue;
 
-        const hiddenIndexes = visibleAgentIndexes.filter((index) => index > finalTextIndex);
+        const hiddenIndexes = active || finalTextIndex === undefined ? visibleAgentIndexes : visibleAgentIndexes.filter((index) =>
+            timelineCurrentTurn ? index !== finalTextIndex : index > finalTextIndex);
         if (hiddenIndexes.length === 0) continue;
 
         const oldestIdx = Math.max(...hiddenIndexes);
         const hiddenMessages = hiddenIndexes.map((index) => messages[index]);
         const startedAt = Math.min(...hiddenMessages.map((msg) => msg.createdAt));
-        const completedAt = messages[finalTextIndex].createdAt;
+        const completedAt = active ? null : Math.max(finalTextIndex === undefined ? startedAt : messages[finalTextIndex].createdAt, ...hiddenMessages.map(msg =>
+            msg.kind === 'tool-call' ? msg.tool.completedAt ?? msg.createdAt : msg.createdAt));
 
         groups.push({
             hiddenIndexes,
@@ -296,7 +303,7 @@ function collectAgentWorkGroups(messages: Message[], turnOf: number[], collapseC
                 type: 'agent-work-group',
                 id: `work-${messages[oldestIdx].id}`,
                 messages: hiddenMessages,
-                hasRunning: false,
+                hasRunning: active,
                 hasPendingPermission: hasPendingPermission(hiddenMessages),
                 startedAt,
                 completedAt,

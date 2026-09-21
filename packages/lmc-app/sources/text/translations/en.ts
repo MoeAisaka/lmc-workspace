@@ -593,6 +593,16 @@ export const en: TranslationStructure = {
     },
 
     toolGroup: {
+        timeline: {
+            running: 'Running', waiting: 'Waiting for approval', completed: 'Completed', error: 'Failed', stopped: 'Stopped', unknown: 'Completion not recorded',
+            unrecorded: 'Not recorded', ended: 'Turn ended', started: 'Started', finished: 'Finished', elapsed: 'Duration',
+            operations: ({ count }: { count: number }) => `${count} operations`,
+            errors: ({ count }: { count: number }) => `${count} failed steps`,
+            parallel: ({ count }: { count: number }) => `Parallel · ${count} steps`,
+            total: ({ duration }: { duration: string }) => `${duration} elapsed`,
+            workingFor: ({ duration }: { duration: string }) => `Working · ${duration}`,
+            waitingFor: ({ duration }: { duration: string }) => `Waiting for approval · ${duration}`,
+        },
         editedFiles: ({ count }: { count: number }) => count === 1 ? 'Edited 1 file' : `Edited ${count} files`,
         readFiles: ({ count }: { count: number }) => count === 1 ? 'Read 1 file' : `Read ${count} files`,
         ranCommands: ({ count }: { count: number }) => count === 1 ? 'Ran 1 command' : `Ran ${count} commands`,

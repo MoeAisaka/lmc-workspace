@@ -7,10 +7,8 @@ import { Ionicons, Octicons } from '@expo/vector-icons';
 import {
     AgentWorkGroupItem,
     ToolGroupItem,
-    ToolDisplayItem,
     formatWorkDuration,
     generateGroupSummary,
-    groupToolCallsForDisplay,
 } from '@/hooks/useGroupedMessages';
 import { MessageView } from './MessageView';
 import { Metadata } from '@/sync/storageTypes';
@@ -20,6 +18,8 @@ import { t } from '@/text';
 import { Message, ToolCallMessage } from '@/sync/typesMessage';
 import { getToolActivityLabel, getToolSummaryCategory, ToolSummaryCategory } from '@/utils/toolDisplay';
 import { useRouter } from 'expo-router';
+import { TurnTimeline } from './TurnTimeline';
+import { Typography } from '@/constants/Typography';
 
 interface ToolGroupViewProps {
     group: ToolGroupItem;
@@ -133,90 +133,15 @@ export const AgentWorkGroupView = React.memo<AgentWorkGroupViewProps>((props) =>
     const durationMs = group.completedAt === null
         ? runningElapsedSeconds * 1000
         : group.completedAt - group.startedAt;
-    const label = t('toolGroup.workedFor', { duration: formatWorkDuration(durationMs) });
+    const label = t('toolGroup.workedFor', { duration: `≈ ${formatWorkDuration(durationMs)}` });
     const handleAnchoredToggle = useAnchoredToggle(expanded, onToggle, onAnchorLayoutChange);
-    const nestedItemsNewestFirst = React.useMemo(
-        () => groupToolCallsForDisplay(group.messages, true, { groupSingleToolCalls: true }),
-        [group.messages],
-    );
-    const nestedItems = React.useMemo(
-        () => [...nestedItemsNewestFirst].reverse(),
-        [nestedItemsNewestFirst],
-    );
-
-    const [collapsedToolGroups, setCollapsedToolGroups] = React.useState<Set<string>>(() => {
-        const initial = new Set<string>();
-        for (const item of nestedItemsNewestFirst) {
-            if (item.type === 'tool-group' && !item.hasPendingPermission) {
-                initial.add(item.id);
-            }
-        }
-        return initial;
-    });
-    const manuallyCollapsedToolGroupsRef = React.useRef<Set<string>>(new Set());
-
-    React.useEffect(() => {
-        setCollapsedToolGroups((prev) => {
-            let changed = false;
-            const next = new Set(prev);
-            for (const item of nestedItemsNewestFirst) {
-                if (item.type !== 'tool-group') {
-                    continue;
-                }
-                if (item.hasPendingPermission && next.has(item.id) && !manuallyCollapsedToolGroupsRef.current.has(item.id)) {
-                    next.delete(item.id);
-                    changed = true;
-                    continue;
-                }
-                if (!item.hasPendingPermission && !next.has(item.id)) {
-                    next.add(item.id);
-                    changed = true;
-                }
-            }
-            return changed ? next : prev;
-        });
-    }, [nestedItemsNewestFirst]);
-
-    const handleToggleNestedGroup = React.useCallback((groupId: string) => {
-        setCollapsedToolGroups((prev) => {
-            const next = new Set(prev);
-            if (next.has(groupId)) {
-                next.delete(groupId);
-                manuallyCollapsedToolGroupsRef.current.delete(groupId);
-            } else {
-                next.add(groupId);
-                manuallyCollapsedToolGroupsRef.current.add(groupId);
-            }
-            return next;
-        });
-    }, []);
-
-    const renderNestedItem = React.useCallback((item: ToolDisplayItem) => {
-        if (item.type === 'tool-group') {
-            return (
-                <ToolGroupView
-                    key={item.id}
-                    group={item}
-                    metadata={metadata}
-                    sessionId={sessionId}
-                    expanded={!collapsedToolGroups.has(item.id)}
-                    onToggle={() => handleToggleNestedGroup(item.id)}
-                    onAnchorLayoutChange={onAnchorLayoutChange}
-                    nested
-                    hideSingleToolChildren
-                    forceCompleted={isCompleted}
-                />
-            );
-        }
-        return (
-            <MessageView
-                key={item.id}
-                message={item.message}
-                metadata={metadata}
-                sessionId={sessionId}
-            />
-        );
-    }, [collapsedToolGroups, handleToggleNestedGroup, isCompleted, metadata, onAnchorLayoutChange, sessionId]);
+    const now = isCompleted ? group.completedAt! : Date.now();
+    const tools = group.messages.filter((m): m is ToolCallMessage => m.kind === 'tool-call');
+    const pending = !isCompleted ? tools.find(m => m.tool.permission?.status === 'pending') : undefined;
+    const errors = tools.filter(m => m.tool.state === 'error').length;
+    const timelineLabel = pending
+        ? t('toolGroup.timeline.waitingFor', { duration: formatWorkDuration(now - pending.tool.createdAt) })
+        : !isCompleted ? t('toolGroup.timeline.workingFor', { duration: formatWorkDuration(durationMs) }) : label;
 
     return (
         <View style={styles.outerContainer}>
@@ -224,13 +149,13 @@ export const AgentWorkGroupView = React.memo<AgentWorkGroupViewProps>((props) =>
                 <CollapseHeader
                     expanded={expanded}
                     hasRunning={!isCompleted && group.hasRunning}
-                    label={label}
+                    label={timelineLabel}
                     onPress={handleAnchoredToggle}
+                    timeline
+                    detail={errors ? t('toolGroup.timeline.errors', { count: errors }) : t('toolGroup.timeline.operations', { count: tools.length })}
                 />
                 {expanded && (
-                    <View style={styles.content}>
-                        {nestedItems.map(renderNestedItem)}
-                    </View>
+                    <TurnTimeline group={group} metadata={metadata} sessionId={sessionId} now={now} />
                 )}
             </View>
         </View>
@@ -245,6 +170,8 @@ function CollapseHeader(props: {
     category?: ToolSummaryCategory | null;
     showChevron?: boolean;
     disabled?: boolean;
+    timeline?: boolean;
+    detail?: string;
 }) {
     const { theme } = useUnistyles();
     const showChevron = props.showChevron ?? true;
@@ -265,14 +192,16 @@ function CollapseHeader(props: {
     }, [props.onPress]);
     const content = (
         <>
+            {props.timeline && <Ionicons name="time-outline" size={18} color={theme.colors.textSecondary} />}
             {props.category ? (
                 <View style={styles.headerIcon}>
                     <ToolSummaryIcon category={props.category} color={theme.colors.textSecondary} />
                 </View>
             ) : null}
-            <Text style={styles.summaryText} numberOfLines={1}>
+            <Text style={[styles.summaryText, props.timeline && styles.timelineSummary]} numberOfLines={1}>
                 {props.label}
             </Text>
+            {props.detail && <Text style={styles.headerDetail}>{props.detail}</Text>}
             {props.hasRunning && (
                 <ActivityIndicator
                     size="small"
@@ -301,10 +230,14 @@ function CollapseHeader(props: {
     return (
         <Pressable
             ref={headerRef}
+            accessibilityRole="button"
+            accessibilityLabel={props.label}
+            accessibilityState={{ expanded: props.expanded }}
             collapsable={false}
             onPress={handlePress}
             style={({ pressed }) => [
                 styles.header,
+                props.timeline && styles.timelineHeader,
                 pressed && styles.headerPressed,
             ]}
         >
@@ -504,6 +437,9 @@ const styles = StyleSheet.create((theme) => ({
         paddingVertical: 4,
         borderRadius: 4,
     },
+    timelineHeader: { minHeight: 44, gap: 10 },
+    timelineSummary: { flex: 1, fontSize: 15, ...Typography.default('semiBold') },
+    headerDetail: { fontSize: 12, color: theme.colors.textSecondary, ...Typography.default() },
     headerPressed: {
         opacity: 0.6,
     },

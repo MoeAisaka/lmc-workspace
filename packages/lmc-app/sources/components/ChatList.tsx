@@ -158,14 +158,14 @@ const ChatListInternal = React.memo((props: {
     }, [controlMode]);
 
     // Collapse agent work between a user prompt and the final answer.
-    // Nested tool groups remain expandable inside the work block.
+    // The same timeline stays mounted while a turn runs and after it ends.
     const groupToolCalls = useSetting('groupToolCalls');
     const hasPendingPermission = Boolean(
         session?.agentState?.requests && Object.keys(session.agentState.requests).length > 0,
     );
     const collapseCurrentTurn = session?.thinking !== true && !hasPendingPermission;
     const groupingOptions = React.useMemo(
-        () => ({ collapseCurrentTurn }),
+        () => ({ collapseCurrentTurn, timelineCurrentTurn: true }),
         [collapseCurrentTurn],
     );
     const displayItems = useGroupedMessages(props.messages, groupToolCalls, groupingOptions);
@@ -180,12 +180,12 @@ const ChatListInternal = React.memo((props: {
         [props.messages, props.metadata?.flavor],
     );
 
-    // Tracks which groups are explicitly collapsed. Groups start collapsed;
-    // pending approval groups are the only ones we auto-expand.
+    // Historical groups start collapsed; live work and pending approvals start
+    // expanded. Finishing a live turn never overrides the user's fold state.
     const [collapsedGroups, setCollapsedGroups] = React.useState<Set<string>>(() => {
         const initial = new Set<string>();
         for (const item of displayItems) {
-            if (isCollapsibleDisplayItem(item) && !item.hasPendingPermission) {
+            if (isCollapsibleDisplayItem(item) && !item.hasPendingPermission && !item.hasRunning) {
                 initial.add(item.id);
             }
         }
@@ -225,7 +225,7 @@ const ChatListInternal = React.memo((props: {
                     changed = true;
                     continue;
                 }
-                if (isNewGroup && !item.hasPendingPermission) {
+                if (isNewGroup && !item.hasPendingPermission && !item.hasRunning) {
                     next.add(item.id);
                     changed = true;
                 }
@@ -238,14 +238,15 @@ const ChatListInternal = React.memo((props: {
     const displayItemsRef = React.useRef(displayItems);
     displayItemsRef.current = displayItems;
 
-    // Auto-collapse completed groups when app goes to background / tab hidden
+    // Preserve timeline expansion across tab switches. Legacy tool-only groups
+    // can still collapse in the background as before.
     React.useEffect(() => {
         const sub = AppState.addEventListener('change', (state) => {
             if (state !== 'active') {
                 setCollapsedGroups((prev) => {
                     const next = new Set(prev);
                     for (const item of displayItemsRef.current) {
-                        if (isCollapsibleDisplayItem(item) && !item.hasRunning) {
+                        if (item.type === 'tool-group' && !item.hasRunning) {
                             next.add(item.id);
                         }
                     }
@@ -272,7 +273,7 @@ const ChatListInternal = React.memo((props: {
             setCollapsedGroups((prev) => {
                 const next = new Set(prev);
                 for (const item of displayItemsRef.current) {
-                    if (isCollapsibleDisplayItem(item)) {
+                    if (isCollapsibleDisplayItem(item) && !item.hasRunning && !item.hasPendingPermission) {
                         next.add(item.id);
                     }
                 }
