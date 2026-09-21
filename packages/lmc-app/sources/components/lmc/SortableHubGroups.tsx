@@ -12,9 +12,9 @@ export interface SortableHubGroupsProps<T> {
     items: T[];
     getId: (item: T) => string;
     /**
-     * `handleProps` is meant for the one sub-element that should pick the
-     * whole group up — the hub header row, not the group at large, which
-     * still needs its own rows individually pressable/sortable.
+     * Mark the hub navigation header with `handleProps` so its button can
+     * also start a group drag. On Web the surrounding group space is a
+     * handle too; nested controls and worker sort rows are excluded.
      */
     renderItem: (item: T, handleProps: Record<string, unknown>) => React.ReactNode;
 }

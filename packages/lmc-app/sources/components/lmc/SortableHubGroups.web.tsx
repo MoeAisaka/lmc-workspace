@@ -8,9 +8,9 @@ import type { SortableHubGroupsProps } from './SortableHubGroups';
 /**
  * Same architecture as `SortableSessionRows.web.tsx` — a root that tracks the
  * pointer and per-item boxes for the shift animation. The root delegates
- * pointer-down only from a marked hub header: RN Web's Pressable filters out
- * onPointerDownCapture, so the handler must live on a real DOM element.
- * Worker rows keep their own sortable/bind gesture.
+ * pointer-down from the header and surrounding group space: RN Web's
+ * Pressable filters out onPointerDownCapture, so the handler lives on a real
+ * DOM element. Worker rows keep their own sortable/bind gesture.
  */
 type Drag = { id: string; pointer: number; from: number; to: number; dy: number; grab: number; y: number; phase: 'drag' | 'drop'; boxes: { id: string; top: number; height: number }[] };
 
@@ -90,7 +90,8 @@ export function SortableHubGroups<T>({ storageKey, items, getId, renderItem }: S
         return () => window.removeEventListener('keydown', cancelOnEscape);
     }, [drag?.phase]);
 
-    // Spread onto the one element that should pick a group up. The same
+    // Mark the navigation header separately from the wider group area so it
+    // remains a drag handle despite being a button itself. The same
     // `data-session-sort-id` marker the row-level sorter uses tells
     // useSessionRowMenu's touch handling to stand down for this press too, so
     // a long-press on the hub header drags the group instead of opening its
@@ -108,11 +109,15 @@ export function SortableHubGroups<T>({ storageKey, items, getId, renderItem }: S
                 const target = e.target as HTMLElement;
                 const handle = target.closest<HTMLElement>('[data-hub-sort-id]');
                 if (!handle || !e.currentTarget.contains(handle)) return;
-                // The header's nested menu button is a control, not a handle.
-                const control = target.closest('button, [role="button"], input, textarea, select, a');
-                if (control && control !== handle && handle.contains(control)) return;
                 const id = handle.dataset.hubSortId;
                 if (!id || !latestRows.current.some((row) => row.id === id)) return;
+                // Worker padding is also part of its own sortable row, even
+                // where there is no button. Never start both sorters at once.
+                const rowHandle = target.closest<HTMLElement>('[data-session-sort-id]');
+                if (rowHandle && rowHandle.dataset.hubSortId !== id) return;
+                // Nested controls keep their normal click/press behavior.
+                const control = target.closest('button, [role="button"], input, textarea, select, a');
+                if (control && control !== handle && handle.contains(control)) return;
                 clearTouch(); suppressClick.current = false;
                 touch.current = { id, pointer: e.pointerId, x: e.clientX, y: e.clientY, armed: false, target, pointerType: e.pointerType };
                 holdTimer.current = setTimeout(() => { const p = touch.current; if (p) { p.armed = true; setHeld(p.id); } }, SORT_HOLD_MS);
@@ -157,9 +162,12 @@ export function SortableHubGroups<T>({ storageKey, items, getId, renderItem }: S
                     <div
                         key={row.id}
                         ref={(node) => { if (node) elements.current.set(row.id, node); else elements.current.delete(row.id); }}
+                        data-hub-sort-id={row.id}
                         data-sort-active={selected || held === row.id}
                         style={{
                             position: 'relative',
+                            userSelect: 'none',
+                            WebkitTouchCallout: 'none',
                             zIndex: selected ? 2 : 0,
                             transform: `translateY(${shift}px)`,
                             transition: selected && drag?.phase === 'drag' ? 'box-shadow 150ms ease' : 'transform 180ms cubic-bezier(.2,.8,.2,1), box-shadow 180ms ease',

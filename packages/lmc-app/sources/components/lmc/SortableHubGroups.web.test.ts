@@ -41,7 +41,11 @@ describe('SortableHubGroups with RN Web Pressable', () => {
             renderItem: (item, handleProps) => React.createElement('section', { 'data-group': item.id },
                 React.createElement(Pressable, { ...handleProps, accessibilityRole: 'button' },
                     React.createElement('span', { 'data-header-text': item.id }, item.id),
+                    React.createElement('span', { 'data-metadata': item.id }, 'Device · Model'),
                     React.createElement('span', { role: 'button', 'data-menu': item.id }, 'Menu')),
+                React.createElement('div', { 'data-whitespace': item.id }),
+                React.createElement('span', { 'data-hint': item.id }, 'Drop here to bind'),
+                React.createElement('div', { 'data-session-sort-id': `worker-${item.id}`, 'data-worker-padding': item.id }),
                 React.createElement('button', { 'data-worker': item.id }, 'Worker')),
         })));
         // jsdom has no layout/pointer capture. Only those browser facilities
@@ -54,12 +58,12 @@ describe('SortableHubGroups with RN Web Pressable', () => {
         Object.defineProperty(container.firstElementChild, 'setPointerCapture', { value: () => {}, configurable: true });
     }
 
-    function pointer(target: Element, type: string, y = 10) {
+    function pointer(target: Element, type: string, y = 10, pointerType = 'mouse') {
         // Works with jsdom versions without PointerEvent, while retaining real
         // bubbling/capture and the actual descendant as event.target.
         const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: 20, clientY: y });
         Object.defineProperties(event, {
-            pointerId: { value: 1 }, pointerType: { value: 'mouse' }, isPrimary: { value: true },
+            pointerId: { value: 1 }, pointerType: { value: pointerType }, isPrimary: { value: true },
         });
         act(() => { target.dispatchEvent(event); });
     }
@@ -93,7 +97,32 @@ describe('SortableHubGroups with RN Web Pressable', () => {
         expect(sync.applySettings).toHaveBeenCalledExactlyOnceWith({ sessionProjectOrder: { 'lmc:hubs': ['H2', 'H3', 'H1'] } });
     });
 
-    it.each(['worker', 'menu'])('does not arm or sort from a nested %s control', (kind) => {
+    it.each(['group', 'whitespace', 'hint', 'metadata'])('sorts from the expanded %s area with a touch hold', (kind) => {
+        mount();
+        const target = container.querySelector(`[data-${kind}="H1"]`)!;
+        pointer(target, 'pointerdown', 10, 'touch');
+        act(() => vi.advanceTimersByTime(SORT_HOLD_MS + 1));
+        expect(target.closest('[data-sort-active]')?.getAttribute('data-sort-active')).toBe('true');
+        pointer(target, 'pointermove', 365, 'touch');
+        pointer(target, 'pointerup', 365, 'touch');
+        act(() => vi.runAllTimers());
+        expect(sync.applySettings).toHaveBeenCalledExactlyOnceWith({ sessionProjectOrder: { 'lmc:hubs': ['H2', 'H3', 'H1'] } });
+    });
+
+    it('leaves early movement on the expanded area available for scrolling', () => {
+        mount();
+        const target = container.querySelector('[data-hint="H1"]')!;
+        pointer(target, 'pointerdown', 10, 'touch');
+        pointer(target, 'pointermove', 30, 'touch');
+        act(() => vi.advanceTimersByTime(SORT_HOLD_MS + 1));
+        pointer(target, 'pointermove', 365, 'touch');
+        pointer(target, 'pointerup', 365, 'touch');
+        act(() => vi.runAllTimers());
+        expect(container.querySelector('[data-sort-active="true"]')).toBeNull();
+        expect(sync.applySettings).not.toHaveBeenCalled();
+    });
+
+    it.each(['worker', 'menu', 'worker-padding'])('does not arm or sort from a nested %s control', (kind) => {
         mount();
         const control = container.querySelector(`[data-${kind}="H1"]`)!;
         pickUp(control);
