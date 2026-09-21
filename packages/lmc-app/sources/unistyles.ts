@@ -113,6 +113,12 @@ if (Platform.OS === 'web') {
         // Unistyles switches themes internally. That class overrides its
         // media-query CSS even if the runtime already reports the right theme.
         document.documentElement.classList.remove('light', 'dark');
+        // In adaptive mode themeName reads matchMedia directly. It can already
+        // be correct while mounted useUnistyles consumers still hold the old
+        // theme after a missed browser event (sleep/background tab). Re-publish
+        // the active theme so navigation backgrounds and icons catch up with
+        // CSS variables; setTheme alone short-circuits when the names match.
+        UnistylesRuntime.updateTheme(themeName, current => ({ ...current }));
         const color = appThemes[themeName].colors.groupped.background;
         UnistylesRuntime.setRootViewBackgroundColor(color);
         SystemUI.setBackgroundColorAsync(color);

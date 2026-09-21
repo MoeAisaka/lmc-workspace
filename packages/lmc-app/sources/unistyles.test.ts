@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
         themeName: 'dark',
         setTheme: vi.fn(),
         setAdaptiveThemes: vi.fn(),
+        updateTheme: vi.fn(),
         setRootViewBackgroundColor: vi.fn(),
     },
 }));
@@ -50,6 +51,7 @@ describe('web theme resync uses the current preference', () => {
 
         expect(state.runtime.setTheme).not.toHaveBeenCalled();
         expect(state.runtime.setAdaptiveThemes).not.toHaveBeenCalled();
+        expect(state.runtime.updateTheme).not.toHaveBeenCalled();
         expect(state.runtime.setRootViewBackgroundColor).not.toHaveBeenCalled();
         expect(removeThemeClass).not.toHaveBeenCalled();
     });
@@ -76,5 +78,22 @@ describe('web theme resync uses the current preference', () => {
         expect(removeThemeClass).toHaveBeenCalledWith('light', 'dark');
         expect(state.runtime.setRootViewBackgroundColor).toHaveBeenCalledWith('#000');
         expect(state.runtime.setTheme).not.toHaveBeenCalled();
+    });
+
+    it.each(['light', 'dark'] as const)('notifies mounted theme consumers after a missed switch to %s', async (target) => {
+        await import('./unistyles');
+        // The runtime getter reads matchMedia live, even when the event that
+        // updates mounted useUnistyles consumers was lost while suspended.
+        state.system = target;
+        state.runtime.themeName = target;
+        vi.clearAllMocks();
+
+        documentEvents.dispatchEvent(new Event('visibilitychange'));
+
+        expect(state.runtime.updateTheme).toHaveBeenCalledWith(target, expect.any(Function));
+        const current = { colors: { surface: '#212121' } };
+        const refreshed = state.runtime.updateTheme.mock.calls[0][1](current);
+        expect(refreshed).toEqual(current);
+        expect(refreshed).not.toBe(current);
     });
 });
