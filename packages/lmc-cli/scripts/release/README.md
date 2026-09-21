@@ -36,3 +36,18 @@ on to already have stage-agent.py or rollout.mjs — that's why both ship inside
 the tarball under scripts/release instead of being fetched separately.
 
 Web export and publishing: [Web release guide](../../../lmc-app/scripts/release/README.md).
+
+## Document search dependencies (Agent 1.2.48+)
+
+Before staging an Agent that adds PDF/DOCX search, create a portable dependency
+bundle from the installed, lockfile-pinned packages:
+
+```sh
+node packages/lmc-cli/scripts/release/pack-document-deps.cjs "$PWD/packages/lmc-cli" /tmp/lmc-document-deps
+```
+
+Include its contents as `runtime-dependencies/` next to `dist`, `bin` and
+`package.json` in the release source directory. `stage-agent.py` copies these
+packages into the new release only, replacing inherited symlinks, and checks
+parser resolution before updating the catalog. The script uses `node` from PATH
+on both macOS and Linux. Keep the previous release and catalog backup for rollback.

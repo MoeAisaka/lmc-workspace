@@ -1,4 +1,5 @@
 import { ResourceReview } from '@/modules/common/resourceReview';
+import { searchSessionResources } from '@/modules/common/resourceSearch';
 import { join as joinResourcePath } from 'node:path';
 import { logger } from '@/ui/logger'
 import { EventEmitter } from 'node:events'
@@ -277,6 +278,9 @@ export class ApiSessionClient extends EventEmitter {
         });
         registerCommonHandlers(this.rpcHandlerManager, this.metadata.path);
         this.resourceReview=new ResourceReview(joinResourcePath(configuration.lmcHomeDir,'resource-reviews',encodeURIComponent(this.sessionId)));
+        const resourceRoot = this.metadata.path;
+        this.rpcHandlerManager.registerHandler('resource-search', async (data: unknown) =>
+            searchSessionResources(resourceRoot, scope => this.resourceReview.paths(scope), data));
         this.rpcHandlerManager.registerHandler('resource-review', async (data:{scope?:'all'|'turn'|'unseen';viewed?:number;before?:number})=>{
             if(data?.viewed!==undefined)await this.resourceReview.markViewed(data.viewed);
             return this.resourceReview.read(data?.scope==='turn'?'turn':data?.scope==='unseen'?'unseen':'all',data?.before);

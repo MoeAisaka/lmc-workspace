@@ -728,7 +728,7 @@ export const SessionView = React.memo((props: { id: string }) => {
                     <Text style={{flex:1,fontSize:15,fontWeight:'600',color:theme.colors.text}}>{resourceBrowser ? t('lmc.common.projectFiles') : t('lmc.common.resources')}</Text>
                     <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.common.closeResources')} onPress={() => setSidebarExpanded(false)} style={{padding:6}}><SidebarIcon name="close" size={20} color={theme.colors.textSecondary}/></Pressable>
                 </View>
-                {!resourceBrowser ? <SessionResourceWindow sessionId={sessionId} onOpen={(path) => { setSidebarExpanded(false); handleAllFilesFilePress(path); }} onBrowse={() => { openSidebarPanel('allFiles'); setResourceBrowser(true); }} /> : (
+                {!resourceBrowser ? <SessionResourceWindow key={sessionId} active={showSidebar} sessionId={sessionId} onOpen={(path) => { setSidebarExpanded(false); handleAllFilesFilePress(path); }} onBrowse={() => { openSidebarPanel('allFiles'); setResourceBrowser(true); }} /> : (
                 <View style={{ width: sidebarWidth, flex: 1 }}>
                     <FilesSidebar
                         sessionId={sessionId}

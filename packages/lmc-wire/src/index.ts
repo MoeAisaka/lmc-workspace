@@ -6,3 +6,4 @@ export * from './voice';
 export * from './rigMetadata';
 
 export * from './modelCatalog';
+export * from './resourceSearch';

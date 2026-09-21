@@ -22,9 +22,28 @@ for layer in layers:
    link=deps/item.name
    if link.is_symlink():link.unlink()
    if not link.exists():link.symlink_to(item.resolve())
+# A release may carry a portable overlay for newly introduced runtime packages.
+# Replace links inside this new release only; never mutate the previous release.
+overlay=source/'runtime-dependencies/node_modules'
+if overlay.is_dir():
+ for package in overlay.iterdir():
+  if not package.is_dir() or package.name.startswith('.'):continue
+  items=list(package.iterdir()) if package.name.startswith('@') else [package]
+  for item in items:
+   if not item.is_dir() or item.name.startswith('.'):continue
+   dest=deps/item.relative_to(overlay)
+   if dest.is_symlink():dest.unlink()
+   if dest.exists():raise SystemExit('Dependency overlay conflicts with '+str(dest))
+   dest.parent.mkdir(parents=True,exist_ok=True)
+   shutil.copytree(item,dest)
+node=shutil.which('node')
+if not node:raise SystemExit('node must be on PATH')
 # Parse and import the staged library before activating anything.
-subprocess.run(['/opt/homebrew/bin/node','--check',str(target/'dist/index.mjs')],check=True)
-subprocess.run(['/opt/homebrew/bin/node','--input-type=module','-e',"await import("+json.dumps(str(target/'dist/lib.mjs'))+"); console.log('staged library loaded')"],check=True)
+subprocess.run([node,'--check',str(target/'dist/index.mjs')],check=True)
+subprocess.run([node,'--input-type=module','-e',"await import("+json.dumps(str(target/'dist/lib.mjs'))+"); console.log('staged library loaded')"],check=True)
+if (target/'bin/resource-text-worker.mjs').exists():
+ # Resolve parser packages from the release itself, not the build workspace.
+ subprocess.run([node,'--input-type=module','-e',"import {createRequire} from 'node:module'; const r=createRequire("+json.dumps(str(target/'package.json'))+"); r.resolve('unpdf'); r.resolve('mammoth'); console.log('document parser dependencies resolved');"],check=True)
 release={'engine':'agent','version':json.loads((target/'package.json').read_text())['version'],'directory':str(target),'sha256':hashlib.sha256((target/'dist/index.mjs').read_bytes()).hexdigest()}
 # Catalog contains code release location and digest only.
 cat=home/'.lmc/agent/agent-release-catalog.json'

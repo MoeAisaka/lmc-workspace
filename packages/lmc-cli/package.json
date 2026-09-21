@@ -1,6 +1,6 @@
 {
   "name": "link-my-cli",
-  "version": "1.2.47",
+  "version": "1.2.48",
   "description": "Link my Cli device Agent for Codex and Claude Code",
   "author": "Kirill Dubovitskiy",
   "license": "MIT",
@@ -103,6 +103,7 @@
     "http-proxy-middleware": "^3.0.5",
     "ink": "^6.5.1",
     "inquirer": "^13.2.2",
+    "mammoth": "1.12.3",
     "open": "^10.2.0",
     "ps-list": "^8.1.1",
     "qrcode-terminal": "^0.12.0",
@@ -111,6 +112,7 @@
     "tar": "^7.5.2",
     "tmp": "^0.2.5",
     "tweetnacl": "^1.0.3",
+    "unpdf": "1.7.0",
     "ws": "^8.19.0",
     "zod": "^4.0.0"
   },

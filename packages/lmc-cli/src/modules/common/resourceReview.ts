@@ -38,6 +38,10 @@ export class ResourceReview{
  async flush(){await this.pending;}
  private async load():Promise<ReviewData>{try{return JSON.parse(await readFile(join(this.directory,'index.json'),'utf8'));}catch(e:any){if(e.code==='ENOENT')return {revision:0,viewed:0,turn:'',entries:[]};throw e;}}
  private async save(data:ReviewData){await mkdir(this.directory,{recursive:true,mode:0o700});const temp=join(this.directory,randomUUID()+'.tmp');await writeFile(temp,JSON.stringify(data),{mode:0o600});await rename(temp,join(this.directory,'index.json'));}
+ async paths(scope:'all'|'turn'|'unseen'):Promise<string[]>{
+  await this.pending;const data=await this.load();
+  return [...new Set(data.entries.filter(e=>scope==='all'||scope==='turn'&&e.turn===data.turn||scope==='unseen'&&e.revision>data.viewed).flatMap(e=>[e.path,...(e.destination?[e.destination]:[])]))];
+ }
  observe(envelope:SessionEnvelope):Promise<void>{
   const changes=reviewChanges(envelope);
   if(!changes.length&&envelope.ev.t!=='turn-start')return Promise.resolve();
@@ -65,7 +69,8 @@ export class ResourceReview{
    const patch=e.patchFile&&/^\d+\.txt$/.test(e.patchFile)?await readFile(join(this.directory,e.patchFile),'utf8'):e.patch;
    return {...e,patch:patch.length>12000?patch.slice(0,12000)+'\n[预览已截断，请打开文件查看]':patch};
   }));
-  return {cursor:data.revision,paths:[...new Set(data.entries.flatMap(e=>[e.path,...(e.destination?[e.destination]:[])]))],entries,olderCursor:selected.length>20?page[0].revision:undefined};
+  const scopePaths=[...new Set(data.entries.filter(e=>scope==='all'||scope==='turn'&&e.turn===data.turn||scope==='unseen'&&e.revision>data.viewed).flatMap(e=>[e.path,...(e.destination?[e.destination]:[])]))];
+  return {cursor:data.revision,paths:[...new Set(data.entries.flatMap(e=>[e.path,...(e.destination?[e.destination]:[])]))],scopePaths,entries,olderCursor:selected.length>20?page[0].revision:undefined};
  }
  markViewed(cursor:number):Promise<void>{
   const action=this.pending.then(async()=>{const data=await this.load();if(!Number.isSafeInteger(cursor)||cursor<0||cursor>data.revision)throw new Error('无效的审阅位置');data.viewed=Math.max(data.viewed,cursor);await this.save(data);});this.pending=action.catch(()=>{});return action;
