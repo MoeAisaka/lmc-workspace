@@ -15,4 +15,6 @@ The browser runner uses the exported production components, theme system, fonts 
 
 Checks cover serial/parallel timing, details, fold/unfold, final-answer visibility, live elapsed time, stale records, failure and permission states, mobile width and theme switching. Unit tests cover the message grouping and timestamp rules. Native iOS/Android and live provider transport are outside this browser check.
 
+D19 checks also cover 40px desktop / 44px mobile rows, distinct operation icons that stay visible while running, trailing status and elapsed time, exceptional-state explanations, and a 320px viewport. Regular rows use one line; the full command or file detail remains available by opening the step.
+
 The current transcript stores tool start/end timestamps but does not preserve authoritative full-turn boundaries. The `Worked ≈ …` total is therefore an estimate from visible work through the final reply. Missing tool durations remain “Not recorded”; only explicit overlapping execution intervals establish parallel groups. No backend or Agent upgrade is needed.
