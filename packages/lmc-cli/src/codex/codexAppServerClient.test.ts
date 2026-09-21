@@ -136,6 +136,25 @@ describe('CodexAppServerClient sandbox integration', () => {
         process.env.RUST_LOG = originalRustLog;
     });
 
+    it('reads account quota and forwards updates independently of thread events', async () => {
+        const payload = {rateLimits:{limitId:'codex',primary:{usedPercent:42,windowDurationMins:300}}};
+        let proc: ReturnType<typeof createMockProcess>;
+        mockSpawn.mockImplementation(() => proc = createMockProcess({onRequest:(msg,stdout)=>{
+            if (msg.method === 'account/rateLimits/read') pushJsonLine(stdout,{id:msg.id,result:payload});
+        }}));
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        const handler = vi.fn();
+        client.setRateLimitsHandler(handler);
+        await client.connect();
+        try {
+            expect(await client.readRateLimits()).toEqual(payload);
+            pushJsonLine(proc!.stdout, {method:'account/rateLimits/updated',params:payload});
+            await waitFor(()=>handler.mock.calls.length === 1);
+            expect(handler).toHaveBeenCalledWith(payload);
+        } finally {await client.disconnect();}
+    });
+
     it.each(['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const)('transmits Astra %s from session state through the real RPC serializer', async (effort) => {
         const { CodexRemoteModeState } = await import('./remoteModeState');
         const requests: MockRpcMessage[] = [];

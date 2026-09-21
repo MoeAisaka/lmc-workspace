@@ -1,3 +1,4 @@
+import { codexUsageLimits } from './usageLimits';
 import { engineCapabilities } from '@/runtime/managedRuntime';
 import { registerEngineAuth, isEngineAuthError } from '@/utils/engineAuth';
 import { reportSessionRefreshFailure } from './reportSessionRefreshFailure';
@@ -906,6 +907,28 @@ export async function runCodex(opts: {
         }
     });
 
+    let quotaStopped = false;
+    let quotaPolling = false;
+    let quotaRevision = 0;
+    const publishQuota = (value: unknown) => {
+        const limits = codexUsageLimits(value);
+        if (!quotaStopped && limits) {
+            session.updateAgentState(state => ({ ...state, usageLimits: limits }));
+        }
+    };
+    client.setRateLimitsHandler(value => { quotaRevision++; publishQuota(value); });
+    const refreshQuota = async () => {
+        if (quotaStopped || quotaPolling) return;
+        quotaPolling = true;
+        const revision = quotaRevision;
+        try {
+            const value = await client.readRateLimits();
+            if (revision === quotaRevision) publishQuota(value);
+        } catch { /* Older servers and API-key accounts may not expose plan limits. */ }
+        finally { quotaPolling = false; }
+    };
+    let quotaTimer: ReturnType<typeof setInterval> | undefined;
+
     // Event handler: same EventMsg types as the legacy MCP server — no changes needed
     client.setEventHandler((msg) => {
         logger.debug(`[Codex] Event: ${JSON.stringify(msg)}`);
@@ -1126,6 +1149,9 @@ export async function runCodex(opts: {
         logger.debug('[codex]: client.connect begin');
         await client.connect();
         logger.debug('[codex]: client.connect done');
+        void refreshQuota();
+        quotaTimer = setInterval(() => { void refreshQuota(); }, 30_000);
+        quotaTimer.unref();
 
         if (opts.resumeThreadId) {
             await resumeExistingThread({
@@ -1477,6 +1503,8 @@ export async function runCodex(opts: {
         throw error;
     } finally {
         // Clean up resources when main loop exits
+        quotaStopped = true;
+        if (quotaTimer) clearInterval(quotaTimer);
         logger.debug('[codex]: Final cleanup start');
         logActiveHandles('cleanup-start');
 

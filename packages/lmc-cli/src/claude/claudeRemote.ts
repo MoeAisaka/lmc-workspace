@@ -182,28 +182,26 @@ export async function claudeRemote(opts: {
         });
     }
 
-    // Plan rate-limit accumulation: events are buffered and flushed once per
-    // result (coalescing agent-state writes to at most one per turn). The seed
-    // runs on the first result of this invocation — the Query object does not
-    // exist before the first user message, so there is no session-start hook.
+    // Refresh full quota snapshots while the query lives, including idle time.
+    // Push events are published immediately; they often omit percentages.
     const pendingUsageWindows = new Map<string, UsageLimitWindow>();
     let pendingUnbound: UnboundRateLimit | null = null;
-    let usageSeeded = false;
+    let lastUsagePull = -Infinity;
     let lastUsageSignature: string | null = null;
     let lastUsageEmittedAt = 0;
     // Identical data still gets re-written occasionally so the snapshot's
     // capturedAt (the app's "as of" footer) doesn't misreport freshness.
-    const USAGE_REFRESH_INTERVAL_MS = 5 * 60_000;
+    const USAGE_REFRESH_INTERVAL_MS = 30_000;
     const flushUsageLimits = async () => {
         if (!opts.onUsageLimits) return;
         let seededThisFlush = false;
-        if (!usageSeeded) {
-            usageSeeded = true;
+        if (Date.now() - lastUsagePull >= 30_000) {
+            lastUsagePull = Date.now();
             // typeof-gated: the method is experimental and absent in older SDKs.
             const usageFn = (response as any).usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
             if (typeof usageFn === 'function') {
                 try {
-                    const usage = await usageFn.call(response);
+                    const usage = await usageFn.call(response, { skipBehaviors: true });
                     if (usage?.rate_limits_available && usage.rate_limits) {
                         for (const w of windowsFromGetUsage(usage.rate_limits)) {
                             // Events are fresher than the seed for the same
@@ -224,7 +222,7 @@ export async function claudeRemote(opts: {
                         seededThisFlush = true;
                     }
                 } catch (e) {
-                    logger.debug('[claudeRemote] usage seed failed (ignored)', e);
+                    logger.debug('[claudeRemote] usage refresh unavailable');
                 }
             }
         }
@@ -243,19 +241,21 @@ export async function claudeRemote(opts: {
         if (signature === lastUsageSignature && Date.now() - lastUsageEmittedAt < USAGE_REFRESH_INTERVAL_MS) return;
         lastUsageSignature = signature;
         lastUsageEmittedAt = Date.now();
-        opts.onUsageLimits(patch);
+        if (!usageStopped) opts.onUsageLimits(patch);
     };
-    // Serialized: a second result must not interleave with a flush that is
-    // still awaiting the seed, or it would drain the buffer mid-merge and
-    // emit a second, out-of-order patch.
-    let usageFlushChain: Promise<void> = Promise.resolve();
+    // Coalesce refreshes instead of queueing polls behind a slow provider.
+    let usageFlushRunning = false;
+    let usageStopped = false;
     const scheduleUsageFlush = () => {
-        usageFlushChain = usageFlushChain
-            .then(flushUsageLimits)
-            .catch((e) => {
-                logger.debug('[claudeRemote] usage flush failed (ignored)', e);
-            });
+        if (usageStopped || usageFlushRunning) return;
+        usageFlushRunning = true;
+        void flushUsageLimits().catch(() => {
+            logger.debug('[claudeRemote] usage refresh unavailable');
+        }).finally(() => { usageFlushRunning = false; });
     };
+    const usageTimer = opts.onUsageLimits ? setInterval(scheduleUsageFlush, 30_000) : null;
+    usageTimer?.unref();
+    scheduleUsageFlush();
 
     updateThinking(true);
     try {
@@ -314,7 +314,7 @@ export async function claudeRemote(opts: {
                 }
             }
 
-            // Buffer plan rate-limit events; flushed on the next result
+            // Publish provider events without waiting for the turn to finish
             if (message.type === 'rate_limit_event') {
                 const info = (message as { rate_limit_info?: RateLimitEventInfo }).rate_limit_info;
                 if (info) {
@@ -326,6 +326,8 @@ export async function claudeRemote(opts: {
                     }
                 }
             }
+
+            if (message.type === 'rate_limit_event') scheduleUsageFlush();
 
             // Handle result messages
             if (message.type === 'result') {
@@ -385,6 +387,8 @@ export async function claudeRemote(opts: {
             throw e;
         }
     } finally {
+        usageStopped = true;
+        if (usageTimer) clearInterval(usageTimer);
         updateThinking(false);
     }
 }

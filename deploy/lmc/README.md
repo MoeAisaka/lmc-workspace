@@ -141,3 +141,11 @@ ends, stop writes, cut over, and keep the old entry point available to roll back
 ---
 
 [中文说明](README.zh-CN.md)
+
+### Trusted reverse proxies
+
+Login rate limits use the client IP. By default only loopback proxies
+(`127.0.0.1/32,::1/128`) may supply forwarded addresses. For a container network,
+set `LMC_TRUSTED_PROXIES` to the actual proxy address/CIDR (comma-separated).
+An empty value disables proxy trust. Do not use a catch-all CIDR; configure the
+proxy to overwrite forwarded headers from untrusted clients.

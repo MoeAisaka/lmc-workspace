@@ -1,4 +1,5 @@
 import fastify from "fastify";
+import { trustedProxies } from "@/lmc/trustedProxies";
 import { isProduction, log, logger } from "@/utils/log";
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from "fastify-type-provider-zod";
 import { onShutdown } from "@/utils/shutdown";
@@ -42,6 +43,7 @@ export async function startApi(opts: StartApiOptions = {}) {
     // Start API
     const app = fastify({
         loggerInstance: logger,
+        trustProxy: trustedProxies(),
         disableRequestLogging: isProduction,
         bodyLimit: 1024 * 1024 * 100, // 100MB
     });

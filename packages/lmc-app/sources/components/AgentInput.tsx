@@ -1016,7 +1016,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         const week = rows.find((row) => row.id === 'seven_day') ?? null;
         return { session, week };
     }, [props.sessionStatusUsageLimits]);
-    const weekPercent = usageRows.week?.utilization != null && (props.alwaysShowContextSize || contextStatus != null)
+    const weekPercent = usageRows.week?.utilization != null
         ? getUsageLimitDisplayPercentage(usageRows.week.utilization, usageLimitShowRemaining)
         : null;
     const usageMenuOptions = React.useMemo<NativeSettingsMenuOption[]>(() => {

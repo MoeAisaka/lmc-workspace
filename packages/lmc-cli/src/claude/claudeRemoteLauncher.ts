@@ -30,7 +30,7 @@ import { getToolName } from "./utils/getToolName";
 import { getAskUserQuestionToolCallIds } from "./utils/questionNotification";
 import { launchFailureMessage } from "./utils/launchFailureMessage";
 import { cleanupStdinAfterInk } from "@/utils/terminalStdinCleanup";
-import type { MessageParam, ContentBlockParam } from '@anthropic-ai/sdk/resources';
+import type { ContentBlockParam } from '@anthropic-ai/sdk/resources';
 import { saveAttachmentsToInbox, formatInboxNote } from '@/modules/common/attachmentInbox';
 import { watchSessionConfiguration } from '@/modules/orchestration/workerConfig';
 import { normalizeRemotePermissionMode } from './utils/permissionMode';
@@ -126,7 +126,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
 
     // True only before input is consumed or after the SDK emits a result.
     let safeIdle = true;
-    let pending: { message: MessageParam['content']; mode: EnhancedMode } | null = null;
+    let pending: Awaited<ReturnType<typeof session.queue.waitForMessagesAndGetAsString>> = null;
     let backgroundTasks: BackgroundTasks = new Map();
 
     // Create permission handler
@@ -483,24 +483,18 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                     },
                     nextMessage: async () => {
                         if (exitReason) return null;
-                        if (pending) {
-                            safeIdle = false;
-                            let p = pending;
-                            pending = null;
-                            const latest = session.getRefreshSettings();
-                            if (Object.prototype.hasOwnProperty.call(latest, 'permissionMode')) p.mode = { ...p.mode, permissionMode: normalizeRemotePermissionMode(latest.permissionMode) };
-                            await permissionHandler.handleModeChange(p.mode.permissionMode);
-                            return p;
-                        }
-
-                        let msg = await session.queue.waitForMessagesAndGetAsString(controller.signal);
+                        // A batch carried across a query restart must go through the
+                        // same attachment preparation and initialize the new mode hash.
+                        const carried = pending;
+                        pending = null;
+                        let msg = carried ?? await session.queue.waitForMessagesAndGetAsString(controller.signal);
 
                         // Check if mode has changed
                         if (msg) {
                             safeIdle = false;
                             const latest = session.getRefreshSettings();
                             if (Object.prototype.hasOwnProperty.call(latest, 'permissionMode')) msg.mode = { ...msg.mode, permissionMode: normalizeRemotePermissionMode(latest.permissionMode) };
-                            if ((modeHash && msg.hash !== modeHash) || msg.isolate) {
+                            if ((modeHash && msg.hash !== modeHash) || (msg.isolate && !carried)) {
                                 logger.debug('[remote]: mode has changed, pending message');
                                 pending = msg;
                                 return null;

@@ -261,6 +261,7 @@ export class CodexAppServerClient {
     // Handlers set by the consumer (runCodex.ts)
     private eventHandler: ((msg: EventMsg) => void) | null = null;
     private approvalHandler: ApprovalHandler | null = null;
+    private rateLimitsHandler: ((value: unknown) => void) | null = null;
 
     private serviceTier?: CodexServiceTier;
     private contextLimits: CodexContextLimits;
@@ -285,6 +286,14 @@ export class CodexAppServerClient {
 
     setEventHandler(handler: (msg: EventMsg) => void): void {
         this.eventHandler = handler;
+    }
+
+    setRateLimitsHandler(handler: (value: unknown) => void): void {
+        this.rateLimitsHandler = handler;
+    }
+
+    async readRateLimits(): Promise<unknown> {
+        return this.request('account/rateLimits/read', {}, 10_000);
     }
 
     setApprovalHandler(handler: ApprovalHandler): void {
@@ -1636,6 +1645,10 @@ export class CodexAppServerClient {
     }
 
     private handleNotification(method: string, params: any): void {
+        if (method === 'account/rateLimits/updated') {
+            this.rateLimitsHandler?.(params);
+            return;
+        }
         const lifecycle = method === 'turn/started' || method === 'turn/completed'
             || method === 'thread/status/changed';
         const threadId = params?.threadId ?? params?.thread_id;

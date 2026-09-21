@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { scriptJson } from './scriptJson';
 import { View, Platform, Text } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -109,7 +110,7 @@ export const MermaidRenderer = React.memo((props: {
 
     // For iOS/Android, use WebView
     // Pass mermaid content via JSON to prevent XSS from HTML interpolation
-    const mermaidContent = JSON.stringify(props.content);
+    const mermaidContent = scriptJson(props.content);
     const html = `
         <!DOCTYPE html>
         <html>
@@ -187,11 +188,13 @@ export const MermaidRenderer = React.memo((props: {
             <View style={[style.innerContainer, { height: Math.min(dimensions.height, MAX_DIAGRAM_HEIGHT) }]}>
                 <WebView
                     source={{ html }}
+                    onShouldStartLoadWithRequest={request => request.url === 'about:blank'}
                     style={{ flex: 1 }}
                     scrollEnabled={true}
                     onMessage={(event) => {
-                        const data = JSON.parse(event.nativeEvent.data);
-                        if (data.type === 'dimensions') {
+                        let data;
+                        try { data = JSON.parse(event.nativeEvent.data); } catch { return; }
+                        if (data?.type === 'dimensions' && typeof data.height === 'number' && Number.isFinite(data.height) && data.height > 0) {
                             setDimensions(prev => ({
                                 ...prev,
                                 height: Math.max(prev.height, data.height)

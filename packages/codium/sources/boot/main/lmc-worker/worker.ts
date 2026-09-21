@@ -27,6 +27,7 @@ type StoredCredentials = {
 }
 
 type LinkFlow = {
+    pollSecret: string
     keypair: tweetnacl.BoxKeyPair
     authUrl: string
     publicKey: string
@@ -198,14 +199,17 @@ async function startLinkDevice(requestId: string): Promise<void> {
         const publicKey = encodeBase64(keypair.publicKey, 'base64url')
         const flow: LinkFlow = {
             keypair,
+            pollSecret: randomBytes(32).toString('base64url'),
             publicKey,
             // Browser link on the centre's own origin — see lmc-app's accountLinkUrl.
-            authUrl: `${serverUrl.replace(/\/$/, '')}/account/connect#key=${publicKey}`,
+            authUrl: `${config.serverUrl.replace(/\/$/, '')}/terminal/connect#key=${publicKey}`,
             startedAt: Date.now(),
             cancelled: false,
         }
-        await apiJson('/v1/auth/account/request', {
+        await apiJson('/v1/auth/request', {
             publicKey: encodeBase64(keypair.publicKey),
+            pollSecret: flow.pollSecret,
+            supportsV2: false,
         })
         linkFlow = flow
         setState({
@@ -231,8 +235,10 @@ async function startLinkDevice(requestId: string): Promise<void> {
 async function pollLinkFlow(flow: LinkFlow): Promise<void> {
     while (!flow.cancelled && linkFlow === flow) {
         try {
-            const data = await apiJson('/v1/auth/account/request', {
+            const data = await apiJson('/v1/auth/request', {
                 publicKey: encodeBase64(flow.keypair.publicKey),
+                pollSecret: flow.pollSecret,
+                supportsV2: false,
             })
             if (data.state === 'authorized') {
                 if (typeof data.token !== 'string' || typeof data.response !== 'string') {

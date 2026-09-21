@@ -162,3 +162,56 @@ describe('claudeRemote', () => {
         }));
     });
 });
+
+it('refreshes quota before the first result, retries errors, and stops polling on exit', async () => {
+    vi.useFakeTimers();
+    let finish!: () => void;
+    const gate = new Promise<void>(resolve => { finish = resolve; });
+    const read = vi.fn()
+        .mockRejectedValueOnce(new Error('temporarily unavailable'))
+        .mockResolvedValueOnce({ rate_limits_available: true, rate_limits: { seven_day: { utilization: 20, resets_at: null } } })
+        .mockResolvedValue({ rate_limits_available: true, rate_limits: { seven_day: { utilization: 35, resets_at: null } } });
+    vi.mocked(query).mockReturnValue({
+        usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET: read,
+        async *[Symbol.asyncIterator]() { await gate; },
+    } as any);
+    const onUsageLimits = vi.fn();
+    const running = claudeRemote({
+        sessionId: null, path: process.cwd(), allowedTools: [], hookSettingsPath: '/tmp/unused-settings.json',
+        nextMessage: async () => ({message:'first',mode}),
+        onReady: vi.fn(), canCallTool: async () => ({behavior:'allow'} as any),
+        isAborted:()=>false, onSessionFound:vi.fn(),onMessage:vi.fn(),onThinkingChange:vi.fn(),onUsageLimits,
+    });
+    try {
+        await vi.advanceTimersByTimeAsync(0);
+        expect(read).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(onUsageLimits.mock.calls.at(-1)?.[0].windows[0].utilization).toBe(20);
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(onUsageLimits.mock.calls.at(-1)?.[0].windows[0].utilization).toBe(35);
+        finish(); await running;
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(read).toHaveBeenCalledTimes(3);
+    } finally { finish(); await running; vi.useRealTimers(); }
+});
+
+it('publishes pushed quota during a turn without a result or usage API', async () => {
+    let finish!: () => void;
+    const gate = new Promise<void>(resolve => { finish = resolve; });
+    const onUsageLimits = vi.fn();
+    vi.mocked(query).mockReturnValue({
+        async *[Symbol.asyncIterator]() {
+            yield { type:'rate_limit_event', rate_limit_info:{status:'allowed',rateLimitType:'seven_day',utilization:0.42} };
+            await gate;
+        },
+    } as any);
+    const running = claudeRemote({
+        sessionId:null,path:process.cwd(),allowedTools:[],hookSettingsPath:'/tmp/unused-settings.json',
+        nextMessage:async()=>({message:'first',mode}),onReady:vi.fn(),canCallTool:async()=>({behavior:'allow'} as any),
+        isAborted:()=>false,onSessionFound:vi.fn(),onMessage:vi.fn(),onThinkingChange:vi.fn(),onUsageLimits,
+    });
+    try {
+        await vi.waitFor(()=>expect(onUsageLimits).toHaveBeenCalled());
+        expect(onUsageLimits.mock.calls[0][0].windows[0].utilization).toBe(42);
+    } finally {finish();await running;}
+});

@@ -1,0 +1,21 @@
+import { it, expect } from 'vitest';
+import fs from 'node:fs';
+import ts from 'typescript';
+it('prepares carried attachments and detects the next model switch', async () => {
+const path=new URL('./claudeRemoteLauncher.ts', import.meta.url);
+const sf=ts.createSourceFile(path.pathname,fs.readFileSync(path,'utf8'),ts.ScriptTarget.Latest,true);let arrow = '';
+function visit(n: ts.Node){if(ts.isPropertyAssignment(n)&&n.name.getText(sf)==='nextMessage')arrow=n.initializer.getText(sf);ts.forEachChild(n,visit);}visit(sf);expect(arrow).toBeTruthy();
+const body=ts.transpileModule(`let exitReason=null,pending=null,safeIdle=true,modeHash='old',mode=null;const controller=new AbortController();const next=${arrow};return {next,restart:()=>{modeHash=null;mode=null;}}`,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
+let saves=0;const batches=[{message:'inspect attached image',hash:'new-model',mode:{model:'new-model'},attachments:[{name:'example.png',data:new Uint8Array([1]),mimeType:'image/png'}]}, {message:'switch back',hash:'old',mode:{model:'old'}}];
+const session={queue:{waitForMessagesAndGetAsString:async()=>batches.shift()},getRefreshSettings:()=>({}),client:{sessionId:'audit'},path:'/tmp'};
+const factory=new Function('session','permissionHandler','logger','saveAttachmentsToInbox','formatInboxNote','detectClaudeImageMime',body);
+const run=factory(session,{handleModeChange:async()=>{}},{debug:()=>{}},async()=>{saves++;return []},()=>'',()=> 'image/png');
+expect(await run.next()).toBeNull();
+run.restart();
+const initial = await run.next();
+expect(saves).toBe(1);
+expect(initial.message[0].type).toBe('image');
+expect(await run.next()).toBeNull();
+run.restart();
+expect((await run.next()).mode.model).toBe('old');
+});
