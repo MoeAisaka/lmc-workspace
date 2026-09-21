@@ -1,3 +1,4 @@
+import { cachedDefaultEffort } from '@/runtime/modelCatalogCache';
 import { codexUsageLimits } from './usageLimits';
 import { engineCapabilities } from '@/runtime/managedRuntime';
 import { registerEngineAuth, isEngineAuthError } from '@/utils/engineAuth';
@@ -135,7 +136,8 @@ export async function runCodex(opts: {
 }): Promise<'stopped' | 'refresh-handoff'> {
     let serviceTier = validateCodexServiceTier(opts.codexServiceTier);
     let contextLimits = validateCodexContextLimits(opts.codexContextLimits);
-    assertCodexModelEffort(opts.model ?? DEFAULT_CODEX_MODEL, opts.effort ?? DEFAULT_CODEX_EFFORT);
+    const initialEffort = opts.effort ?? cachedDefaultEffort('codex', opts.model ?? DEFAULT_CODEX_MODEL, DEFAULT_CODEX_EFFORT) as ReasoningEffort | undefined;
+    assertCodexModelEffort(opts.model ?? DEFAULT_CODEX_MODEL, initialEffort);
 
     // Early check: ensure Codex CLI is installed before proceeding
     try {
@@ -208,7 +210,7 @@ export async function runCodex(opts: {
 
     metadata.sessionConfiguration = true;
     metadata.modelMode = opts.model ?? DEFAULT_CODEX_MODEL;
-    metadata.effortLevel = opts.effort ?? DEFAULT_CODEX_EFFORT;
+    metadata.effortLevel = initialEffort;
     metadata.permissionMode = initialPermissionMode;
     metadata.permissionModeSource = opts.permissionMode ? 'explicit' : 'ambient';
     metadata.sessionCapabilities = engineCapabilities('codex');
@@ -339,7 +341,7 @@ export async function runCodex(opts: {
     const remoteModeState = new CodexRemoteModeState({
         permissionMode: initialPermissionMode,
         model: opts.model ?? DEFAULT_CODEX_MODEL,
-        effort: opts.effort ?? DEFAULT_CODEX_EFFORT,
+        effort: initialEffort,
     });
     attachConfiguration = nextSession => {
         stopWatchingConfiguration?.();

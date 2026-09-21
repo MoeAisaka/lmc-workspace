@@ -680,7 +680,7 @@ class Sync {
 
         let modeMeta: ReturnType<typeof resolveMessageModeMeta>;
         try {
-            modeMeta = resolveMessageModeMeta(session, storage.getState().settings);
+            modeMeta = resolveMessageModeMeta(session, storage.getState().settings, storage.getState().machines[session.metadata?.machineId ?? '']?.metadata);
         } catch (error) {
             if (error instanceof UnsupportedPermissionModeError || error instanceof UnsupportedCodexEffortError) {
                 // Refuse loudly instead of substituting a mode: swapping in a

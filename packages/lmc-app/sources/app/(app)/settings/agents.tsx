@@ -6,7 +6,7 @@ import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import {
     getEffortLevelsForModel,
-    getHardcodedModelModes,
+    getAvailableModels,
     getHardcodedPermissionModes,
     type ModeOption,
 } from '@/components/modelModeOptions';
@@ -64,6 +64,13 @@ export default function AgentsSettingsScreen() {
     const router = useRouter();
     const [agentDefaultOverrides, setAgentDefaultOverrides] = useSettingMutable('agentDefaultOverrides');
     const machines = useAllMachines({ includeOffline: true });
+    const catalogMetadata = React.useMemo(() => ({
+        path: '', host: '',
+        modelCatalogs: Object.fromEntries((['claude', 'codex'] as const).map(engine => [engine,
+            machines.map(machine => machine.metadata?.modelDiscovery ? machine.metadata.modelCatalogs?.[engine] : undefined)
+                .filter(catalog => catalog !== undefined).sort((a, b) => b.capturedAt - a.capturedAt)[0],
+        ])),
+    }), [machines]);
     const machineChoices = React.useMemo(() => (
         collectMachineChoices(machines).sort((left, right) => (
             Number(right.online) - Number(left.online)
@@ -207,8 +214,8 @@ export default function AgentsSettingsScreen() {
                     const codeDefaults = getCodeAgentDefaults(agent);
                     const effectiveDefaults = resolveAgentDefaultConfig(agentDefaultOverrides, agent);
                     const permissionOptions = getHardcodedPermissionModes(agent, t);
-                    const modelOptions = getHardcodedModelModes(agent, t).filter((option) => option.key !== 'default');
-                    const effortOptions = getEffortLevelsForModel(agent, effectiveDefaults.modelMode, undefined, t);
+                    const modelOptions = getAvailableModels(agent, catalogMetadata, t, effectiveDefaults.modelMode).filter((option) => option.key !== 'default');
+                    const effortOptions = getEffortLevelsForModel(agent, effectiveDefaults.modelMode, catalogMetadata, t);
                     const fields: FieldConfig[] = [
                         {
                             field: 'permissionMode',

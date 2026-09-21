@@ -1,3 +1,4 @@
+import { findCatalogModel, type ModelCatalogs } from 'lmc-wire';
 import type { Metadata } from '@/sync/storageTypes';
 import { hackModes } from '@/sync/modeHacks';
 import { sortPermissionModes } from '@/utils/permissionModeLabels';
@@ -420,6 +421,16 @@ export function getAvailableModels(
         }
         return models;
     }
+    const catalog = flavor === 'claude' || flavor === 'codex' ? metadata?.modelCatalogs?.[flavor] : undefined;
+    if (catalog?.models.length) {
+        const models = catalog.models.map(model => ({ key: model.id, name: model.name, description: model.description ?? null }));
+        if (selectedKey && selectedKey !== 'default' && !isForeignModelKey(selectedKey, flavor) && !models.some(model => model.key === selectedKey)) {
+            const selected = findCatalogModel(catalog, selectedKey);
+            models.push({key: selectedKey, name: selected?.name ?? selectedKey, description: selected?.description ?? null});
+        }
+        if (selectedKey === 'default') models.push({ key: 'default', name: translate('localFeatures.defaultLabel'), description: null });
+        return models;
+    }
     const metadataModels = mapMetadataOptions(metadata?.models);
     if (metadataModels.length > 0) {
         if (flavor === 'codex' && !metadataModels.some((model) => model.key === 'default')) {
@@ -563,11 +574,18 @@ export class UnsupportedCodexEffortError extends Error {
     }
 }
 
-export function assertCodexModelEffort(model: string | null | undefined, effort: string | null | undefined): void {
-    const levels = model && Object.hasOwn(CODEX_EFFORTS_BY_MODEL, model) ? CODEX_EFFORTS_BY_MODEL[model] : undefined;
+export function assertCodexModelEffort(model: string | null | undefined, effort: string | null | undefined, catalogs?: ModelCatalogs): void {
+    const levels = findCatalogModel(catalogs?.codex, model)?.efforts ?? (model && Object.hasOwn(CODEX_EFFORTS_BY_MODEL, model) ? CODEX_EFFORTS_BY_MODEL[model] : undefined);
     if (levels && effort != null && !levels.includes(effort)) {
         throw new UnsupportedCodexEffortError(model!, effort, levels);
     }
+}
+
+/** Validate advertised capabilities for either engine; unknown custom models remain provider-owned. */
+export function assertModelEffort(flavor: AgentFlavor, model: string | null | undefined, effort: string | null | undefined, catalogs?: ModelCatalogs): void {
+    if (flavor === 'codex') return assertCodexModelEffort(model, effort, catalogs);
+    const levels = flavor === 'claude' ? findCatalogModel(catalogs?.claude, model)?.efforts : undefined;
+    if (levels && effort != null && !levels.includes(effort)) throw new UnsupportedCodexEffortError(model!, effort, levels);
 }
 
 // Keep an incompatible saved choice visible so validation can explain how to
@@ -577,7 +595,7 @@ export function preserveCodexEffortSelection(
     selected: string | null | undefined,
     resolved: EffortLevel | null,
 ): EffortLevel | null {
-    if (flavor === 'codex' && selected != null && resolved?.key !== selected) {
+    if ((flavor === 'codex' || flavor === 'claude') && selected != null && resolved?.key !== selected) {
         return { key: selected, name: effortDisplayName(selected) };
     }
     return resolved;
@@ -621,6 +639,10 @@ export function getEffortLevelsForModel(
             name: effortDisplayName(level),
         }));
     }
+    if (flavor === 'claude' || flavor === 'codex') {
+        const model = findCatalogModel(metadata?.modelCatalogs?.[flavor], modelKey);
+        if (model?.efforts !== undefined) return effortLevels(model.efforts);
+    }
     // Claude's effort scale is a property of the SDK rather than of the model:
     // one union for every model, and a level the chosen model cannot reach is
     // silently downgraded rather than rejected (sdk.d.ts:174). Codex is the
@@ -649,4 +671,11 @@ export function getDefaultEffortKeyForModel(flavor: AgentFlavor, modelKey: strin
 export function getSupportsWorktree(flavor: AgentFlavor): boolean {
     if (flavor === 'openclaw') return false;
     return true;
+}
+
+export function getCatalogDefaultEffort(flavor: AgentFlavor, modelKey: string | null | undefined, metadata: Pick<Metadata, 'modelCatalogs'> | null | undefined, preferred: string | null | undefined): string | null | undefined {
+    const model = flavor === 'claude' || flavor === 'codex' ? findCatalogModel(metadata?.modelCatalogs?.[flavor], modelKey) : undefined;
+    if (model?.efforts === undefined) return preferred;
+    if (preferred && model.efforts.includes(preferred)) return preferred;
+    return model.defaultEffort && model.efforts.includes(model.defaultEffort) ? model.defaultEffort : model.efforts[0] ?? null;
 }

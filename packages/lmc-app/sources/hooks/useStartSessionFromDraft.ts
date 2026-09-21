@@ -1,4 +1,6 @@
-import { assertCodexModelEffort, UnsupportedCodexEffortError } from '@/components/modelModeOptions';
+import { machineModelMetadata } from '@/sync/modelCatalogMetadata';
+import { getAvailableModels, getCatalogDefaultEffort } from '@/components/modelModeOptions';
+import { assertModelEffort, UnsupportedCodexEffortError } from '@/components/modelModeOptions';
 import * as React from 'react';
 import { useAllMachines, useSessions, useSetting } from '@/sync/storage';
 import { getCodeAgentDefaults, resolveAgentDefaultConfig } from '@/sync/agentDefaults';
@@ -17,7 +19,6 @@ import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { createWorktree } from '@/utils/worktree';
 import {
     getEffortLevelsForModel,
-    getHardcodedModelModes,
     getHardcodedPermissionModes,
     filterPermissionModesForCli,
     getSupportsWorktree,
@@ -202,7 +203,7 @@ export function useStartSessionFromDraft() {
         const model = resolveOption<{ key: string }>(
             rigCreation?.models ?? includeConfiguredModel(
                 agentType,
-                getHardcodedModelModes(agentType, t),
+                getAvailableModels(agentType, machineModelMetadata(machine.metadata), t, agentChanged ? defaults.modelMode : draft.modelMode ?? defaults.modelMode),
                 defaults.modelMode,
             ),
             agentChanged
@@ -210,10 +211,10 @@ export function useStartSessionFromDraft() {
                 : [draft.modelMode, defaults.modelMode],
         );
         const effortDefault = rigCreation?.defaultEffortForModel(model?.key)
-            ?? defaults.effortLevel;
+            ?? getCatalogDefaultEffort(agentType, model?.key, machine.metadata, defaults.effortLevel);
         const requestedEffort = agentChanged ? effortDefault : draft.effortLevel ?? effortDefault;
         try {
-            if (agentType === 'codex') assertCodexModelEffort(model?.key, requestedEffort);
+            assertModelEffort(agentType, model?.key, requestedEffort, machine.metadata?.modelCatalogs);
         } catch (error) {
             if (error instanceof UnsupportedCodexEffortError) {
                 Modal.alert(t('common.error'), error.localizedMessage(t));
@@ -221,12 +222,12 @@ export function useStartSessionFromDraft() {
             }
             throw error;
         }
-        const effort = agentType === 'codex' && requestedEffort != null
+        const effort = (agentType === 'codex' || agentType === 'claude') && requestedEffort != null
             ? { key: requestedEffort }
             : resolveOption<{ key: string }>(
                 rigCreation
                     ? rigCreation.effortsForModel(model?.key).map((key) => ({ key, name: key }))
-                    : getEffortLevelsForModel(agentType, model?.key ?? 'default', undefined, t),
+                    : getEffortLevelsForModel(agentType, model?.key ?? 'default', machineModelMetadata(machine.metadata), t),
                 agentChanged
                     ? [effortDefault]
                     : [draft.effortLevel, effortDefault],

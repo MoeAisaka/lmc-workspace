@@ -41,7 +41,7 @@ interface NewSessionDraftState {
     setAgentType: (agent: NewSessionAgentType) => void;
     setPermissionMode: (mode: PermissionModeKey) => void;
     setModelMode: (mode: string) => void;
-    setEffortLevel: (level: string) => void;
+    setEffortLevel: (level: string | null) => void;
     setSessionType: (type: NewSessionSessionType) => void;
     setWorktreeKey: (key: string | null) => void;
 }

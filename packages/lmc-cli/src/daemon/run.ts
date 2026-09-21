@@ -1,3 +1,4 @@
+import { startModelDiscovery } from '@/runtime/modelDiscovery';
 import { UpgradeManager } from '@/runtime/upgradeManager';
 import { stageRelease, activateRelease, latestVersion, rollbackRelease } from '@/runtime/releaseInstaller';
 import { decideRefresh } from '@/runtime/refreshDecision';
@@ -65,6 +66,7 @@ function shellescape(s: string): string {
 const hostSuffix = process.env.HAPPY_VARIANT === 'dev' ? '-dev' : '';
 export const initialMachineMetadata: MachineMetadata = {
   managedUpgrades: true,
+  modelDiscovery: true,
   codexServiceTier: true,
   codexContextLimits: true,
   host: os.hostname() + hostSuffix,
@@ -1108,6 +1110,9 @@ export async function startDaemon(): Promise<void> {
 
     // Connect to server
     apiMachine.connect();
+    const stopModelDiscovery = startModelDiscovery(async modelCatalogs => {
+      await apiMachine.updateMachineMetadata(metadata => ({ ...metadata!, modelDiscovery: true, modelCatalogs }));
+    });
 
     const upgradeManager = new UpgradeManager(configuration.lmcHomeDir, {
       ready: () => agentRoot() === projectPath(),
@@ -1230,6 +1235,7 @@ export async function startDaemon(): Promise<void> {
         // `lmc daemon start` reads our still-present daemon.state.json, sees
         // isDaemonRunningCurrentlyInstalledLmcVersion() === true, and exits —
         // leaving nothing running once we also exit.
+        stopModelDiscovery();
         apiMachine.shutdown();
         await stopControlServer();
         await cleanupDaemonState();
@@ -1296,6 +1302,7 @@ export async function startDaemon(): Promise<void> {
       // Give time for metadata update to send
       await new Promise(resolve => setTimeout(resolve, 100));
 
+      stopModelDiscovery();
       apiMachine.shutdown();
       await stopControlServer();
       await cleanupDaemonState();

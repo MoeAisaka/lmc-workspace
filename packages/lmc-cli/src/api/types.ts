@@ -1,3 +1,4 @@
+import { ModelCatalogsSchema, type ModelCatalogs } from 'lmc-wire';
 import type { CodexServiceTier } from '@/codex/serviceTier';
 import type { CodexContextLimits } from '@/codex/contextLimits';
 import { z } from 'zod'
@@ -136,6 +137,8 @@ export type Session = {
  * Machine metadata - static information (rarely changes)
  */
 export const MachineMetadataSchema = z.object({
+    modelDiscovery: z.boolean().optional(),
+    modelCatalogs: ModelCatalogsSchema.optional().catch(undefined),
     managedUpgrades: z.boolean().optional(),
   codexServiceTier: z.boolean().optional(),
   codexContextLimits: z.boolean().optional(),
@@ -380,7 +383,7 @@ export type Metadata = {
   effortLevel?: string | null;
   agentBuild?: string;
   engineRuntime?: {engine:string;version:string;packageVersion?:string;source:string;path:string};
-  sessionCapabilities?: { refresh: boolean; authentication: boolean; runtimeConfiguration: boolean; resourceFiles?: boolean; fileInbox?: boolean; resume?:boolean;model?:boolean;effort?:boolean;context?:boolean;serviceTier?:boolean;
+  sessionCapabilities?: { modelDiscovery?: boolean; refresh: boolean; authentication: boolean; runtimeConfiguration: boolean; resourceFiles?: boolean; fileInbox?: boolean; resume?:boolean;model?:boolean;effort?:boolean;context?:boolean;serviceTier?:boolean;
     /** The runner answers `cancel-session-refresh` while a refresh or switch is still queued. */
     cancelRefresh?: boolean;
     /** The runner publishes agentState.queue and answers dequeue / promote; messages may carry meta.intent. */
@@ -408,6 +411,7 @@ export type Metadata = {
    * ACP session config option value (normalized for UI metadata consumers).
    */
   // `code` = protocol value ID, `value` = human label
+  modelCatalogs?: ModelCatalogs,
   models?: Array<{ code: string; value: string; description?: string | null }>,
   currentModelCode?: string,
   operatingModes?: Array<{ code: string; value: string; description?: string | null }>,

@@ -1,3 +1,5 @@
+import { machineModelMetadata } from '@/sync/modelCatalogMetadata';
+import { getAvailableModels, getCatalogDefaultEffort } from '@/components/modelModeOptions';
 import { preserveCodexEffortSelection } from '@/components/modelModeOptions';
 import * as React from 'react';
 import { ActivityIndicator, Keyboard, LayoutChangeEvent, Modal as RNModal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
@@ -45,7 +47,6 @@ import {
 import type { Session } from '@/sync/storageTypes';
 import {
     getEffortLevelsForModel,
-    getHardcodedModelModes,
     getHardcodedPermissionModes,
     filterPermissionModesForCli,
     getSupportsWorktree,
@@ -909,11 +910,11 @@ export const HomeDock = React.memo(({
     const modelOptions = React.useMemo(
         () => rigCreation?.models ?? includeConfiguredModel(
             agentType,
-            getHardcodedModelModes(agentType, t),
+            getAvailableModels(agentType, machineModelMetadata(selectedChoice?.lmcMachine?.metadata), t, modelMode ?? defaults.modelMode),
             defaults.modelMode,
             t,
         ),
-        [agentType, defaults.modelMode, rigCreation],
+        [agentType, defaults.modelMode, modelMode, rigCreation, selectedChoice],
     );
     // The code default last: when the saved and configured modes were both
     // filtered out for an old CLI, land there rather than on whichever mode
@@ -927,11 +928,11 @@ export const HomeDock = React.memo(({
     const effortOptions = React.useMemo(
         () => rigCreation
             ? rigCreation.effortsForModel(currentModel?.key).map((key) => ({ key, name: key }))
-            : getEffortLevelsForModel(agentType, currentModel?.key ?? 'default', undefined, t),
-        [agentType, currentModel?.key, rigCreation],
+            : getEffortLevelsForModel(agentType, currentModel?.key ?? 'default', machineModelMetadata(selectedChoice?.lmcMachine?.metadata), t),
+        [agentType, currentModel?.key, rigCreation, selectedChoice],
     );
     const currentEffortDefault = rigCreation?.defaultEffortForModel(currentModel?.key)
-        ?? defaults.effortLevel;
+        ?? getCatalogDefaultEffort(agentType, currentModel?.key, selectedChoice?.lmcMachine?.metadata, defaults.effortLevel);
     const currentEffort = preserveCodexEffortSelection(agentType, effortLevel ?? currentEffortDefault, resolveOption(effortOptions, [effortLevel, currentEffortDefault]));
     const currentAgent = availableAgents.find((agent) => agent.key === agentType)
         ?? availableAgents[0]
@@ -1286,7 +1287,10 @@ export const HomeDock = React.memo(({
             return { title: t('localFeatures.agents'), options: availableAgents, selectedKey: agentType, onSelect: (key) => selectAgent(key as NewSessionAgentType) };
         }
         if (setting === 'model') {
-            return { title: t('agentInput.model.title'), options: modelOptions, selectedKey: currentModel?.key, onSelect: setModelMode };
+            return { title: t('agentInput.model.title'), options: modelOptions, selectedKey: currentModel?.key, onSelect: (key) => {
+                setModelMode(key);
+                if (!rigCreation && getEffortLevelsForModel(agentType, key, machineModelMetadata(selectedChoice?.lmcMachine?.metadata), t).length === 0) setEffortLevel(null);
+            } };
         }
         if (setting === 'permission') {
             return { title: t('agentInput.permissionMode.title'), options: permissionOptions, selectedKey: currentPermission?.key, onSelect: setPermissionMode };

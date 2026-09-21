@@ -1,7 +1,10 @@
+import { withModelCatalogs } from './modelCatalogMetadata';
+import type { MachineMetadata } from './storageTypes';
+import { getCatalogDefaultEffort } from '@/components/modelModeOptions';
 import type { Session } from './storageTypes';
 import type { Settings } from './settings';
 import { getAgentDefaultOverride, resolveAgentDefaultConfig, retirePermissionMode } from './agentDefaults';
-import { permissionModeSupportedByCli, assertCodexModelEffort, isForeignModelKey } from '@/components/modelModeOptions';
+import { permissionModeSupportedByCli, assertCodexModelEffort, assertModelEffort, isForeignModelKey } from '@/components/modelModeOptions';
 import type { PermissionModeKey } from '@/components/PermissionModeSelector';
 import {
     getRigCurrentModel,
@@ -45,7 +48,9 @@ export class UnsupportedPermissionModeError extends Error {
 export function resolveMessageModeMeta(
     session: Pick<Session, 'permissionMode' | 'modelMode' | 'metadata' | 'effortLevel'>,
     settings?: Pick<Settings, 'agentDefaultOverrides'>,
+    machine?: MachineMetadata | null,
 ): MessageModeMeta {
+    session = { ...session, metadata: withModelCatalogs(session.metadata, machine) ?? session.metadata };
     if (isRigMetadataV1(session.metadata)) {
         const meta: MessageModeMeta = {};
         const permissionMode = session.permissionMode
@@ -112,8 +117,9 @@ export function resolveMessageModeMeta(
         const modelMode = foreign ? defaults.modelMode : picked;
         meta.model = modelMode === 'default' ? null : modelMode;
 
-        meta.effort = foreign ? defaults.effortLevel : (session.effortLevel ?? defaults.effortLevel);
-        assertCodexModelEffort(meta.model, meta.effort);
+        const defaultEffort = getCatalogDefaultEffort(flavor, meta.model, session.metadata, defaults.effortLevel);
+        meta.effort = foreign ? defaultEffort : (session.effortLevel ?? defaultEffort);
+        assertCodexModelEffort(meta.model, meta.effort, session.metadata?.modelCatalogs);
         return meta;
     }
 
@@ -135,10 +141,12 @@ export function resolveMessageModeMeta(
         meta.model = modelMode === 'default' ? null : modelMode;
     }
 
-    const effort = foreignModel ? agentOverrides.effortLevel : (session.effortLevel ?? agentOverrides.effortLevel);
+    const defaultEffort = getCatalogDefaultEffort(flavor, meta.model, session.metadata, agentOverrides.effortLevel);
+    const effort = foreignModel ? defaultEffort : (session.effortLevel ?? defaultEffort);
     if (effort !== undefined) {
         meta.effort = effort;
     }
 
+    assertModelEffort(flavor, meta.model, meta.effort, session.metadata?.modelCatalogs);
     return meta;
 }

@@ -385,9 +385,10 @@ describe('preserveCodexEffortSelection', () => {
         expect(preserveCodexEffortSelection('codex', 'minimal', { key: 'medium', name: 'Medium' }))
             .toEqual({ key: 'minimal', name: 'Minimal' });
     });
-    it('keeps the resolved default when no effort was selected, and leaves other harnesses alone', () => {
+    it('keeps defaults when unset and preserves explicit choices for both engines', () => {
         const fallback = { key: 'medium', name: 'Medium' };
         expect(preserveCodexEffortSelection('codex', null, fallback)).toBe(fallback);
-        expect(preserveCodexEffortSelection('claude', 'minimal', fallback)).toBe(fallback);
+        expect(preserveCodexEffortSelection('claude', 'minimal', fallback)).toEqual({ key: 'minimal', name: 'Minimal' });
+        expect(preserveCodexEffortSelection('rig', 'minimal', fallback)).toBe(fallback);
     });
 });

@@ -38,7 +38,7 @@ export function codexExecutable(release:Release|null=runtimeRelease('codex')??nu
 }
 export function agentRoot() {return runtimeRelease('agent',true)?.directory ?? projectPath();}
 export function engineCapabilities(engine:Engine) {
-    return {refresh:true,cancelRefresh:true,turnQueue:true,authentication:true,resume:true,resourceFiles:true,fileInbox:true,model:true,effort:true,context:engine==='codex',serviceTier:engine==='codex',runtimeConfiguration:engine==='codex'};
+    return {modelDiscovery:true,refresh:true,cancelRefresh:true,turnQueue:true,authentication:true,resume:true,resourceFiles:true,fileInbox:true,model:true,effort:true,context:engine==='codex',serviceTier:engine==='codex',runtimeConfiguration:engine==='codex'};
 }
 export async function runtimeVersion(engine:Engine, fresh=false) {
     const release=runtimeRelease(engine,fresh)??null;

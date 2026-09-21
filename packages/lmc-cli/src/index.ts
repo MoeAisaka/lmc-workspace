@@ -640,7 +640,8 @@ ${chalk.bold('To clean up runaway processes:')} Use ${chalk.cyan('lmc doctor cle
       } else if (arg === '--permission-mode') {
         options.permissionMode = args[++i] as StartOptions['permissionMode']
       } else if (arg === '--effort') {
-        options.effort = z.enum(['low', 'medium', 'high', 'xhigh', 'max']).parse(args[++i])
+        // The selected SDK owns its effort vocabulary; do not freeze future values here.
+        options.effort = z.string().min(1).max(64).parse(args[++i]) as StartOptions['effort']
       } else if (arg === '--started-by') {
         options.startedBy = args[++i] as 'daemon' | 'terminal'
       } else if (arg === '--js-runtime') {

@@ -22,6 +22,7 @@ export function refreshSessionRuntimeMetadata(metadata: Metadata, launch: Metada
         startedBy: launch.startedBy,
         startedFromDaemon: launch.startedFromDaemon,
         version: launch.version,
+        modelCatalogs: launch.modelCatalogs,
         sessionStateRevision: SESSION_STATE_REVISION,
         ...(launch.flavor !== undefined ? { flavor: launch.flavor } : {}),
         // Model and effort are each engine's own vocabulary, and the stored pair

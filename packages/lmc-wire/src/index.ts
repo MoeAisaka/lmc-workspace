@@ -4,3 +4,5 @@ export * from './sessionProtocol';
 export * from './controlMessages';
 export * from './voice';
 export * from './rigMetadata';
+
+export * from './modelCatalog';

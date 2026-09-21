@@ -1,3 +1,4 @@
+import { cachedModel } from '@/runtime/modelCatalogCache';
 // Codex registry compatibility fallback, checked against the existing WebApp
 // catalog (Codex 0.153 family for Astra, 0.144 family for GPT-5.6).
 // This is a Codex harness catalog, not the public Responses API effort enum.
@@ -37,7 +38,7 @@ export function assertCodexModelEffort(model: string | null | undefined, effort:
     }
     // Unset delegates to Codex's thread/default semantics. Unknown/custom
     // models are owned by their provider, so do not guess their capabilities.
-    const levels = model && Object.hasOwn(CODEX_MODEL_EFFORTS, model) ? CODEX_MODEL_EFFORTS[model] : undefined;
+    const levels = cachedModel('codex', model)?.efforts ?? (model && Object.hasOwn(CODEX_MODEL_EFFORTS, model) ? CODEX_MODEL_EFFORTS[model] : undefined);
     if (levels && effort != null && !levels.includes(effort)) {
         throw new UnsupportedCodexEffortError(model!, effort, levels);
     }

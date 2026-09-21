@@ -266,7 +266,7 @@ export class CodexAppServerClient {
     private serviceTier?: CodexServiceTier;
     private contextLimits: CodexContextLimits;
 
-    constructor(sandboxConfig?: SandboxConfig, contextLimits?: CodexContextLimits, serviceTier?: CodexServiceTier) {
+    constructor(sandboxConfig?: SandboxConfig, contextLimits?: CodexContextLimits, serviceTier?: CodexServiceTier, private discoveryExecutable?: string) {
         this.serviceTier = validateCodexServiceTier(serviceTier);
         this.contextLimits = validateCodexContextLimits(contextLimits);
         this.sandboxConfig = sandboxConfig;
@@ -290,6 +290,24 @@ export class CodexAppServerClient {
 
     setRateLimitsHandler(handler: (value: unknown) => void): void {
         this.rateLimitsHandler = handler;
+    }
+
+    async listModels(): Promise<unknown[]> {
+        const models: unknown[] = [];
+        let cursor: string | undefined;
+        const seen = new Set<string>();
+        let pages = 0;
+        do {
+            if (++pages > 10) throw new Error('Too many model catalog pages');
+            const page = await this.request('model/list', { cursor, limit: 100, includeHidden: true }, 10_000) as any;
+            if (!Array.isArray(page?.data)) throw new Error('Invalid model catalog');
+            models.push(...page.data);
+            cursor = page.nextCursor ?? undefined;
+            if (cursor && seen.has(cursor)) throw new Error('Repeated model catalog cursor');
+            if (cursor) seen.add(cursor);
+            if (models.length > 256) throw new Error('Model catalog too large');
+        } while (cursor);
+        return models;
     }
 
     async readRateLimits(): Promise<unknown> {
@@ -621,7 +639,7 @@ export class CodexAppServerClient {
             );
         }
 
-        let command = codexExecutable();
+        let command = this.discoveryExecutable ?? codexExecutable();
         let args = ['app-server', '--listen', 'stdio://'];
         this.sandboxEnabled = false;
 

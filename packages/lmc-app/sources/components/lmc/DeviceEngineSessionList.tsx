@@ -26,6 +26,7 @@ import type { BoardEntry, Machine } from '@/sync/storageTypes';
 import { isClosedState } from './orchestrationTone';
 import { hasTaskAttention, resolveSessionRowTone, taskRowTone } from './sessionRowTone';
 import { ProviderIcon } from '@/components/ProviderIcon';
+import { useMachine } from '@/sync/storage';
 import { resolveSessionModelDisplay } from './sessionModelDisplay';
 
 /** Keys built at runtime have no static parameter type. */
@@ -370,7 +371,8 @@ const EngineHeader = React.memo(({ group, engine }: { group: LmcDeviceGroup; eng
 const DeviceSection = React.memo(({ group, selectedSessionId, now, onNavigate, onDropOn }: { group: LmcDeviceGroup; selectedSessionId?: string; now: number; onNavigate?: () => void; onDropOn?: (sessionId: string, target: string) => void }) => {
     const { theme } = useUnistyles();
     const agentDefaultOverrides = useSetting('agentDefaultOverrides');
-    const modelNameOf = (session: Session) => resolveSessionModelDisplay(session, agentDefaultOverrides, t as any).modelName;
+    const catalogMachine = useMachine(group.machineId ?? '');
+    const modelNameOf = (session: Session) => resolveSessionModelDisplay(session, agentDefaultOverrides, t as any, catalogMachine?.metadata).modelName;
     const groupByEngine = useSetting('sessionListGroupByEngine');
     const colors = lmcColors(theme);
     const router = useRouter();
@@ -501,7 +503,7 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
     const engineOf = (session: Session): 'claude' | 'codex' | null => { const k = engineKeyForSession(session); return k === 'other' ? null : k; };
     const hubSelected = group.hub.id === selectedSessionId;
     const agentDefaultOverrides = useSetting('agentDefaultOverrides');
-    const { modelName: hubModel, effortName: hubEffort } = resolveSessionModelDisplay(group.hub, agentDefaultOverrides, t as any);
+    const { modelName: hubModel, effortName: hubEffort } = resolveSessionModelDisplay(group.hub, agentDefaultOverrides, t as any, machines.find(machine => machine.id === group.hub.metadata?.machineId)?.metadata);
     const orchestration = group.hub.metadata?.orchestration;
     const board: BoardEntry[] = orchestration?.role === 'hub' ? (orchestration.board ?? []) : [];
     const [, bump] = React.useState(0);

@@ -1,6 +1,6 @@
 import type { Metadata } from './storageTypes';
 import type { ModelMode } from '@/components/modelModeOptions';
-import { getAvailableModels, getHardcodedModelModes } from '@/components/modelModeOptions';
+import { getAvailableModels } from '@/components/modelModeOptions';
 import type { SwitchableEngine } from './engineSwitch';
 
 export type EngineModelGroup = {
@@ -19,9 +19,8 @@ export const ENGINE_NAMES: Record<SwitchableEngine, string> = { claude: 'Claude 
  * run it.
  *
  * Picking a model is how a session changes engine, so the list has to show both
- * engines at once. It can: a session publishes a model list for whichever engine
- * is running it, and the other engine's list is the app's own table — which is
- * where every Claude and Codex list comes from anyway unless the CLI overrides it.
+ * engines at once. The device discovers both catalogs, with compatibility
+ * tables retained for older Agents and unavailable discovery.
  *
  * Returns null for anything that is not a plain Claude or Codex session. Rig,
  * Gemini and the rest have one engine for life, and offering to switch them
@@ -46,10 +45,7 @@ export function engineModelGroups(
             engine: other,
             label: ENGINE_NAMES[other],
             current: false,
-            // The other engine is not running, so nothing has published its list:
-            // the app's own table is all there is, and all there has ever been
-            // for a session that had not started yet.
-            models: getHardcodedModelModes(other, translate),
+            models: getAvailableModels(other, { ...metadata, models: undefined } as Metadata, translate),
         },
     ];
     return groups.every((group) => group.models.length > 0) ? groups : null;

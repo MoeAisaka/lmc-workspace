@@ -1,3 +1,4 @@
+import { readModelCatalogs } from '@/runtime/modelCatalogCache';
 import { workerBirthFromEnv } from '@/modules/orchestration/workerBirth';
 import { SESSION_STATE_REVISION } from './sessionRuntimeMetadata';
 /**
@@ -98,6 +99,7 @@ export function createSessionMetadata(opts: CreateSessionMetadataOptions): Sessi
     const gitBranch = getGitBranch(cwd);
 
     const metadata: Metadata = {
+        modelCatalogs: readModelCatalogs(),
         path: cwd,
         host: os.hostname(),
         version: packageJson.version,

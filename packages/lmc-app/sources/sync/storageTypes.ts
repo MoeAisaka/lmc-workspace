@@ -1,3 +1,4 @@
+import { ModelCatalogsSchema } from 'lmc-wire';
 import { z } from "zod";
 
 //
@@ -44,9 +45,10 @@ const SpawnRequestSchema = z.object({
 export type SpawnRequest = z.infer<typeof SpawnRequestSchema>;
 
 export const MetadataSchema = z.object({
+    modelCatalogs: ModelCatalogsSchema.optional().catch(undefined),
     agentBuild: z.string().optional(),
     engineRuntime: z.object({engine:z.string(),version:z.string(),packageVersion:z.string().optional(),source:z.string(),path:z.string()}).optional(),
-    sessionCapabilities: z.object({ refresh: z.boolean(), authentication: z.boolean(), runtimeConfiguration: z.boolean(), resourceFiles: z.boolean().optional(), fileInbox: z.boolean().optional(), resume:z.boolean().optional(), model:z.boolean().optional(),effort:z.boolean().optional(),context:z.boolean().optional(),serviceTier:z.boolean().optional(), cancelRefresh: z.boolean().optional(), turnQueue: z.boolean().optional() }).optional(),
+    sessionCapabilities: z.object({ modelDiscovery: z.boolean().optional(), refresh: z.boolean(), authentication: z.boolean(), runtimeConfiguration: z.boolean(), resourceFiles: z.boolean().optional(), fileInbox: z.boolean().optional(), resume:z.boolean().optional(), model:z.boolean().optional(),effort:z.boolean().optional(),context:z.boolean().optional(),serviceTier:z.boolean().optional(), cancelRefresh: z.boolean().optional(), turnQueue: z.boolean().optional() }).optional(),
     engineAuth: z.object({ status: z.enum(['ready', 'required', 'unknown']), checkedAt: z.number() }).optional(),
     sessionConfiguration: z.boolean().optional(),
     sessionConfigState: z.enum(['queued', 'applied', 'error', 'refreshing', 'verifying']).optional(),
@@ -535,6 +537,8 @@ export interface DecryptedMessage {
 //
 
 export const MachineMetadataSchema = z.object({
+    modelDiscovery: z.boolean().optional(),
+    modelCatalogs: ModelCatalogsSchema.optional().catch(undefined),
     managedUpgrades: z.boolean().optional(),
     host: z.string(),
     platform: z.string(),

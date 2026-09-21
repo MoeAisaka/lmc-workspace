@@ -1,3 +1,4 @@
+import { cachedModel, cachedDefaultEffort, readModelCatalogs } from '@/runtime/modelCatalogCache';
 import { engineCapabilities } from '@/runtime/managedRuntime';
 import { registerEngineAuth } from '@/utils/engineAuth';
 import { restoreReconnectMessageCursor } from '@/utils/reconnectMessageCursor';
@@ -163,6 +164,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         lifecycleState: 'running',
         lifecycleStateSince: Date.now(),
         flavor: 'claude',
+        modelCatalogs: readModelCatalogs(),
         sessionCapabilities: { ...engineCapabilities('claude'), refresh: false, runtimeConfiguration: false },
         sessionConfigState: process.env.HAPPY_REFRESH_RECEIVE_SEQ !== undefined ? 'verifying' : 'applied',
         sessionConfigUpdatedAt: Date.now(),
@@ -615,7 +617,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     let currentAppendSystemPrompt: string | undefined = undefined; // Track current append system prompt
     let currentAllowedTools: string[] | undefined = undefined; // Track current allowed tools
     let currentDisallowedTools: string[] | undefined = undefined; // Track current disallowed tools
-    let currentEffort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined = options.effort ?? DEFAULT_CLAUDE_EFFORT; // Track current Claude effort (thinking depth)
+    let currentEffort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined = options.effort ?? cachedDefaultEffort('claude', options.model, DEFAULT_CLAUDE_EFFORT) as typeof options.effort; // Track current Claude effort (thinking depth)
 
     const stopWatchingConfiguration = watchSessionConfiguration(session, 'claude', metadata => {
         if (metadata.permissionMode !== undefined) {
@@ -626,7 +628,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         }
         if (metadata.modelMode !== undefined) currentModel = metadata.modelMode || undefined;
         if (metadata.effortLevel === null) currentEffort = undefined;
-        else if (['low', 'medium', 'high', 'xhigh', 'max'].includes(metadata.effortLevel ?? '')) currentEffort = metadata.effortLevel as typeof currentEffort;
+        else if ((cachedModel('claude', currentModel)?.efforts ?? ['low', 'medium', 'high', 'xhigh', 'max']).includes(metadata.effortLevel ?? '')) currentEffort = metadata.effortLevel as typeof currentEffort;
     });
 
     const resetCurrentModeDefaults = () => {
@@ -741,6 +743,13 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     });
 
     session.onUserMessage(async (message) => {
+        const candidateModel = message.meta && Object.hasOwn(message.meta, 'model') ? message.meta.model ?? undefined : currentModel;
+        const candidateEffort = message.meta && Object.hasOwn(message.meta, 'effort') ? message.meta.effort : currentEffort;
+        const supportedEfforts = cachedModel('claude', candidateModel)?.efforts;
+        if (supportedEfforts && candidateEffort != null && !supportedEfforts.includes(candidateEffort)) {
+            session.sendSessionEvent({ type: 'message', message: `${candidateModel} does not support effort '${candidateEffort}'. Choose ${supportedEfforts.join(', ') || 'no effort override'} and resend. The message was not sent.` });
+            return;
+        }
 
         // Stamp the prompt so the remote-mode JSONL scanner can dedupe
         // it later — the SDK is about to write this same text to disk
@@ -844,7 +853,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         // Validate against the SDK's accepted set so a stale/garbage value
         // from the wire doesn't poison the session.
         let messageEffort = currentEffort;
-        const VALID_EFFORTS: ReadonlySet<string> = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+        const VALID_EFFORTS: ReadonlySet<string> = new Set(cachedModel('claude', messageModel)?.efforts ?? ['low', 'medium', 'high', 'xhigh', 'max']);
         if (message.meta?.hasOwnProperty('effort')) {
             const incoming = (message.meta as Record<string, unknown>).effort;
             if (incoming === null || incoming === undefined) {

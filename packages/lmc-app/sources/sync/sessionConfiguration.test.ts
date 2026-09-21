@@ -9,7 +9,7 @@ const { rpc, resume, resolveMode, sendMessage, setModes, metadata, session, sess
 });
 // Mocked because the real module pulls in react-native, which vitest cannot parse.
 vi.mock('./sync', () => ({sync:{sendMessage}}));
-vi.mock('./storage', () => ({storage:{getState:()=>({sessions:{s:session},settings:{},sessionMessages})}}));
+vi.mock('./storage', () => ({storage:{getState:()=>({sessions:{s:session},machines:{},settings:{},sessionMessages})}}));
 vi.mock('./apiSocket', () => ({apiSocket:{sessionRPC:rpc}}));
 vi.mock('./ops', () => ({machineResumeSession:resume,sessionSetAgentModes:setModes}));
 vi.mock('./messageMeta', () => ({resolveMessageModeMeta:resolveMode}));

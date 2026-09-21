@@ -1,3 +1,4 @@
+import { cachedModel } from '@/runtime/modelCatalogCache';
 import type { MessageMeta, PermissionMode } from '@/api/types';
 
 import type { ReasoningEffort } from './codexAppServerTypes';
@@ -88,7 +89,7 @@ export class CodexRemoteModeState {
             if (incoming === null || incoming === undefined) {
                 this.currentEffort = undefined;
                 effortResolution = { kind: 'updated', value: undefined };
-            } else if ((VALID_REMOTE_EFFORTS as readonly string[]).includes(incoming)) {
+            } else if ((cachedModel('codex', candidateModel)?.efforts ?? VALID_REMOTE_EFFORTS as readonly string[]).includes(incoming)) {
                 this.currentEffort = incoming as ReasoningEffort;
                 effortResolution = { kind: 'updated', value: this.currentEffort };
             } else {

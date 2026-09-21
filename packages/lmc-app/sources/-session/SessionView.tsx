@@ -1,3 +1,5 @@
+import { useMachine } from '@/sync/storage';
+import { withModelCatalogs } from '@/sync/modelCatalogMetadata';
 import { EngineAuthBanner } from '@/components/EngineAuthBanner';
 import { SessionResourceWindow } from '@/components/SessionResourceWindow';
 import { CHAT_WIDE_WIDTH, ChatWidthContext, useChatMaxWidth } from '@/components/ChatWidthContext';
@@ -18,6 +20,7 @@ import { layout } from '@/components/layout';
 import {
     preserveCodexEffortSelection,
     UnsupportedCodexEffortError,
+    getCatalogDefaultEffort,
     getAvailableModels,
     getAvailablePermissionModes,
     getEffortLevelsForModel,
@@ -911,6 +914,8 @@ export function SessionViewLoaded({
     // Check if CLI version is outdated and not already acknowledged
     const cliVersion = session.metadata?.version;
     const machineId = session.metadata?.machineId;
+    const catalogMachine = useMachine(machineId ?? '');
+    const catalogMetadata = React.useMemo(() => withModelCatalogs(session.metadata, catalogMachine?.metadata), [session.metadata, catalogMachine?.metadata]);
     const isCliOutdated = cliVersion && !isVersionSupported(cliVersion, MINIMUM_CLI_VERSION);
     const isAcknowledged = machineId && acknowledgedCliVersions[machineId] === cliVersion;
     const shouldShowCliWarning = isCliOutdated && !isAcknowledged;
@@ -928,11 +933,11 @@ export function SessionViewLoaded({
     const availableModels = React.useMemo(() => (
         getAvailableModels(
             flavor,
-            session.metadata,
+            catalogMetadata,
             t,
             session.modelMode ?? (isRig ? null : effectiveAgentDefaults.modelMode),
         )
-    ), [flavor, session.metadata, session.modelMode, effectiveAgentDefaults.modelMode, isRig]);
+    ), [flavor, catalogMetadata, session.modelMode, effectiveAgentDefaults.modelMode, isRig]);
     const availableModes = React.useMemo(() => (
         getAvailablePermissionModes(flavor, session.metadata, t, session.permissionMode)
     ), [flavor, session.metadata, session.permissionMode]);
@@ -962,18 +967,19 @@ export function SessionViewLoaded({
     // Effort level state
     const modelKey = modelMode?.key ?? 'default';
     const availableEffortLevels = React.useMemo<EffortLevel[]>(() => (
-        getEffortLevelsForModel(flavor, modelKey, session.metadata, t)
-    ), [flavor, modelKey, session.metadata]);
+        getEffortLevelsForModel(flavor, modelKey, catalogMetadata, t)
+    ), [flavor, modelKey, catalogMetadata]);
+    const catalogEffortDefault = getCatalogDefaultEffort(flavor, modelKey, catalogMetadata, effectiveAgentDefaults.effortLevel);
     const effortLevel = React.useMemo<EffortLevel | null>(() => (
         preserveCodexEffortSelection(
             isRig ? 'rig' : flavor,
-            session.effortLevel ?? (isRig ? null : effectiveAgentDefaults.effortLevel),
+            session.effortLevel ?? (isRig ? null : catalogEffortDefault),
             resolveCurrentOption(availableEffortLevels, [
                 session.effortLevel,
-                isRig ? getRigReasoningSelection(session.metadata, modelKey) : effectiveAgentDefaults.effortLevel,
+                isRig ? getRigReasoningSelection(session.metadata, modelKey) : catalogEffortDefault,
             ]),
         )
-    ), [flavor, availableEffortLevels, session.effortLevel, effectiveAgentDefaults.effortLevel, session.metadata, modelKey, isRig]);
+    ), [flavor, availableEffortLevels, session.effortLevel, catalogEffortDefault, session.metadata, modelKey, isRig]);
 
     const sessionStatus = useSessionStatus(session);
     const sessionUsage = useSessionUsage(sessionId);
@@ -1021,15 +1027,15 @@ export function SessionViewLoaded({
     }, [sessionId]);
 
     const updateModelMode = React.useCallback((mode: ModelMode) => {
-        const nextEffortLevels = getEffortLevelsForModel(flavor, mode.key, session.metadata, t);
+        const nextEffortLevels = getEffortLevelsForModel(flavor, mode.key, catalogMetadata, t);
         const currentEffortSupported = session.effortLevel
             ? nextEffortLevels.some((level) => level.key === session.effortLevel)
             : true;
         sessionSetAgentModes(sessionId, {
             modelMode: mode.key,
-            ...((isRig || flavor !== 'codex') && !currentEffortSupported ? { effortLevel: mode.defaultThinkingLevel ?? null } : {}),
+            ...((isRig || flavor !== 'codex' || nextEffortLevels.length === 0) && !currentEffortSupported ? { effortLevel: mode.defaultThinkingLevel ?? null } : {}),
         });
-    }, [sessionId, flavor, isRig, session.metadata, session.effortLevel]);
+    }, [sessionId, flavor, isRig, catalogMetadata, session.effortLevel]);
 
     const updateEffortLevel = React.useCallback((level: EffortLevel) => {
         sessionSetAgentModes(sessionId, { effortLevel: level.key });
@@ -1083,7 +1089,7 @@ export function SessionViewLoaded({
         const liveMessage = composerHandleRef.current?.getMessage() ?? '';
         if (liveMessage.trim() || selectedImages.length > 0) {
             try {
-                resolveMessageModeMeta(session, storage.getState().settings);
+                resolveMessageModeMeta(session, storage.getState().settings, storage.getState().machines[session.metadata?.machineId ?? '']?.metadata);
             } catch (error) {
                 if (error instanceof UnsupportedCodexEffortError || error instanceof UnsupportedPermissionModeError) {
                     Modal.alert(t('common.error'), error instanceof UnsupportedCodexEffortError ? error.localizedMessage(t) : error.message);
@@ -1322,7 +1328,7 @@ export function SessionViewLoaded({
                 availableEffortLevels={availableEffortLevels}
                 onEffortLevelChange={isRigReasoningSelectionEnabled(session.metadata) ? updateEffortLevel : undefined}
                 onEngineSwitch={canSwitchEngine ? switchEngine : undefined}
-                metadata={session.metadata}
+                metadata={catalogMetadata}
                 connectionStatus={connectionStatus}
                 blockSend={isRig && session.thinking && session.metadata?.capabilities?.steering !== true}
                 onSend={handleSend}

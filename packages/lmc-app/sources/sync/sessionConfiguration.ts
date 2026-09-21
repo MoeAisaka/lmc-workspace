@@ -163,7 +163,7 @@ export async function retrySessionRefresh(sessionId: string) {
 
     const machineId = session.metadata?.machineId;
     if (!machineId) throw new Error(t('sessionInfo.resumeSessionMissingMachine'));
-    const mode = resolveMessageModeMeta(session, state.settings);
+    const mode = resolveMessageModeMeta(session, state.settings, state.machines[session.metadata?.machineId ?? '']?.metadata);
     const result = await machineResumeSession({
         machineId,
         sessionId,

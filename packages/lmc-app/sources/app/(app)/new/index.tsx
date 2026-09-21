@@ -1,3 +1,5 @@
+import { machineModelMetadata } from '@/sync/modelCatalogMetadata';
+import { getAvailableModels, getCatalogDefaultEffort } from '@/components/modelModeOptions';
 import React from 'react';
 import {
     View,
@@ -64,11 +66,10 @@ import {
 } from '@/sync/machineChoices';
 import {
     preserveCodexEffortSelection,
-    assertCodexModelEffort,
+    assertModelEffort,
     UnsupportedCodexEffortError,
     filterPermissionModesForCli,
     getHardcodedPermissionModes,
-    getHardcodedModelModes,
     getEffortLevelsForModel,
     getSupportsWorktree,
     includeConfiguredModel,
@@ -1062,24 +1063,26 @@ function NewSessionScreen() {
     const modelModes = React.useMemo<ModelMode[]>(
         () => rigCreation?.models ?? includeConfiguredModel(
             selectedAgent,
-            getHardcodedModelModes(selectedAgent, t),
+            getAvailableModels(selectedAgent, machineModelMetadata(selectedChoice?.lmcMachine?.metadata), t, draft.modelMode ?? effectiveAgentDefaults.modelMode),
             effectiveAgentDefaults.modelMode,
             t,
         ),
-        [selectedAgent, effectiveAgentDefaults.modelMode, rigCreation],
+        [selectedAgent, effectiveAgentDefaults.modelMode, draft.modelMode, rigCreation, selectedChoice],
     );
 
-    const currentModel = resolveSelectedOption(modelModes, modelIndex);
+    // Discovery may reorder the list between renders; selection belongs to an ID, not an index.
+    const currentModel = modelModes.find(model => model.key === draft.modelMode)
+        ?? resolveSelectedOption(modelModes, modelIndex);
     const currentModelKey = currentModel?.key ?? 'default';
 
     const effortLevels = React.useMemo<EffortLevel[]>(
         () => rigCreation
             ? rigCreation.effortsForModel(currentModelKey).map((key) => ({ key, name: key }))
-            : getEffortLevelsForModel(selectedAgent, currentModelKey, undefined, t),
-        [selectedAgent, currentModelKey, rigCreation],
+            : getEffortLevelsForModel(selectedAgent, currentModelKey, machineModelMetadata(selectedChoice?.lmcMachine?.metadata), t),
+        [selectedAgent, currentModelKey, rigCreation, selectedChoice],
     );
     const effectiveEffortDefault = rigCreation?.defaultEffortForModel(currentModelKey)
-        ?? effectiveAgentDefaults.effortLevel;
+        ?? getCatalogDefaultEffort(selectedAgent, currentModelKey, selectedChoice?.lmcMachine?.metadata, effectiveAgentDefaults.effortLevel);
     const showModel = modelModes.length > 1;
     const showEffort = effortLevels.length > 0;
     const showPermission = permissionModes.length > 1;
@@ -1332,6 +1335,7 @@ function NewSessionScreen() {
                 if (next >= 0) {
                     setModelIndex(next);
                     draft.setModelMode(modelModes[next]?.key ?? 'default');
+                    if (!rigCreation && getEffortLevelsForModel(selectedAgent, key, machineModelMetadata(selectedChoice?.lmcMachine?.metadata), t).length === 0) draft.setEffortLevel(null);
                 }
                 break;
             }
@@ -1361,6 +1365,9 @@ function NewSessionScreen() {
         draft.setModelMode,
         draft.setPermissionMode,
         effortLevels,
+        rigCreation,
+        selectedAgent,
+        selectedChoice,
         modelModes,
         permissionModes,
         setSelectedAgent,
@@ -1375,6 +1382,7 @@ function NewSessionScreen() {
                 if (next >= 0) {
                     setModelIndex(next);
                     draft.setModelMode(modelModes[next]?.key ?? 'default');
+                    if (!rigCreation && getEffortLevelsForModel(selectedAgent, key, machineModelMetadata(selectedChoice?.lmcMachine?.metadata), t).length === 0) draft.setEffortLevel(null);
                 }
                 break;
             }
@@ -1397,7 +1405,7 @@ function NewSessionScreen() {
         }
         setNativePickerMeasuredHeight(null);
         setComposerSettingsPage(null);
-    }, [composerSettingsPage, draft.setEffortLevel, draft.setModelMode, draft.setPermissionMode, effortLevels, modelModes, permissionModes]);
+    }, [rigCreation, selectedAgent, selectedChoice, composerSettingsPage, draft.setEffortLevel, draft.setModelMode, draft.setPermissionMode, effortLevels, modelModes, permissionModes]);
 
     // Spawn session handler
     const handleSend = React.useCallback(async (
@@ -1412,7 +1420,7 @@ function NewSessionScreen() {
         // pairing update, or a change in the CLI catalog.
         const agentType = resolveChoiceAgent(choice, selectedAgent);
         try {
-            if (agentType === 'codex') assertCodexModelEffort(currentModelKey, currentEffort?.key);
+            assertModelEffort(agentType, currentModelKey, currentEffort?.key, selectedChoice?.lmcMachine?.metadata?.modelCatalogs);
         } catch (error) {
             if (error instanceof UnsupportedCodexEffortError) {
                 Modal.alert(t('common.error'), error.localizedMessage(t));
@@ -1620,7 +1628,7 @@ function NewSessionScreen() {
         } finally {
             if (isMountedRef.current) setIsSpawning(false);
         }
-    }, [agentWorkspaces, clearImages, allMachines, canPickWorktree, currentEffort?.key, currentModelKey, currentPermission?.key, effectiveAgentDefaults.effortLevel, effectiveAgentDefaults.modelMode, effectiveAgentDefaults.permissionMode, navigateToSession, picksWorkspaces, router, selectedAgent, selectedMachineId, selectedPath, selectedProjectId, worktreeKey]);
+    }, [agentWorkspaces, clearImages, allMachines, selectedChoice, canPickWorktree, currentEffort?.key, currentModelKey, currentPermission?.key, effectiveAgentDefaults.effortLevel, effectiveAgentDefaults.modelMode, effectiveAgentDefaults.permissionMode, navigateToSession, picksWorkspaces, router, selectedAgent, selectedMachineId, selectedPath, selectedProjectId, worktreeKey]);
 
     const canSend = selectedMachineId && selectedMachine && isMachineOnline(selectedMachine) && !isSpawning;
     React.useEffect(() => {
