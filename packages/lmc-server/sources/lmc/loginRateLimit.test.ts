@@ -5,10 +5,11 @@ vi.mock('@/storage/db', () => ({ db: {} }));
 vi.mock('@/lmc/auth', () => ({ lmcAuth: { login: vi.fn(async (_u: string,p: string) => p === 'valid' ? {token:'synthetic'} : null) }, authRevocations: {} }));
 import { lmcAuthRoutes } from './routes';
 it('keeps legitimate proxy clients independent after a login lockout',async()=>{
+ const origin = new URL(process.env.LMC_PUBLIC_ORIGIN || 'http://127.0.0.1:4193').origin;
  const app=Fastify({trustProxy: trustedProxies()});lmcAuthRoutes(app);
  try {
- for(let i=0;i<10;i++)expect((await app.inject({method:'POST',url:'/v1/lmc/login',remoteAddress:'127.0.0.1',headers:{origin:'http://127.0.0.1:4193','x-forwarded-for':'192.0.2.10'},payload:{username:'attacker',password:'wrong'}})).statusCode).toBe(401);
- const response=await app.inject({method:'POST',url:'/v1/lmc/login',remoteAddress:'127.0.0.1',headers:{origin:'http://127.0.0.1:4193','x-forwarded-for':'192.0.2.11'},payload:{username:'legitimate',password:'valid'}});
+ for(let i=0;i<10;i++)expect((await app.inject({method:'POST',url:'/v1/lmc/login',remoteAddress:'127.0.0.1',headers:{origin,'x-forwarded-for':'192.0.2.10'},payload:{username:'attacker',password:'wrong'}})).statusCode).toBe(401);
+ const response=await app.inject({method:'POST',url:'/v1/lmc/login',remoteAddress:'127.0.0.1',headers:{origin,'x-forwarded-for':'192.0.2.11'},payload:{username:'legitimate',password:'valid'}});
 
  expect(response.statusCode).toBe(200);
  } finally {await app.close();}
