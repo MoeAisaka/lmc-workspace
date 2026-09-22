@@ -581,6 +581,8 @@ export const zhHans: TranslationStructure = {
 
     toolGroup: {
         timeline: {
+            steps: '步骤', timeUnrecorded: '时间未记录',
+            turnElapsed: ({ duration }: { duration: string }) => `本轮累计 ${duration}`,
             running: '正在执行', waiting: '等待你确认', completed: '已完成', error: '失败', stopped: '已停止', unknown: '未记录完成状态',
             unrecorded: '耗时未记录', ended: '本轮已结束', started: '开始', finished: '结束', elapsed: '耗时',
             operations: ({ count }: { count: number }) => `${count} 项操作`,

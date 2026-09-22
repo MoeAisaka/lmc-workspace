@@ -137,6 +137,7 @@ export type Session = {
  * Machine metadata - static information (rarely changes)
  */
 export const MachineMetadataSchema = z.object({
+    engineLogin: z.object({claude: z.boolean(), codex: z.boolean()}).optional(),
     modelDiscovery: z.boolean().optional(),
     modelCatalogs: ModelCatalogsSchema.optional().catch(undefined),
     managedUpgrades: z.boolean().optional(),
@@ -383,7 +384,7 @@ export type Metadata = {
   effortLevel?: string | null;
   agentBuild?: string;
   engineRuntime?: {engine:string;version:string;packageVersion?:string;source:string;path:string};
-  sessionCapabilities?: { modelDiscovery?: boolean; refresh: boolean; authentication: boolean; runtimeConfiguration: boolean; resourceFiles?: boolean; resourceSearch?: boolean; fileInbox?: boolean; resume?:boolean;model?:boolean;effort?:boolean;context?:boolean;serviceTier?:boolean;
+  sessionCapabilities?: { authenticationRecovery?: boolean; modelDiscovery?: boolean; refresh: boolean; authentication: boolean; runtimeConfiguration: boolean; resourceFiles?: boolean; resourceSearch?: boolean; fileInbox?: boolean; resume?:boolean;model?:boolean;effort?:boolean;context?:boolean;serviceTier?:boolean;
     /** The runner answers `cancel-session-refresh` while a refresh or switch is still queued. */
     cancelRefresh?: boolean;
     /** The runner publishes agentState.queue and answers dequeue / promote; messages may carry meta.intent. */

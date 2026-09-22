@@ -16,6 +16,7 @@ it('only publishes authentication state, never credential output', () => {
 it('recognizes auth errors without treating capacity or connection errors as logout', () => {
     expect(isEngineAuthError('Not logged in · Please run /login')).toBe(true);
     expect(isEngineAuthError('authentication_error')).toBe(true);
+    expect(isEngineAuthError('Failed to authenticate: OAuth session expired and could not be refreshed')).toBe(true);
     expect(isEngineAuthError('Selected model is at capacity')).toBe(false);
     expect(isEngineAuthError('Connection closed')).toBe(false);
 });

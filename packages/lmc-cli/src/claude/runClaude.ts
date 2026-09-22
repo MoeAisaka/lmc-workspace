@@ -214,7 +214,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
                 const resp = await api.getOrCreateSession({ tag: randomUUID(), metadata, state });
                 if (!resp) throw new Error('Server unavailable');
                 const session = api.sessionSyncClient(resp);
-                void registerEngineAuth(session, 'claude', workingDirectory, options.claudeEnvVars)()
+                void registerEngineAuth(session, 'claude', workingDirectory, options.claudeEnvVars, options.claudeArgs)()
                     .catch(() => logger.warn('[Claude] Authentication status unavailable'));
                 let latestClaudeGoalStatus: AgentGoalStatus | null = null;
                 const observedClaudeGoalRevisions = new Set<string>();
@@ -309,7 +309,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
 
     // Create realtime session
     const session = api.sessionSyncClient(response);
-    const checkAuthentication = registerEngineAuth(session, 'claude', workingDirectory, options.claudeEnvVars);
+    const checkAuthentication = registerEngineAuth(session, 'claude', workingDirectory, options.claudeEnvVars, options.claudeArgs);
     void checkAuthentication().catch(() => logger.warn('[Claude] Authentication status unavailable'));
 
     // On reconnect, un-archive the session and skip replaying old messages.

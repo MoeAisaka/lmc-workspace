@@ -1,3 +1,5 @@
+import { TurnElapsedLabel } from './TurnElapsedLabel';
+import type { TurnElapsed } from '@/utils/turnElapsed';
 import { CHAT_WIDE_WIDTH, useChatMaxWidth } from './ChatWidthContext';
 import { PickerMenuDivider, PickerMenuEmpty, PickerMenuRow, PickerMenuTitle } from './lmc/PickerMenu';
 import { Ionicons, Octicons } from '@expo/vector-icons';
@@ -124,6 +126,7 @@ interface AgentInputProps {
     sessionStatusGitChanges?: { insertions: number; deletions: number; approximate: boolean } | null;
     /** Plan quota windows from agent state, for the week stat and its popup. */
     sessionStatusUsageLimits?: UsageLimitsLike | null;
+    turnElapsed?: TurnElapsed | null;
     onFileViewerPress?: () => void;
     agentType?: 'claude' | 'codex' | 'gemini' | 'openclaw' | 'agy';
     onAgentClick?: () => void;
@@ -758,6 +761,7 @@ function ContextGaugeIcon(props: { percent: number }) {
 }
 
 type UsageRowProps = {
+    turnElapsed?: TurnElapsed | null;
     contextStatus: { percent: number; detailText: string; color: string } | null;
     weekPercent: number | null;
     /** Prebuilt "Session — 32% · resets 6 PM" rows for the week popup. */
@@ -767,10 +771,11 @@ type UsageRowProps = {
 // Sits under the composer card, right-aligned with the effort label: week
 // quota (tap for the session/week detail popup) and the context gauge (tap
 // to swap the percent for exact token counts).
-const AgentInputUsageRow = React.memo(function AgentInputUsageRow(p: UsageRowProps) {
+export const AgentInputUsageRow = React.memo(function AgentInputUsageRow(p: UsageRowProps) {
     const { theme } = useUnistyles();
+    const compact = useWindowDimensions().width < 500 && !!p.turnElapsed;
     const [showPreciseContext, setShowPreciseContext] = React.useState(false);
-    const hasFigures = !!p.contextStatus || p.weekPercent != null;
+    const hasFigures = !!p.contextStatus || p.weekPercent != null || !!p.turnElapsed;
     // Compaction leaves the session with no context figure for a moment, and
     // the week figure is gated on the context one. Unmounting the row for those
     // frames shortens the bottom-anchored dock, so the whole composer drops by
@@ -788,51 +793,56 @@ const AgentInputUsageRow = React.memo(function AgentInputUsageRow(p: UsageRowPro
     ) : null;
     return (
         <View style={{
-            flexDirection: 'row',
-            alignItems: 'center',
+            flexDirection: compact ? 'column' : 'row',
+            alignItems: compact ? 'stretch' : 'center',
             justifyContent: 'flex-end',
-            gap: 10,
+            gap: compact ? 3 : 10,
             // 18 = 10pt shell inset + 8pt action inset: lines the gauge up
             // with the effort label's right edge.
             paddingHorizontal: 18,
             paddingTop: 6,
             minHeight: 18,
         }}>
-            {weekText && (
-                p.usageMenuOptions.length > 0 ? (
-                    <NativeSettingsMenu
-                        anchor="bottom"
-                        groups={[{
-                            key: 'usage',
-                            label: '',
-                            title: '',
-                            options: p.usageMenuOptions,
-                            selectedKey: null,
-                            onSelect: () => { },
-                        }]}
+            {p.turnElapsed && <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0 }}>
+                <TurnElapsedLabel timing={p.turnElapsed} />
+            </View>}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: compact ? 'flex-start' : 'flex-end', gap: 10, flexShrink: 0 }}>
+                {weekText && (
+                    p.usageMenuOptions.length > 0 ? (
+                        <NativeSettingsMenu
+                            anchor="bottom"
+                            groups={[{
+                                key: 'usage',
+                                label: '',
+                                title: '',
+                                options: p.usageMenuOptions,
+                                selectedKey: null,
+                                onSelect: () => { },
+                            }]}
+                        >
+                            {/* Native menu triggers hit only their own bounds, so
+                                pad the target out and pull the layout back in. */}
+                            <View style={{ padding: 10, margin: -10 }}>
+                                {weekText}
+                            </View>
+                        </NativeSettingsMenu>
+                    ) : weekText
+                )}
+                {p.contextStatus && (
+                    <Pressable
+                        onPress={() => setShowPreciseContext((current) => !current)}
+                        hitSlop={{ top: 12, bottom: 14, left: 10, right: 14 }}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}
                     >
-                        {/* Native menu triggers hit only their own bounds, so
-                            pad the target out and pull the layout back in. */}
-                        <View style={{ padding: 10, margin: -10 }}>
-                            {weekText}
-                        </View>
-                    </NativeSettingsMenu>
-                ) : weekText
-            )}
-            {p.contextStatus && (
-                <Pressable
-                    onPress={() => setShowPreciseContext((current) => !current)}
-                    hitSlop={{ top: 12, bottom: 14, left: 10, right: 14 }}
-                    style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}
-                >
-                    <Text style={{ fontSize: 11, color: p.contextStatus.color, ...Typography.default() }}>
-                        {showPreciseContext
-                            ? p.contextStatus.detailText
-                            : t('agentInput.context.percentContext', { percent: p.contextStatus.percent })}
-                    </Text>
-                    <ContextGaugeIcon percent={p.contextStatus.percent} />
-                </Pressable>
-            )}
+                        <Text style={{ fontSize: 11, color: p.contextStatus.color, ...Typography.default() }}>
+                            {showPreciseContext
+                                ? p.contextStatus.detailText
+                                : t('agentInput.context.percentContext', { percent: p.contextStatus.percent })}
+                        </Text>
+                        <ContextGaugeIcon percent={p.contextStatus.percent} />
+                    </Pressable>
+                )}
+            </View>
         </View>
     );
 });
@@ -2088,6 +2098,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
 
                 <AnimatedFade visible={props.showStatusDetails !== false}>
                     <AgentInputUsageRow
+                        turnElapsed={props.turnElapsed}
                         contextStatus={contextStatus}
                         weekPercent={weekPercent}
                         usageMenuOptions={usageMenuOptions}

@@ -7,7 +7,6 @@ import { Ionicons, Octicons } from '@expo/vector-icons';
 import {
     AgentWorkGroupItem,
     ToolGroupItem,
-    formatWorkDuration,
     generateGroupSummary,
 } from '@/hooks/useGroupedMessages';
 import { MessageView } from './MessageView';
@@ -129,19 +128,14 @@ export const AgentWorkGroupView = React.memo<AgentWorkGroupViewProps>((props) =>
     const chatMaxWidth = useChatMaxWidth();
     const { group, metadata, sessionId, expanded, onToggle, onAnchorLayoutChange } = props;
     const isCompleted = group.completedAt !== null;
-    const runningElapsedSeconds = useElapsedTime(group.completedAt === null ? group.startedAt : null);
-    const durationMs = group.completedAt === null
-        ? runningElapsedSeconds * 1000
-        : group.completedAt - group.startedAt;
-    const label = t('toolGroup.workedFor', { duration: `≈ ${formatWorkDuration(durationMs)}` });
+    // Only tick expanded active details; the turn total lives below the composer.
+    useElapsedTime(expanded && !isCompleted ? group.startedAt : null);
     const handleAnchoredToggle = useAnchoredToggle(expanded, onToggle, onAnchorLayoutChange);
     const now = isCompleted ? group.completedAt! : Date.now();
     const tools = group.messages.filter((m): m is ToolCallMessage => m.kind === 'tool-call');
     const pending = !isCompleted ? tools.find(m => m.tool.permission?.status === 'pending') : undefined;
     const errors = tools.filter(m => m.tool.state === 'error').length;
-    const timelineLabel = pending
-        ? t('toolGroup.timeline.waitingFor', { duration: formatWorkDuration(now - pending.tool.createdAt) })
-        : !isCompleted ? t('toolGroup.timeline.workingFor', { duration: formatWorkDuration(durationMs) }) : label;
+    const timelineLabel = pending ? t('toolGroup.timeline.waiting') : t('toolGroup.timeline.steps');
 
     return (
         <View style={styles.outerContainer}>
@@ -192,7 +186,6 @@ function CollapseHeader(props: {
     }, [props.onPress]);
     const content = (
         <>
-            {props.timeline && <Ionicons name="time-outline" size={18} color={theme.colors.textSecondary} />}
             {props.category ? (
                 <View style={styles.headerIcon}>
                     <ToolSummaryIcon category={props.category} color={theme.colors.textSecondary} />
@@ -437,8 +430,8 @@ const styles = StyleSheet.create((theme) => ({
         paddingVertical: 4,
         borderRadius: 4,
     },
-    timelineHeader: { minHeight: 44, gap: 10 },
-    timelineSummary: { flex: 1, fontSize: 15, ...Typography.default('semiBold') },
+    timelineHeader: { minHeight: 33, gap: 7.5 },
+    timelineSummary: { flex: 1, fontSize: 12, ...Typography.default('semiBold') },
     headerDetail: { fontSize: 12, color: theme.colors.textSecondary, ...Typography.default() },
     headerPressed: {
         opacity: 0.6,

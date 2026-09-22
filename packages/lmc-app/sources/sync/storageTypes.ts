@@ -48,7 +48,7 @@ export const MetadataSchema = z.object({
     modelCatalogs: ModelCatalogsSchema.optional().catch(undefined),
     agentBuild: z.string().optional(),
     engineRuntime: z.object({engine:z.string(),version:z.string(),packageVersion:z.string().optional(),source:z.string(),path:z.string()}).optional(),
-    sessionCapabilities: z.object({ modelDiscovery: z.boolean().optional(), refresh: z.boolean(), authentication: z.boolean(), runtimeConfiguration: z.boolean(), resourceFiles: z.boolean().optional(), resourceSearch: z.boolean().optional(), fileInbox: z.boolean().optional(), resume:z.boolean().optional(), model:z.boolean().optional(),effort:z.boolean().optional(),context:z.boolean().optional(),serviceTier:z.boolean().optional(), cancelRefresh: z.boolean().optional(), turnQueue: z.boolean().optional() }).optional(),
+    sessionCapabilities: z.object({ authenticationRecovery: z.boolean().optional(), modelDiscovery: z.boolean().optional(), refresh: z.boolean(), authentication: z.boolean(), runtimeConfiguration: z.boolean(), resourceFiles: z.boolean().optional(), resourceSearch: z.boolean().optional(), fileInbox: z.boolean().optional(), resume:z.boolean().optional(), model:z.boolean().optional(),effort:z.boolean().optional(),context:z.boolean().optional(),serviceTier:z.boolean().optional(), cancelRefresh: z.boolean().optional(), turnQueue: z.boolean().optional() }).optional(),
     engineAuth: z.object({ status: z.enum(['ready', 'required', 'unknown']), checkedAt: z.number() }).optional(),
     sessionConfiguration: z.boolean().optional(),
     sessionConfigState: z.enum(['queued', 'applied', 'error', 'refreshing', 'verifying']).optional(),
@@ -503,6 +503,8 @@ export interface Session {
     agentStateVersion: number,
     thinking: boolean,
     thinkingAt: number,
+    /** Latest decrypted main-turn lifecycle; reconstructed on history load. */
+    turnLifecycle?: import('./sessionLifecycle').SessionLifecycle,
     presence: "online" | number, // "online" when active, timestamp when last seen
     todos?: TodoItem[];
     draft?: string | null; // Local draft message, not synced to server
@@ -537,6 +539,7 @@ export interface DecryptedMessage {
 //
 
 export const MachineMetadataSchema = z.object({
+    engineLogin: z.object({claude: z.boolean(), codex: z.boolean()}).optional(),
     modelDiscovery: z.boolean().optional(),
     modelCatalogs: ModelCatalogsSchema.optional().catch(undefined),
     managedUpgrades: z.boolean().optional(),

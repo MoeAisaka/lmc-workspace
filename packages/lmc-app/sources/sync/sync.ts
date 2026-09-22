@@ -2209,9 +2209,13 @@ class Sync {
         // Read ownership after decryption: a newer realtime turn may have arrived
         // while awaiting it. History repairs matching only, never visible thinking.
         const lifecycle = resolveFetchedSessionLifecycle(this.sessionLifecycles.get(sessionId),
-            decryptedMessages.flatMap((decrypted, i) => decrypted ? [{ seq: messages[i].seq, raw: decrypted.content }] : []),
+            decryptedMessages.flatMap((decrypted, i) => decrypted ? [{ seq: messages[i].seq, raw: decrypted.content, receivedAt: decrypted.createdAt }] : []),
             edge, loadedThrough);
-        if (lifecycle) this.sessionLifecycles.set(sessionId, lifecycle);
+        if (lifecycle) {
+            this.sessionLifecycles.set(sessionId, lifecycle);
+            const session = storage.getState().sessions[sessionId];
+            if (session && session.turnLifecycle !== lifecycle) this.applySessions([{ ...session, turnLifecycle: lifecycle }]);
+        }
         const normalizedMessages: NormalizedMessage[] = [];
         for (let i = 0; i < decryptedMessages.length; i++) {
             const decrypted = decryptedMessages[i];
@@ -2362,7 +2366,7 @@ class Sync {
 
                     const previousLifecycle = this.sessionLifecycles.get(updateData.body.sid);
                     const lifecycle = resolveSessionLifecycle(previousLifecycle, decrypted.content,
-                        updateData.body.message.seq, this.sessionLastSeq.get(updateData.body.sid) ?? 0);
+                        updateData.body.message.seq, this.sessionLastSeq.get(updateData.body.sid) ?? 0, decrypted.createdAt);
                     const lifecycleChanged = lifecycle !== previousLifecycle && lifecycle !== undefined;
                     if (lifecycleChanged) this.sessionLifecycles.set(updateData.body.sid, lifecycle);
 
@@ -2374,7 +2378,7 @@ class Sync {
                             updatedAt: updateData.createdAt,
                             seq: updateData.seq,
                             // Update thinking state based on task lifecycle events
-                            ...(lifecycleChanged ? { thinking: lifecycle.thinking } : {})
+                            ...(lifecycleChanged ? { thinking: lifecycle.thinking, turnLifecycle: lifecycle } : {})
                         }])
                     } else {
                         // Fetch sessions again if we don't have this session

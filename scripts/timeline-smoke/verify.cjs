@@ -23,6 +23,9 @@ const init = modules.get(0); __r(init.deps[0]); __r(init.deps[1]);
 const React = moduleExport('useState'), h=React.createElement;
 const {createRoot}=moduleExport('createRoot');
 const {AgentWorkGroupView}=moduleExport('AgentWorkGroupView');
+const {AgentInputUsageRow}=moduleExport('AgentInputUsageRow');
+const {resolveTurnElapsed}=moduleExport('resolveTurnElapsed');
+const {resolveSessionLifecycle}=moduleExport('resolveSessionLifecycle');
 const {ToolFullView}=moduleExport('ToolFullView');
 const {useToolOverlay}=moduleExport('useToolOverlay');
 const {UnistylesRuntime}=moduleExport('UnistylesRuntime');
@@ -48,10 +51,20 @@ function App(){
  const group=groupMessagesForDisplay(messages,true,{timelineCurrentTurn:true,collapseCurrentTurn:!['running','waiting'].includes(mode)}).find(x=>x.type==='agent-work-group');
  React.useEffect(()=>{useToolOverlay.getState().setOpener(setSelected);return()=>useToolOverlay.getState().setOpener(null)},[]);
  const selectedTool=messages.find(m=>m.id===selected)?.tool;
+ const active=['running','waiting'].includes(mode);
+ const lifecycle=React.useMemo(()=>{
+  const start=resolveSessionLifecycle(undefined,{role:'session',content:{turn:'A',time:base,ev:{t:'turn-start'}}},1);
+  if(active)return start;
+  if(mode==='history')return undefined;
+  return resolveSessionLifecycle(start,{role:'session',content:{turn:'A',time:base+134000,ev:{t:'turn-end',status:mode==='error'?'failed':'completed'}}},10);
+ },[mode,active]);
+ const timing=React.useMemo(()=>resolveTurnElapsed(messages,lifecycle,active),[messages,lifecycle,active]);
  return h('div',{style:{minHeight:'100vh',background:theme.colors.surface,color:theme.colors.text,padding:'20px 0'}},
   h('div',{style:{maxWidth:760,margin:'auto'}},h('p',{style:{padding:'0 16px'}},user.text),
    h(AgentWorkGroupView,{group,metadata:null,sessionId:'fixture',expanded,onToggle:()=>setExpanded(x=>!x)}),
-   group.completedAt!==null&&h('p',{'data-testid':'final',style:{padding:'0 16px'}},answer.text)),
+   group.completedAt!==null&&h('p',{'data-testid':'final',style:{padding:'0 16px'}},answer.text),
+   h('div',{'data-testid':'composer',style:{border:'1px solid '+theme.colors.divider,borderRadius:18,margin:'24px 16px 0',padding:16}},'输入消息…'),
+   h(AgentInputUsageRow,{turnElapsed:timing,contextStatus:{percent:52,detailText:'52k / 100k',color:theme.colors.textSecondary},weekPercent:74,usageMenuOptions:[]})),
   selectedTool&&h('div',{'data-testid':'detail',style:{position:'fixed',background:theme.colors.surface,inset:'10% 8%',border:'1px solid '+theme.colors.divider,borderRadius:16,display:'flex',flexDirection:'column',overflow:'auto'}},
    h('button',{onClick:()=>setSelected(null)},'Close detail'),h(ToolFullView,{tool:selectedTool,active:group.completedAt===null})));
 }
@@ -85,41 +98,49 @@ const server=http.createServer((req,res)=>{
   const page=await context.newPage();const errors=[];page.on('pageerror',e=>{errors.push(e.message);console.error(e.message)});
   await page.goto('http://127.0.0.1:'+server.address().port);await page.getByTestId('turn-timeline').waitFor();
   assert.equal(await page.getByTestId('timeline-parallel').count(),1);
-  assert.match(await page.getByTestId('timeline-parallel').innerText(),/22s/);
+  assert.doesNotMatch(await page.getByTestId('timeline-parallel').innerText(),/22s|\+\d+:/);
+  assert.match(await page.getByTestId('turn-elapsed').innerText(),/2m14s/);
   assert.equal(await page.locator('[data-testid^="timeline-step-"]').count(),5);
   const rowHeights=()=>page.locator('[data-testid^="timeline-step-"]').evaluateAll(rows=>rows.map(row=>row.getBoundingClientRect().height));
-  assert.deepEqual(await rowHeights(),[40,40,40,40,40]);
+  assert.deepEqual(await rowHeights(),[22.5,22.5,22.5,22.5,22.5]);
   const readIcon=await page.getByTestId('timeline-type-read').innerText();
   const commandIcon=await page.getByTestId('timeline-type-test').innerText();
   assert.notEqual(readIcon,commandIcon);
   assert.notEqual(await page.getByTestId('timeline-type-edit').innerText(),commandIcon);
   assert.equal(await page.getByTestId('timeline-type-pdf').innerText(),await page.getByTestId('timeline-type-docx').innerText());
   assert.doesNotMatch(await page.getByTestId('timeline-step-test').innerText(),/pnpm test/);
+  assert.equal(await page.getByTestId('timeline-step-test').evaluate(row=>{
+   const status=row.querySelector('[data-testid^="timeline-status-"]'),type=row.querySelector('[data-testid^="timeline-type-"]');
+   return status.getBoundingClientRect().x<type.getBoundingClientRect().x;
+  }),true);
+  assert.doesNotMatch(await page.getByTestId('timeline-step-test').innerText(),/1m20s|\+\d+:/);
+  const frozen=await page.getByTestId('turn-elapsed').innerText();await page.waitForTimeout(1100);assert.equal(await page.getByTestId('turn-elapsed').innerText(),frozen);
+  assert.equal(await page.getByTestId('turn-elapsed').evaluate(n=>n.getBoundingClientRect().top>document.querySelector('[data-testid="composer"]').getBoundingClientRect().bottom),true);
   await page.screenshot({path:path.join(out,'desktop-light.png'),fullPage:true});
   await page.getByTestId('timeline-step-test').click();await page.getByTestId('tool-timeline-timing').waitFor();
   assert.match(await page.getByTestId('tool-timeline-timing').innerText(),/1m20s/);await page.getByText('Close detail',{exact:true}).click();
-  const header=page.getByRole('button',{name:/Worked/});await header.click();await page.getByTestId('turn-timeline').waitFor({state:'detached'});assert.equal(await page.getByTestId('turn-timeline').count(),0);assert.equal(await page.getByTestId('final').count(),1);await header.click();
+  const header=page.getByRole('button',{name:/Steps/});await header.click();await page.getByTestId('turn-timeline').waitFor({state:'detached'});assert.equal(await page.getByTestId('turn-timeline').count(),0);assert.equal(await page.getByTestId('final').count(),1);await header.click();
   await page.evaluate(()=>setScenario('running'));await page.waitForTimeout(1100);
   assert.equal(await page.getByTestId('timeline-type-test').innerText(),commandIcon);
-  assert.match(await page.getByTestId('timeline-status-test').innerText(),/Running/);
-  const before=await page.getByTestId('timeline-step-test').innerText();await page.waitForTimeout(1100);assert.notEqual(await page.getByTestId('timeline-step-test').innerText(),before);
-  await page.evaluate(()=>setScenario('history'));await page.waitForTimeout(100);assert.match(await page.getByTestId('timeline-step-test').innerText(),/Not recorded/);
+  assert.match(await page.getByTestId('turn-elapsed').innerText(),/Running/);
+  const before=await page.getByTestId('turn-elapsed').innerText();await page.waitForTimeout(1100);assert.notEqual(await page.getByTestId('turn-elapsed').innerText(),before);
+  await page.evaluate(()=>setScenario('history'));await page.waitForTimeout(100);assert.match(await page.getByTestId('timeline-step-test').innerText(),/Completion not recorded/);
   await page.evaluate(()=>setScenario('error'));await page.waitForTimeout(100);assert.match(await page.getByTestId('timeline-step-test').innerText(),/Failed/);
   assert.match(await page.getByTestId('timeline-step-test').innerText(),/pnpm test/);
   await page.evaluate(()=>setScenario('waiting'));await page.waitForTimeout(200);assert.match(await page.getByTestId('timeline-step-test').innerText(),/Waiting for approval/);
   await page.screenshot({path:path.join(out,'waiting.png'),fullPage:true});
   await page.evaluate(()=>setScenario('complete'));await page.setViewportSize({width:390,height:844});await page.evaluate(()=>setPreviewTheme('dark'));await page.waitForTimeout(200);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
-  assert.deepEqual(await rowHeights(),[44,44,44,44,44]);
+  assert.deepEqual(await rowHeights(),[24.75,24.75,24.75,24.75,24.75]);
   await page.screenshot({path:path.join(out,'mobile-dark.png'),fullPage:true});
   await page.setViewportSize({width:320,height:740});await page.evaluate(()=>setScenario('running'));await page.waitForTimeout(100);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
-  assert.equal(await page.getByTestId('timeline-step-test').evaluate(row=>row.getBoundingClientRect().height),44);
+  assert.equal(await page.getByTestId('timeline-step-test').evaluate(row=>row.getBoundingClientRect().height),24.75);
   await page.screenshot({path:path.join(out,'mobile-running-narrow.png'),fullPage:true});
   await page.evaluate(()=>setPreviewTheme('light'));await page.waitForTimeout(100);
   assert.equal(await page.getByTestId('timeline-parallel').evaluate(n=>getComputedStyle(n).backgroundColor),'rgb(240, 240, 240)');
   assert.deepEqual(errors,[]);
-  console.log('PASS exported Web: parallel elapsed time, row details, fold/unfold, final text, live timer, stale/error states, mobile width, dark/light theme; no browser errors');
+  console.log('PASS exported Web: D22 left status, 25% smaller rows, no per-step times, detail timing, fold/unfold, final text, live/frozen footer, stale/error states, mobile width, dark/light theme; no browser errors');
   console.log('Artifacts: '+out);
  } finally {await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1});

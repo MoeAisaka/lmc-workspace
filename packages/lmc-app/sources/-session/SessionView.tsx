@@ -1,3 +1,4 @@
+import { resolveTurnElapsed } from '@/utils/turnElapsed';
 import { useMachine } from '@/sync/storage';
 import { withModelCatalogs } from '@/sync/modelCatalogMetadata';
 import { EngineAuthBanner } from '@/components/EngineAuthBanner';
@@ -1194,6 +1195,10 @@ export function SessionViewLoaded({
         isPulsing: sessionStatus.isPulsing,
     }), [sessionStatus.statusText, sessionStatus.statusColor, sessionStatus.statusDotColor, sessionStatus.isPulsing]);
 
+    const turnElapsed = React.useMemo(() => resolveTurnElapsed(messages, session.turnLifecycle,
+        session.active && (session.thinking || Object.keys(session.agentState?.requests ?? {}).length > 0)),
+    [messages, session.turnLifecycle, session.active, session.thinking, session.agentState?.requests]);
+
     const usageData = React.useMemo(() => {
         const source = sessionUsage ?? session.latestUsage;
         if (!source) return undefined;
@@ -1352,6 +1357,7 @@ export function SessionViewLoaded({
                 autocompletePrefixes={AGENT_INPUT_AUTOCOMPLETE_PREFIXES}
                 autocompleteSuggestions={handleAutocompleteSuggestions}
                 usageData={usageData}
+                turnElapsed={turnElapsed}
                 alwaysShowContextSize={alwaysShowContextSize}
                 zenMode={zenMode}
                 showStatusDetails={showBottomDockDetails}

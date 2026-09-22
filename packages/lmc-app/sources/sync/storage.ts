@@ -615,6 +615,8 @@ export const storage = create<StorageState>()((set, get) => {
                     lastMessageSentAt: resolvedLastMessageSentAt,
                     thinking: resolvedThinking.thinking,
                     thinkingAt: resolvedThinking.thinkingAt,
+                    turnLifecycle: (session.turnLifecycle?.seq ?? 0) >= (prior?.turnLifecycle?.seq ?? 0)
+                        ? session.turnLifecycle ?? prior?.turnLifecycle : prior?.turnLifecycle,
                 };
             });
 

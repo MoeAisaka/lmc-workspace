@@ -7,6 +7,7 @@ import { claudeExecutable, codexExecutable, runtimeVersion } from '@/runtime/man
 import { execFile } from 'node:child_process';
 import { createRequire } from 'node:module';
 import type { ApiSessionClient } from '@/api/apiSession';
+import { engineLoginContext } from './engineLoginContext';
 
 const agentBuild = (() => {try{return createHash('sha256').update(readFileSync(join(projectPath(),'dist','index.mjs'))).digest('hex');}catch{return undefined;}})();
 
@@ -28,7 +29,7 @@ export function parseEngineAuth(engine: Engine, code: number | null, output: str
 }
 
 export function isEngineAuthError(message: string): boolean {
-    return /not logged in|please run \/login|authentication_error|invalid[_ ]api[_ ]key|unauthorized|token.*(?:expired|revoked)/i.test(message);
+    return /not logged in|please run \/login|authentication_error|invalid[_ ]api[_ ]key|unauthorized|(?:token|oauth session).*(?:expired|revoked)/i.test(message);
 }
 
 /** Resolve relative to the installed SDK, including its nested optional dependency. */
@@ -80,11 +81,11 @@ function codexEnvKeyAuthReady(env: NodeJS.ProcessEnv): boolean {
     } catch { return false; }
 }
 
-export async function checkEngineAuth(engine: Engine, cwd: string, env?: Record<string, string>): Promise<EngineAuthStatus> {
+export async function checkEngineAuth(engine: Engine, cwd: string, env?: Record<string, string>, inheritEnvironment = true): Promise<EngineAuthStatus> {
     try {
         const command = engine === 'claude' ? claudeSdkExecutable() : codexExecutable();
         const args = engine === 'claude' ? ['auth', 'status', '--json'] : ['login', 'status'];
-        const merged = { ...process.env, ...env };
+        const merged = inheritEnvironment ? { ...process.env, ...env } : { ...env };
         return await new Promise(resolve => {
             execFile(command, args, { cwd, env: merged, timeout: 10_000, maxBuffer: 64 * 1024 }, (error, stdout, stderr) => {
                 const code = error ? (typeof error.code === 'number' ? error.code : null) : 0;
@@ -95,7 +96,7 @@ export async function checkEngineAuth(engine: Engine, cwd: string, env?: Record<
     } catch { return 'unknown'; }
 }
 
-export function registerEngineAuth(client: ApiSessionClient, engine: Engine, cwd: string, env?: Record<string, string>) {
+export function registerEngineAuth(client: ApiSessionClient, engine: Engine, cwd: string, env?: Record<string, string>, args?: string[]) {
     let checking: Promise<{ status: EngineAuthStatus; checkedAt: number }> | undefined;
     void runtimeVersion(engine).then(engineRuntime => client.updateMetadata(m => ({...m,engineRuntime,agentBuild}))).catch(() => {});
     const check = () => checking ??= (async () => {
@@ -104,5 +105,6 @@ export function registerEngineAuth(client: ApiSessionClient, engine: Engine, cwd
         return result;
     })().finally(() => { checking = undefined; });
     client.rpcHandlerManager.registerHandler('check-engine-auth', check);
+    client.rpcHandlerManager.registerHandler('engine-login-context', async () => engineLoginContext(engine, cwd, { ...process.env, ...env }, args));
     return check;
 }

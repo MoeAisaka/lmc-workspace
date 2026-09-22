@@ -625,6 +625,8 @@ export const en = {
 
     toolGroup: {
         timeline: {
+            steps: 'Steps', timeUnrecorded: 'Time not recorded',
+            turnElapsed: ({ duration }: { duration: string }) => `Turn total ${duration}`,
             running: 'Running', waiting: 'Waiting for approval', completed: 'Completed', error: 'Failed', stopped: 'Stopped', unknown: 'Completion not recorded',
             unrecorded: 'Not recorded', ended: 'Turn ended', started: 'Started', finished: 'Finished', elapsed: 'Duration',
             operations: ({ count }: { count: number }) => `${count} operations`,

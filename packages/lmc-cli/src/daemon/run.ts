@@ -1,3 +1,4 @@
+import { registerEngineLogin } from './registerEngineLogin';
 import { startModelDiscovery } from '@/runtime/modelDiscovery';
 import { UpgradeManager } from '@/runtime/upgradeManager';
 import { stageRelease, activateRelease, latestVersion, rollbackRelease } from '@/runtime/releaseInstaller';
@@ -65,6 +66,7 @@ function shellescape(s: string): string {
 // share the same hostname and look identical).
 const hostSuffix = process.env.HAPPY_VARIANT === 'dev' ? '-dev' : '';
 export const initialMachineMetadata: MachineMetadata = {
+  engineLogin: { claude: true, codex: true },
   managedUpgrades: true,
   modelDiscovery: true,
   codexServiceTier: true,
@@ -1114,6 +1116,31 @@ export async function startDaemon(): Promise<void> {
       await apiMachine.updateMachineMetadata(metadata => ({ ...metadata!, modelDiscovery: true, modelCatalogs }));
     });
 
+    const stopEngineLogin = registerEngineLogin(apiMachine, {
+      alive: async id => {
+        const tracked = findTrackedSessionById(id);
+        return !!(findLiveSession(id)?.pid || (tracked && await findOrphanedSessionPid(tracked, () => psList())));
+      },
+      ids: async () => {
+        const processes = await psList();
+        const all = new Map([...sessionIdToFinishedSession, ...Array.from(pidToTrackedSession.values()).filter(s => s.happySessionId).map(s => [s.happySessionId!, s] as const)]);
+        const ids: string[] = [];
+        for (const [id, tracked] of all) {
+          if (findLiveSession(id)?.pid || await findOrphanedSessionPid(tracked, async () => processes)) ids.push(id);
+        }
+        return ids;
+      },
+      metadata: async id => {
+        const encryption = findTrackedSessionById(id)?.encryption;
+        return encryption ? fetchServerSessionMetadata(id, encryption.encryptionKey, encryption.encryptionVariant) : null;
+      },
+      call: async (id, method, params) => {
+        const encryption = findTrackedSessionById(id)?.encryption;
+        if (!encryption) throw new Error('offline');
+        return apiMachine.callSession(id, encryption.encryptionKey, encryption.encryptionVariant, method, params);
+      },
+    });
+
     const upgradeManager = new UpgradeManager(configuration.lmcHomeDir, {
       ready: () => agentRoot() === projectPath(),
       stage: stageRelease,
@@ -1236,6 +1263,7 @@ export async function startDaemon(): Promise<void> {
         // isDaemonRunningCurrentlyInstalledLmcVersion() === true, and exits —
         // leaving nothing running once we also exit.
         stopModelDiscovery();
+        stopEngineLogin();
         apiMachine.shutdown();
         await stopControlServer();
         await cleanupDaemonState();
@@ -1303,6 +1331,7 @@ export async function startDaemon(): Promise<void> {
       await new Promise(resolve => setTimeout(resolve, 100));
 
       stopModelDiscovery();
+      stopEngineLogin();
       apiMachine.shutdown();
       await stopControlServer();
       await cleanupDaemonState();
