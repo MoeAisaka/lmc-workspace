@@ -15,7 +15,7 @@ The browser runner uses the exported production components, theme system, fonts 
 
 Checks cover serial/parallel timing, details, fold/unfold, final-answer visibility, live elapsed time, stale records, failure and permission states, mobile width and theme switching. Unit tests cover the message grouping and timestamp rules. Native iOS/Android and live provider transport are outside this browser check.
 
-D22 checks cover 22.5px desktop / 24.75px mobile rows (25% shorter than D20), status before the operation icon, no per-step timestamps or elapsed labels, and a 320px viewport. Titles remain 12px; exception explanations and permission actions remain accessible. Tool details retain individual timing.
+D23 checks cover 25.875px desktop / 28.4625px mobile rows (15% larger than D22), status before the operation icon, no per-step timestamps or elapsed labels, and a 320px viewport. Titles and step icons are 13.8px. Ordinary step titles, group headings and counts use 75% text opacity; status colors, body text, the elapsed footer and permission actions retain their existing contrast. Tool details retain individual timing.
 
 The single turn total sits below the composer, beside usage figures on desktop and above them on mobile. The exported fixture uses the real `AgentInputUsageRow` and `TurnElapsedLabel`; its composer outline is synthetic. It checks live updates, frozen completion and the footer's position. It does not exercise the entire SessionView or live provider transport.
 

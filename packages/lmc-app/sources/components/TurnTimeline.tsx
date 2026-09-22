@@ -79,10 +79,10 @@ function TimelineRow({ step, compact, selected, onPress, metadata, sessionId }: 
                 testID={`timeline-step-${step.id}`}>
                 <View style={styles.status} testID={`timeline-status-${step.id}`}>
                     {running ? <View style={styles.spinner}><ActivityIndicator size="small" color={color} style={styles.spinnerScale} /></View>
-                        : <Ionicons name={icon} size={12} color={color} />}
+                        : <Ionicons name={icon} size={13.8} color={color} />}
                 </View>
                 <View testID={`timeline-type-${step.id}`} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.typeIcon}>
-                    <Ionicons name={typeIcon} size={12} color={theme.colors.textSecondary} />
+                    <Ionicons name={typeIcon} size={13.8} color={theme.colors.textSecondary} />
                 </View>
                 <View style={[styles.body, compact && styles.mobileBody]}>
                     <Text style={styles.title} numberOfLines={1}>{title}</Text>
@@ -90,7 +90,7 @@ function TimelineRow({ step, compact, selected, onPress, metadata, sessionId }: 
                         {timelineStatusLabel(step.status)}{detail ? ` · ${detail}` : ''}
                     </Text>}
                 </View>
-                <Ionicons name="chevron-forward" size={12} color={theme.colors.textSecondary} />
+                <Ionicons name="chevron-forward" size={13.8} color={theme.colors.textSecondary} />
             </Pressable>
             {step.status === 'waiting' && (
                 <MessageView message={step.message} metadata={metadata} sessionId={sessionId} />
@@ -101,18 +101,18 @@ function TimelineRow({ step, compact, selected, onPress, metadata, sessionId }: 
 
 const styles = StyleSheet.create(theme => ({
     timeline: { marginHorizontal: 16, marginTop: 8 },
-    row: { flexDirection: 'row', alignItems: 'center', gap: 4.5, minHeight: 22.5, borderRadius: 7.5 },
-    mobileRow: { minHeight: 24.75 },
+    row: { flexDirection: 'row', alignItems: 'center', gap: 5.175, minHeight: 25.875, borderRadius: 8.625 },
+    mobileRow: { minHeight: 28.4625 },
     highlight: { backgroundColor: theme.colors.surfacePressed },
-    status: { width: 12, flexShrink: 0, alignItems: 'center', justifyContent: 'center' },
-    typeIcon: { width: 12, height: 18, alignItems: 'center', justifyContent: 'center' },
-    body: { flex: 1, minWidth: 0, gap: 1.5, paddingVertical: 2.25 },
-    mobileBody: { paddingVertical: 3.375 },
-    title: { fontSize: 12, lineHeight: 18, color: theme.colors.text, ...Typography.default('semiBold') },
-    subtitle: { fontSize: 12, lineHeight: 18, color: theme.colors.textSecondary, ...Typography.default() },
-    spinner: { width: 12, height: 12, alignItems: 'center', justifyContent: 'center' },
-    spinnerScale: { transform: [{ scale: 0.6 }] },
-    parallel: { backgroundColor: theme.colors.surfaceHighest, borderRadius: 9, padding: 6.75, overflow: 'hidden' },
-    parallelHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 18 },
-    parallelTitle: { flex: 1, fontSize: 12, lineHeight: 18, color: theme.colors.textSecondary, ...Typography.default('semiBold') },
+    status: { width: 13.8, flexShrink: 0, alignItems: 'center', justifyContent: 'center' },
+    typeIcon: { width: 13.8, height: 20.7, alignItems: 'center', justifyContent: 'center' },
+    body: { flex: 1, minWidth: 0, gap: 1.725, paddingVertical: 2.5875 },
+    mobileBody: { paddingVertical: 3.88125 },
+    title: { fontSize: 13.8, lineHeight: 20.7, color: theme.colors.text, opacity: 0.75, ...Typography.default('semiBold') },
+    subtitle: { fontSize: 13.8, lineHeight: 20.7, color: theme.colors.textSecondary, ...Typography.default() },
+    spinner: { width: 13.8, height: 13.8, alignItems: 'center', justifyContent: 'center' },
+    spinnerScale: { transform: [{ scale: 0.69 }] },
+    parallel: { backgroundColor: theme.colors.surfaceHighest, borderRadius: 10.35, padding: 7.7625, overflow: 'hidden' },
+    parallelHeader: { flexDirection: 'row', alignItems: 'center', gap: 6.9, minHeight: 20.7 },
+    parallelTitle: { flex: 1, fontSize: 13.8, lineHeight: 20.7, color: theme.colors.textSecondary, opacity: 0.75, ...Typography.default('semiBold') },
 }));

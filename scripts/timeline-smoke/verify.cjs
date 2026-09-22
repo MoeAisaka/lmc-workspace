@@ -102,7 +102,15 @@ const server=http.createServer((req,res)=>{
   assert.match(await page.getByTestId('turn-elapsed').innerText(),/2m14s/);
   assert.equal(await page.locator('[data-testid^="timeline-step-"]').count(),5);
   const rowHeights=()=>page.locator('[data-testid^="timeline-step-"]').evaluateAll(rows=>rows.map(row=>row.getBoundingClientRect().height));
-  assert.deepEqual(await rowHeights(),[22.5,22.5,22.5,22.5,22.5]);
+  const checkStepTypography=async()=>{
+   const actual=await page.getByTestId('timeline-step-test').evaluate(row=>{
+    const title=row.children[2].firstElementChild, icon=row.querySelector('[data-testid="timeline-type-test"]').firstElementChild;
+    return {font:parseFloat(getComputedStyle(title).fontSize),opacity:getComputedStyle(title).opacity,icon:parseFloat(getComputedStyle(icon).fontSize),bodyOpacity:getComputedStyle(document.querySelector('[data-testid="final"]')).opacity};
+   });
+   assert.deepEqual(actual,{font:13.8,opacity:'0.75',icon:13.8,bodyOpacity:'1'});
+  };
+  await checkStepTypography();
+  assert.deepEqual(await rowHeights(),[25.875,25.875,25.875,25.875,25.875]);
   const readIcon=await page.getByTestId('timeline-type-read').innerText();
   const commandIcon=await page.getByTestId('timeline-type-test').innerText();
   assert.notEqual(readIcon,commandIcon);
@@ -131,16 +139,17 @@ const server=http.createServer((req,res)=>{
   await page.screenshot({path:path.join(out,'waiting.png'),fullPage:true});
   await page.evaluate(()=>setScenario('complete'));await page.setViewportSize({width:390,height:844});await page.evaluate(()=>setPreviewTheme('dark'));await page.waitForTimeout(200);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
-  assert.deepEqual(await rowHeights(),[24.75,24.75,24.75,24.75,24.75]);
+  assert.ok((await rowHeights()).every(height=>Math.abs(height-28.4625)<0.02));
+  await checkStepTypography();
   await page.screenshot({path:path.join(out,'mobile-dark.png'),fullPage:true});
   await page.setViewportSize({width:320,height:740});await page.evaluate(()=>setScenario('running'));await page.waitForTimeout(100);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
-  assert.equal(await page.getByTestId('timeline-step-test').evaluate(row=>row.getBoundingClientRect().height),24.75);
+  assert.ok(Math.abs(await page.getByTestId('timeline-step-test').evaluate(row=>row.getBoundingClientRect().height)-28.4625)<0.02);
   await page.screenshot({path:path.join(out,'mobile-running-narrow.png'),fullPage:true});
   await page.evaluate(()=>setPreviewTheme('light'));await page.waitForTimeout(100);
   assert.equal(await page.getByTestId('timeline-parallel').evaluate(n=>getComputedStyle(n).backgroundColor),'rgb(240, 240, 240)');
   assert.deepEqual(errors,[]);
-  console.log('PASS exported Web: D22 left status, 25% smaller rows, no per-step times, detail timing, fold/unfold, final text, live/frozen footer, stale/error states, mobile width, dark/light theme; no browser errors');
+  console.log('PASS exported Web: D23 left status, 15% larger rows and 75% text opacity, no per-step times, detail timing, fold/unfold, final text, live/frozen footer, stale/error states, mobile width, dark/light theme; no browser errors');
   console.log('Artifacts: '+out);
  } finally {await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1});

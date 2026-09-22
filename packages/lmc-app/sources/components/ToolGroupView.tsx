@@ -430,9 +430,9 @@ const styles = StyleSheet.create((theme) => ({
         paddingVertical: 4,
         borderRadius: 4,
     },
-    timelineHeader: { minHeight: 33, gap: 7.5 },
-    timelineSummary: { flex: 1, fontSize: 12, ...Typography.default('semiBold') },
-    headerDetail: { fontSize: 12, color: theme.colors.textSecondary, ...Typography.default() },
+    timelineHeader: { minHeight: 37.95, gap: 8.625 },
+    timelineSummary: { flex: 1, fontSize: 13.8, lineHeight: 23, opacity: 0.75, ...Typography.default('semiBold') },
+    headerDetail: { fontSize: 13.8, opacity: 0.75, color: theme.colors.textSecondary, ...Typography.default() },
     headerPressed: {
         opacity: 0.6,
     },
