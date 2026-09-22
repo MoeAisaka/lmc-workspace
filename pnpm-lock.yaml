@@ -1015,6 +1015,9 @@ importers:
       pkgroll:
         specifier: ^2.14.2
         version: 2.22.0(typescript@5.9.3)
+      smol-toml:
+        specifier: 1.8.0
+        version: 1.8.0
       shx:
         specifier: ^0.3.3
         version: 0.3.4
