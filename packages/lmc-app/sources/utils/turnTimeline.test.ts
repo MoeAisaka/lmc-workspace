@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Message, ToolCall, ToolCallMessage } from '@/sync/typesMessage';
-import { buildTurnTimeline, getToolTiming, isCurrentTurnMessage } from './turnTimeline';
+import { buildTurnTimeline, getToolTiming, isCurrentTurnMessage, isTimelineExpanded, selectTimelineItems } from './turnTimeline';
 
 function tool(id: string, start: number | null, end: number | null, extra: Partial<ToolCall> = {}): ToolCallMessage {
     return { kind: 'tool-call', id, localId: null, createdAt: start ?? 1000, children: [], tool: {
@@ -57,5 +57,32 @@ describe('per-turn timeline', () => {
         const messages = [tool('new', 3000, null), user, tool('old', 1000, null)];
         expect(isCurrentTurnMessage(messages, 'new')).toBe(true);
         expect(isCurrentTurnMessage(messages, 'old')).toBe(false);
+    });
+});
+
+describe('D24 process visibility', () => {
+    it('follows completion by default and preserves explicit choices', () => {
+        expect(isTimelineExpanded(true)).toBe(true);
+        expect(isTimelineExpanded(false)).toBe(false);
+        expect(isTimelineExpanded(false, true)).toBe(true);
+        expect(isTimelineExpanded(true, false)).toBe(false);
+    });
+    it.each(['Bash', 'exec_command'])('shows recent work plus earlier active %s calls and preserves prose', name => {
+        const progress: Message = { kind: 'agent-text', id: 'prose', createdAt: 2500, localId: null, text: 'Status update' };
+        const messages = [tool('e', 5000, 6000), tool('d', 4000, 5000), tool('c', 3000, 4000), progress, tool('b', 2000, 3000), tool('a', 1000, null, { name })];
+        const all = buildTurnTimeline(messages, 1000, true, 7000);
+        const recent = selectTimelineItems(all, true, true, false);
+        expect(recent.hiddenCount).toBe(1);
+        expect(JSON.stringify(recent.items)).toContain('Status update');
+        expect(recent.items[0]).toMatchObject({ id: 'a' });
+        expect(selectTimelineItems(all, true, true, true).hiddenCount).toBe(0);
+    });
+    it('folds only successful steps, keeps failures, approvals, unknown completion and commentary', () => {
+        const prose: Message = { kind: 'agent-text', id: 'text', createdAt: 4000, localId: null, text: 'Still visible' };
+        const items = buildTurnTimeline([prose, tool('unknown', 3000, null), tool('wait', null, null, { permission: { id: 'p', status: 'pending' } }), tool('err', 2000, 3000, { state: 'error' }), tool('ok', 1000, 2000)], 1000, false, 5000);
+        const folded = selectTimelineItems(items, false, false, false);
+        expect(folded.hiddenCount).toBe(1);
+        expect(folded.items.map(item => item.id)).toEqual(['err', 'wait', 'unknown', 'text']);
+        expect(folded.items[1]).toMatchObject({ status: 'waiting' });
     });
 });

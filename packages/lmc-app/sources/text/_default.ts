@@ -625,6 +625,9 @@ export const en = {
 
     toolGroup: {
         timeline: {
+            process: 'Execution',
+            earlier: ({ count }: { count: number }) => `Show ${count} earlier steps`,
+            terminalAction: 'Run command', readAction: 'Read file', editAction: 'Edit file', searchAction: 'Search', webAction: 'Fetch page',
             steps: 'Steps', timeUnrecorded: 'Time not recorded',
             turnElapsed: ({ duration }: { duration: string }) => `Turn total ${duration}`,
             running: 'Running', waiting: 'Waiting for approval', completed: 'Completed', error: 'Failed', stopped: 'Stopped', unknown: 'Completion not recorded',

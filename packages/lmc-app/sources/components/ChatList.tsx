@@ -1,3 +1,4 @@
+import { isTimelineExpanded } from '@/utils/turnTimeline';
 import * as React from 'react';
 import { useSession, useSessionMessages, useSetting } from "@/sync/storage";
 import { sync } from '@/sync/sync';
@@ -348,6 +349,9 @@ const ChatListInternal = React.memo((props: {
         setBottomDockVisibility(true);
     }, [props.onHeaderBackdropVisibilityChange, setBottomDockVisibility]);
 
+    // Separate explicit timeline choices from legacy auto-collapse behavior.
+    const [timelineChoices, setTimelineChoices] = React.useState<Record<string, boolean>>({});
+
     const renderItem = useCallback(({ item }: { item: DisplayItem }) => {
         if (item.type === 'tool-group') {
             return (
@@ -367,8 +371,11 @@ const ChatListInternal = React.memo((props: {
                     group={item}
                     metadata={props.metadata}
                     sessionId={props.sessionId}
-                    expanded={!collapsedGroups.has(item.id)}
-                    onToggle={() => handleToggleGroup(item.id)}
+                    expanded={isTimelineExpanded(item.completedAt === null, timelineChoices[`${props.sessionId}:${item.id}`])}
+                    onToggle={() => setTimelineChoices(prev => {
+                        const key = `${props.sessionId}:${item.id}`;
+                        return { ...prev, [key]: !isTimelineExpanded(item.completedAt === null, prev[key]) };
+                    })}
                     onAnchorLayoutChange={preserveToolGroupAnchor}
                 />
             );
@@ -381,7 +388,7 @@ const ChatListInternal = React.memo((props: {
                 copyText={agentCopyTextByMessageId.get(item.message.id)}
             />
         );
-    }, [agentCopyTextByMessageId, props.metadata, props.sessionId, collapsedGroups, handleToggleGroup, preserveToolGroupAnchor]);
+    }, [agentCopyTextByMessageId, props.metadata, props.sessionId, collapsedGroups, timelineChoices, handleToggleGroup, preserveToolGroupAnchor]);
 
     // In inverted FlatList, offset 0 = latest messages (visual bottom).
     // Offset increases as user scrolls up to see older messages.

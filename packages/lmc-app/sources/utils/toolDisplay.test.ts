@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ToolCall } from '@/sync/typesMessage';
 import {
     getToolActivityLabel,
+    getTimelineToolLabel,
     getTerminalToolCommand,
     getToolSummaryCategory,
     getToolSummaryDetail,
@@ -151,5 +152,31 @@ describe('terminal tool display helpers', () => {
         expect(shouldUseCompactToolRow(pendingPlan, true)).toBe(false);
         pendingPlan.permission.status = 'approved';
         expect(shouldUseCompactToolRow(pendingPlan, true)).toBe(true);
+    });
+});
+
+describe('D24 factual timeline titles', () => {
+    it.each(['Bash', 'exec_command', 'CodexBash'])('keeps %s command arguments in details only', name => {
+        const call = tool(name, { command: ['/bin/zsh', '-lc', 'git status --short; git diff'] });
+        expect(getTimelineToolLabel(call)).toBe('toolGroup.timeline.terminalAction: · git');
+        expect(getToolSummaryDetail(call)).toBe('git status --short; git diff');
+        call.description = 'Ran 1 command: /bin/zsh -lc "git status --short"';
+        expect(getTimelineToolLabel(call)).toBe('toolGroup.timeline.terminalAction: · git');
+    });
+    it('accepts short provider prose and rejects raw shell in a description', () => {
+        expect(getTimelineToolLabel(tool('Bash', { command: 'pnpm test', description: 'Check the resource search' }))).toBe('Check the resource search');
+        const read = tool('Read', {});read.description = 'Inspect the release notes';
+        expect(getTimelineToolLabel(read)).toBe('Inspect the release notes');
+        const call = tool('exec_command', { cmd: '/bin/zsh -lc "python3 script.py --secret=private"' });
+        call.description = 'Run command';
+        expect(getTimelineToolLabel(call)).toBe('toolGroup.timeline.terminalAction: · python3');
+        call.description = 'x'.repeat(65);
+        expect(getTimelineToolLabel(call)).not.toContain('xxx');
+    });
+    it('shows file basenames, never full paths or fabricated task purpose', () => {
+        expect(getTimelineToolLabel(tool('Read', { file_path: '/private/project/README.md' }))).toBe('toolGroup.timeline.readAction: · README.md');
+        expect(getTimelineToolLabel(tool('CodexPatch', { changes: { '/repo/app.ts': {} } }))).toBe('toolGroup.timeline.editAction: · app.ts');
+        expect(getTimelineToolLabel(tool('Bash', { command: 'UNKNOWN=value /usr/bin/custom --deploy' }))).toBe('toolGroup.timeline.terminalAction: · custom');
+        expect(getTimelineToolLabel(tool('Bash', { command: '$(unknown) --deploy' }))).toBe('toolGroup.timeline.terminalAction:');
     });
 });

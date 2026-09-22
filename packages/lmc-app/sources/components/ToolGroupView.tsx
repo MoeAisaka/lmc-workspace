@@ -18,6 +18,7 @@ import { Message, ToolCallMessage } from '@/sync/typesMessage';
 import { getToolActivityLabel, getToolSummaryCategory, ToolSummaryCategory } from '@/utils/toolDisplay';
 import { useRouter } from 'expo-router';
 import { TurnTimeline } from './TurnTimeline';
+import { getTimelineStatus, isTimelineExpanded } from '@/utils/turnTimeline';
 import { Typography } from '@/constants/Typography';
 
 interface ToolGroupViewProps {
@@ -119,38 +120,39 @@ interface AgentWorkGroupViewProps {
     group: AgentWorkGroupItem;
     metadata: Metadata | null;
     sessionId: string;
-    expanded: boolean;
+    expanded?: boolean;
     onToggle: () => void;
     onAnchorLayoutChange?: (anchor: ToolGroupLayoutAnchor) => void;
 }
 
 export const AgentWorkGroupView = React.memo<AgentWorkGroupViewProps>((props) => {
     const chatMaxWidth = useChatMaxWidth();
-    const { group, metadata, sessionId, expanded, onToggle, onAnchorLayoutChange } = props;
+    const { group, metadata, sessionId, onToggle, onAnchorLayoutChange } = props;
+    const expanded = isTimelineExpanded(group.completedAt === null, props.expanded);
     const isCompleted = group.completedAt !== null;
     // Only tick expanded active details; the turn total lives below the composer.
     useElapsedTime(expanded && !isCompleted ? group.startedAt : null);
     const handleAnchoredToggle = useAnchoredToggle(expanded, onToggle, onAnchorLayoutChange);
     const now = isCompleted ? group.completedAt! : Date.now();
     const tools = group.messages.filter((m): m is ToolCallMessage => m.kind === 'tool-call');
-    const pending = !isCompleted ? tools.find(m => m.tool.permission?.status === 'pending') : undefined;
+    const statuses = tools.map(m => getTimelineStatus(m.tool, !isCompleted));
+    const status = statuses.includes('waiting') ? 'waiting' : statuses.includes('error') ? 'error'
+        : !isCompleted ? 'running' : statuses.includes('unknown') ? 'unknown'
+            : statuses.includes('stopped') ? 'stopped' : 'completed';
     const errors = tools.filter(m => m.tool.state === 'error').length;
-    const timelineLabel = pending ? t('toolGroup.timeline.waiting') : t('toolGroup.timeline.steps');
+    const timelineLabel = `${t('toolGroup.timeline.process')} · ${t(`toolGroup.timeline.${status}`)}`;
 
     return (
         <View style={styles.outerContainer}>
             <View style={[styles.innerContainer, { maxWidth: chatMaxWidth }]}>
-                <CollapseHeader
+                <TurnTimeline group={group} metadata={metadata} sessionId={sessionId} now={now} expanded={expanded} header={<CollapseHeader key="header"
                     expanded={expanded}
                     hasRunning={!isCompleted && group.hasRunning}
                     label={timelineLabel}
                     onPress={handleAnchoredToggle}
                     timeline
                     detail={errors ? t('toolGroup.timeline.errors', { count: errors }) : t('toolGroup.timeline.operations', { count: tools.length })}
-                />
-                {expanded && (
-                    <TurnTimeline group={group} metadata={metadata} sessionId={sessionId} now={now} />
-                )}
+                />} />
             </View>
         </View>
     );
@@ -226,6 +228,7 @@ function CollapseHeader(props: {
             accessibilityRole="button"
             accessibilityLabel={props.label}
             accessibilityState={{ expanded: props.expanded }}
+            aria-expanded={props.expanded}
             collapsable={false}
             onPress={handlePress}
             style={({ pressed }) => [
@@ -430,9 +433,9 @@ const styles = StyleSheet.create((theme) => ({
         paddingVertical: 4,
         borderRadius: 4,
     },
-    timelineHeader: { minHeight: 37.95, gap: 8.625 },
-    timelineSummary: { flex: 1, fontSize: 13.8, lineHeight: 23, opacity: 0.75, ...Typography.default('semiBold') },
-    headerDetail: { fontSize: 13.8, opacity: 0.75, color: theme.colors.textSecondary, ...Typography.default() },
+    timelineHeader: { marginHorizontal: 0, minHeight: 28, gap: 8, marginBottom: 4 },
+    timelineSummary: { flex: 1, fontSize: 13, lineHeight: 20, ...Typography.default() },
+    headerDetail: { fontSize: 13, lineHeight: 20, color: theme.colors.textSecondary, ...Typography.default() },
     headerPressed: {
         opacity: 0.6,
     },

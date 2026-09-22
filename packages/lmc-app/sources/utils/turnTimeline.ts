@@ -32,8 +32,8 @@ export function getTimelineStatus(tool: ToolCall, active: boolean): TimelineStat
     if (tool.permission?.status === 'denied' || tool.permission?.status === 'canceled') return 'stopped';
     if (tool.state === 'error') return 'error';
     if (tool.state === 'completed') return 'completed';
-    if (!active) return 'unknown';
-    return tool.permission?.status === 'pending' ? 'waiting' : 'running';
+    if (tool.permission?.status === 'pending') return 'waiting';
+    return active ? 'running' : 'unknown';
 }
 
 export function getToolTiming(tool: ToolCall, active: boolean, now: number) {
@@ -97,4 +97,29 @@ export function buildTurnTimeline(messages: Message[], turnStart: number, active
 export function formatTimelineOffset(ms: number): string {
     const seconds = Math.max(0, Math.floor(ms / 1000));
     return `+${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+/** An explicit choice survives completion; untouched turns follow their lifecycle. */
+export function isTimelineExpanded(active: boolean, choice?: boolean): boolean {
+    return choice ?? active;
+}
+
+/** Fold ordinary work only. Progress prose and exceptional/actionable steps are
+ * always visible, including incomplete historical records. */
+export function selectTimelineItems(items: TimelineItem[], expanded: boolean, active: boolean, showEarlier: boolean) {
+    const steps = items.flatMap(item => item.type === 'parallel' ? item.steps : item.type === 'step' ? [item] : []);
+    const recent = new Set(steps.slice(-3).map(step => step.id));
+    const visible = (step: TimelineStep) => step.status !== 'completed'
+        || (expanded && (!active || showEarlier || recent.has(step.id)));
+    const result: TimelineItem[] = [];
+    for (const item of items) {
+        if (item.type === 'message') result.push(item);
+        else if (item.type === 'step') { if (visible(item)) result.push(item); }
+        else {
+            const selected = item.steps.filter(visible);
+            if (selected.length === 1) result.push(selected[0]);
+            else if (selected.length > 1) result.push({ ...item, steps: selected });
+        }
+    }
+    return { items: result, hiddenCount: steps.filter(step => !visible(step)).length };
 }

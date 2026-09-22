@@ -216,6 +216,44 @@ export function getToolActivityLabel(tool: Pick<ToolCall, 'name' | 'input' | 'de
     return `${action}: ${detail}`;
 }
 
+/** Timeline titles deliberately exclude raw arguments, paths and output. */
+export function getTimelineToolLabel(tool: Pick<ToolCall, 'name' | 'input' | 'description'>): string {
+    const detail = getToolSummaryDetail({ ...tool, description: null });
+    for (const description of [tool.input?.description, tool.description]) {
+        if (typeof description !== 'string') continue;
+        const label = getProviderActivityDescription({ ...tool, description }, detail);
+        // Only short prose supplied by the provider is a trustworthy purpose.
+        if (label && label.length <= 64 && !/[\n\r`/\\;|<>{}=]/u.test(label)
+            && !/^(?:ran|running|executed?|执行了?)\s*\d*\s*(?:commands?|个?命令)[:：]/iu.test(label)
+            && !label.includes(' --')) return label;
+    }
+    const category = getToolSummaryCategory(tool.name);
+    let target: string | null = null;
+    if (category === 'terminal') {
+        target = commandExecutable(getTerminalToolCommand(tool));
+    } else if (category === 'read' || category === 'edit') {
+        const path = tool.input?.file_path ?? tool.input?.target_file ?? tool.input?.path ?? getPatchFiles(tool.input)[0];
+        if (typeof path === 'string') target = path.trim().split(/[\\/]/u).filter(Boolean).pop() ?? null;
+    } else if (category === 'web') {
+        try { target = new URL(tool.input?.url).hostname; } catch { /* No reliable host. */ }
+    }
+    const action = category === 'other' || category === 'task'
+        ? getToolActivityAction(category, tool.name)
+        : t(`toolGroup.timeline.${category}Action`);
+    return target ? `${action} · ${target}` : action;
+}
+
+function commandExecutable(command: string | null): string | null {
+    if (!command) return null;
+    // Unwrap only an explicit shell -c argument, never interpret shell code.
+    const wrapped = command.match(/^(?:\S*\/)?(?:ba|z|da)?sh\s+-[a-z]*c\s+([\s\S]+)$/u);
+    let source = wrapped ? wrapped[1].trim() : command;
+    if (wrapped && ((source.startsWith("'") && source.endsWith("'")) || (source.startsWith('"') && source.endsWith('"')))) source = source.slice(1, -1);
+    source = source.replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=[^\s]+\s+)*/u, '');
+    const token = source.match(/^\/?(?:[\w.~-]+\/)*([A-Za-z0-9_][A-Za-z0-9_.+-]*)(?=\s|$)/u)?.[1];
+    return token ?? null;
+}
+
 export function getTerminalToolCommand(tool: Pick<ToolCall, 'name' | 'input'>): string | null {
     if (!isTerminalToolName(tool.name)) {
         return null;
