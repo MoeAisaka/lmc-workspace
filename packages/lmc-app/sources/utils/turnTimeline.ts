@@ -99,9 +99,9 @@ export function formatTimelineOffset(ms: number): string {
     return `+${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
-/** An explicit choice survives completion; untouched turns follow their lifecycle. */
-export function isTimelineExpanded(active: boolean, choice?: boolean): boolean {
-    return choice ?? active;
+/** Turns start expanded; only an explicit user choice collapses the process. */
+export function isTimelineExpanded(choice?: boolean): boolean {
+    return choice ?? true;
 }
 
 /** Fold ordinary work only. Progress prose and exceptional/actionable steps are

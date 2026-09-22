@@ -128,7 +128,7 @@ interface AgentWorkGroupViewProps {
 export const AgentWorkGroupView = React.memo<AgentWorkGroupViewProps>((props) => {
     const chatMaxWidth = useChatMaxWidth();
     const { group, metadata, sessionId, onToggle, onAnchorLayoutChange } = props;
-    const expanded = isTimelineExpanded(group.completedAt === null, props.expanded);
+    const expanded = isTimelineExpanded(props.expanded);
     const isCompleted = group.completedAt !== null;
     // Only tick expanded active details; the turn total lives below the composer.
     useElapsedTime(expanded && !isCompleted ? group.startedAt : null);

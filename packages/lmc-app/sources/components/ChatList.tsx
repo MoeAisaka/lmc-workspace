@@ -371,10 +371,10 @@ const ChatListInternal = React.memo((props: {
                     group={item}
                     metadata={props.metadata}
                     sessionId={props.sessionId}
-                    expanded={isTimelineExpanded(item.completedAt === null, timelineChoices[`${props.sessionId}:${item.id}`])}
+                    expanded={isTimelineExpanded(timelineChoices[`${props.sessionId}:${item.id}`])}
                     onToggle={() => setTimelineChoices(prev => {
                         const key = `${props.sessionId}:${item.id}`;
-                        return { ...prev, [key]: !isTimelineExpanded(item.completedAt === null, prev[key]) };
+                        return { ...prev, [key]: !isTimelineExpanded(prev[key]) };
                     })}
                     onAnchorLayoutChange={preserveToolGroupAnchor}
                 />

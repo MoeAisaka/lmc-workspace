@@ -61,11 +61,11 @@ describe('per-turn timeline', () => {
 });
 
 describe('D24 process visibility', () => {
-    it('follows completion by default and preserves explicit choices', () => {
+    it('defaults to expanded regardless of lifecycle and preserves explicit choices', () => {
+        expect(isTimelineExpanded()).toBe(true);
+        expect(isTimelineExpanded(undefined)).toBe(true);
         expect(isTimelineExpanded(true)).toBe(true);
         expect(isTimelineExpanded(false)).toBe(false);
-        expect(isTimelineExpanded(false, true)).toBe(true);
-        expect(isTimelineExpanded(true, false)).toBe(false);
     });
     it.each(['Bash', 'exec_command'])('shows recent work plus earlier active %s calls and preserves prose', name => {
         const progress: Message = { kind: 'agent-text', id: 'prose', createdAt: 2500, localId: null, text: 'Status update' };

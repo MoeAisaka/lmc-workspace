@@ -62,7 +62,7 @@ function App(){
  const timing=React.useMemo(()=>resolveTurnElapsed(messages,lifecycle,active),[messages,lifecycle,active]);
  return h('div',{style:{minHeight:'100vh',background:theme.colors.surface,color:theme.colors.text,padding:'20px 0'}},
   h('div',{style:{maxWidth:760,margin:'auto'}},h('p',{style:{padding:'0 16px'}},user.text),
-   h(AgentWorkGroupView,{group,metadata:null,sessionId:'fixture',expanded,onToggle:()=>setExpanded(x=>!(x??active))}),
+   h(AgentWorkGroupView,{group,metadata:null,sessionId:'fixture',expanded,onToggle:()=>setExpanded(x=>!(x??true))}),
    group.completedAt!==null&&h('p',{'data-testid':'final',style:{padding:'0 16px'}},answer.text),
    h('div',{'data-testid':'composer',style:{border:'1px solid '+theme.colors.divider,borderRadius:18,margin:'24px 16px 0',padding:16}},'输入消息…'),
    h(AgentInputUsageRow,{turnElapsed:timing,contextStatus:{percent:52,detailText:'52k / 100k',color:theme.colors.textSecondary},weekPercent:74,usageMenuOptions:[]})),
@@ -101,9 +101,8 @@ const server=http.createServer((req,res)=>{
   const header=page.getByRole('button',{name:/Execution/});
   const toggle=async()=>{const before=await header.getAttribute('aria-expanded');await header.click();await page.waitForFunction(before=>document.querySelector('[aria-label^="Execution"]').getAttribute('aria-expanded')!==before,before,{timeout:5000})};
   const rows=()=>page.locator('[data-testid^="timeline-step-"]');
-  assert.equal(await rows().count(),0); // Completed defaults collapsed.
+  assert.equal(await rows().count(),5); // Completed defaults expanded.
   assert.equal(await page.getByText('Progress prose remains visible.',{exact:true}).count(),1);
-  await toggle();
   await page.getByTestId('timeline-parallel').waitFor({timeout:5000});
   assert.equal(await page.getByTestId('timeline-parallel').count(),1);
   assert.doesNotMatch(await page.getByTestId('timeline-parallel').innerText(),/22s|\+\d+:/);
@@ -152,11 +151,11 @@ const server=http.createServer((req,res)=>{
   await page.evaluate(()=>setScenario('history'));await page.waitForTimeout(100);assert.match(await page.getByTestId('timeline-step-test').innerText(),/Completion not recorded/);
   await page.evaluate(()=>setScenario('error'));await page.waitForTimeout(100);assert.match(await page.getByTestId('timeline-step-test').innerText(),/Failed/);
   assert.doesNotMatch(await page.getByTestId('timeline-step-test').innerText(),/pnpm test/);
-  assert.equal(await rows().count(),1); // Error remains visible even while collapsed.
+  await toggle();assert.equal(await rows().count(),1); // Error remains visible even while collapsed.
   await page.evaluate(()=>setScenario('waiting'));await page.waitForTimeout(200);assert.match(await page.getByTestId('timeline-step-test').innerText(),/Waiting for approval/);
   await toggle();assert.match(await page.getByTestId('timeline-step-test').innerText(),/Waiting for approval/);
   await page.screenshot({path:path.join(out,'waiting.png'),fullPage:true});
-  await page.evaluate(()=>setScenario('complete'));await page.setViewportSize({width:390,height:844});await page.evaluate(()=>setPreviewTheme('dark'));await page.waitForTimeout(200);await toggle();
+  await page.evaluate(()=>setScenario('complete'));await page.setViewportSize({width:390,height:844});await page.evaluate(()=>setPreviewTheme('dark'));await page.waitForTimeout(200);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   assert.ok((await rowHeights()).every(height=>Math.abs(height-34)<0.02));
   await checkStepTypography();
@@ -169,7 +168,7 @@ const server=http.createServer((req,res)=>{
   assert.equal(await page.getByTestId('timeline-process').first().evaluate(n=>getComputedStyle(n).backgroundColor),'rgb(249, 249, 250)');
   assert.equal(await page.getByTestId('timeline-parallel').evaluate(n=>getComputedStyle(n).backgroundColor),'rgba(0, 0, 0, 0)');
   assert.deepEqual(errors,[]);
-  console.log('PASS exported Web: D24 short regular titles, process surfaces, 34px rows, safe default folding and recent steps, no per-step times, detail timing, fold/unfold, final text, live/frozen footer, stale/error states, mobile width, dark/light theme; no browser errors');
+  console.log('PASS exported Web: D24 short regular titles, process surfaces, 34px rows, default expansion with manual folding and recent steps, no per-step times, detail timing, fold/unfold, final text, live/frozen footer, stale/error states, mobile width, dark/light theme; no browser errors');
   console.log('Artifacts: '+out);
  } finally {await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1});
