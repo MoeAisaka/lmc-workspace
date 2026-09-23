@@ -113,7 +113,7 @@ export const SidebarNavigator = React.memo(() => {
             {isDesktopLayout && !showSidebar && <PersistentHeader />}
             {/* Phone: the session list is a floating card over whatever screen is open. */}
             {auth.isAuthenticated && !isDesktopLayout && <FloatingSessionDrawer />}
-            {auth.isAuthenticated && isDesktopLayout && <AccountMenuLayer />}
+            {auth.isAuthenticated && (isDesktopLayout || Platform.OS === 'web') && <AccountMenuLayer />}
             <ToastLayer />
         </View>
     );

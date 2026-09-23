@@ -53,6 +53,7 @@ import {
 } from './sessionEnvironment';
 import { startHappyTerminalDaemon } from './happyTerminalBoot';
 import { appendDaemonSpawnModeArgs, shouldForwardDaemonPermissionMode } from './spawnModeArgs';
+import { createAccountQuotaHandler, hasAccountQuotaSource } from './accountQuota';
 
 
 /** Shell-escape a string for safe interpolation into tmux commands. */
@@ -66,6 +67,7 @@ function shellescape(s: string): string {
 // share the same hostname and look identical).
 const hostSuffix = process.env.HAPPY_VARIANT === 'dev' ? '-dev' : '';
 export const initialMachineMetadata: MachineMetadata = {
+  accountQuota: hasAccountQuotaSource(),
   engineLogin: { claude: true, codex: true },
   managedUpgrades: true,
   modelDiscovery: true,
@@ -1101,6 +1103,7 @@ export async function startDaemon(): Promise<void> {
     // Live detections keep their own refresh path; everything else is declared here.
     const { cliAvailability: _cli, resumeSupport: _resume, ...declaredMachineMetadata } = initialMachineMetadata;
     apiMachine.declareMetadata(declaredMachineMetadata);
+    apiMachine.registerDeviceHandler('account-quota', createAccountQuotaHandler());
 
     // Set RPC handlers
     apiMachine.setRPCHandlers({

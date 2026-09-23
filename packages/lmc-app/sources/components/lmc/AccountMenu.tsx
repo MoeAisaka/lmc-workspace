@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Image, Platform, Pressable, View, useWindowDimensions } from 'react-native';
+import { Image, Platform, Pressable, ScrollView, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -16,6 +16,8 @@ import { lmcColors } from './lmcColors';
 import { lmcElevation, lmcSurfaceBorder } from './elevation';
 import { openLmcSettings, type LmcSettingsSection } from './settings/LmcSettingsDialog';
 import { t } from '@/text';
+import { AccountQuotaCards } from './AccountQuotaCards';
+import { useAccountQuota } from '@/sync/useAccountQuota';
 
 export interface AccountMenuAnchor {
     x: number;
@@ -36,7 +38,7 @@ export const useAccountMenu = create<{ anchor: AccountMenuAnchor | null; open: (
 }));
 
 const styles = StyleSheet.create((theme) => ({
-    menu: { position: 'absolute', padding: 6, borderRadius: 16, backgroundColor: theme.colors.surface, ...lmcSurfaceBorder(theme), ...lmcElevation(theme, 3) },
+    menu: { position: 'absolute', padding: 12, borderRadius: 24, backgroundColor: theme.colors.surface, ...lmcSurfaceBorder(theme), ...lmcElevation(theme, 3) },
     head: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 8, borderRadius: 10 },
     avatar: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
     name: { fontSize: 14, color: theme.colors.text, ...Typography.default('semiBold') },
@@ -56,6 +58,7 @@ export function AccountMenu({ anchor, onClose }: { anchor: AccountMenuAnchor; on
     const router = useRouter();
     const auth = useAuth();
     const profile = useProfile();
+    const quota = useAccountQuota();
     const machines = useAllMachines({ includeOffline: true });
     const { width: windowWidth, height } = useWindowDimensions();
     const online = machines.filter((m) => m.active);
@@ -66,11 +69,17 @@ export function AccountMenu({ anchor, onClose }: { anchor: AccountMenuAnchor; on
     // card it belongs to, so the two rounded corners meet instead of drifting.
     const [menuHeight, setMenuHeight] = React.useState(296);
     const gap = 8;
+    const menuWidth = Math.min(368, windowWidth - 16);
+    const left = Math.max(8, Math.min(anchor.x - (anchor.inset ?? 0), windowWidth - menuWidth - 8));
     const cardTop = anchor.y - (anchor.insetY ?? anchor.inset ?? 0);
     const top = Math.max(8, Math.min(cardTop - menuHeight - gap, height - menuHeight - 8));
 
     const go = (fn: () => void) => () => { onClose?.(); fn(); };
-    const open = (section: LmcSettingsSection) => go(() => setTimeout(() => openLmcSettings(section), 0));
+    const open = (section: LmcSettingsSection) => go(() => {
+        if (windowWidth < 768) {
+            router.push(section === 'devices' ? '/settings/devices' : section === 'account' ? '/settings/account' : '/settings');
+        } else setTimeout(() => openLmcSettings(section), 0);
+    });
     const logout = go(async () => {
         if (!await Modal.confirm(t('lmc.menu.signOut'), t('lmc.menu.signOutConfirm'), { cancelText: t('common.cancel'), confirmText: t('lmc.menu.signOut') })) return;
         try { await auth.logout(); } catch { Modal.alert(t('lmc.menu.signOutFailed'), t('lmc.menu.retryHint')); }
@@ -90,8 +99,9 @@ export function AccountMenu({ anchor, onClose }: { anchor: AccountMenuAnchor; on
                     const next = Math.ceil(event.nativeEvent.layout.height);
                     setMenuHeight((current) => (Math.abs(current - next) < 1 ? current : next));
                 }}
-                style={[styles.menu, { left: anchor.x - (anchor.inset ?? 0), width: anchor.inset ? anchor.width + anchor.inset * 2 : 268, top }]}
+                style={[styles.menu, { left, width: menuWidth, maxHeight: height - 16, top }]}
             >
+                <ScrollView showsVerticalScrollIndicator contentContainerStyle={{ paddingBottom: 2 }}>
                 <View style={styles.head}>
                     <View style={[styles.avatar, { backgroundColor: colors.brand }]}>
                         {avatarUrl ? <Image source={{ uri: avatarUrl }} style={{ width: 34, height: 34 }} /> : <Text style={{ color: '#fff', fontSize: 15, ...Typography.default('semiBold') }}>{displayName.trim().charAt(0).toUpperCase()}</Text>}
@@ -102,12 +112,15 @@ export function AccountMenu({ anchor, onClose }: { anchor: AccountMenuAnchor; on
                     </View>
                 </View>
                 <View style={styles.divider} />
+                <AccountQuotaCards {...quota} onRefresh={quota.refresh} />
+                <View style={styles.divider} />
                 <Item icon="laptop-outline" label={t('lmc.menu.devices')} onPress={open('devices')} />
                 <Item icon="person-circle-outline" label={t('lmc.menu.profile')} onPress={open('account')} />
                 <Item icon="settings-outline" label={t('lmc.menu.settings')} onPress={open('general')} />
                 <View style={styles.divider} />
                 <Item icon="sparkles-outline" label={t('lmc.menu.changelog')} onPress={go(() => router.push('/changelog'))} />
                 <Item icon="log-out-outline" label={t('lmc.menu.signOut')} onPress={logout} destructive />
+                </ScrollView>
             </View>
         </View>
     );

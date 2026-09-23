@@ -137,6 +137,7 @@ export type Session = {
  * Machine metadata - static information (rarely changes)
  */
 export const MachineMetadataSchema = z.object({
+    accountQuota: z.boolean().optional(),
     engineLogin: z.object({claude: z.boolean(), codex: z.boolean()}).optional(),
     modelDiscovery: z.boolean().optional(),
     modelCatalogs: ModelCatalogsSchema.optional().catch(undefined),

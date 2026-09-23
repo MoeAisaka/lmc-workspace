@@ -8,3 +8,4 @@ export * from './rigMetadata';
 export * from './modelCatalog';
 export * from './resourceSearch';
 export * from './engineLogin';
+export * from './accountQuota';

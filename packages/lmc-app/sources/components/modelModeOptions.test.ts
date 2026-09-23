@@ -26,7 +26,10 @@ import {
 import { sortPermissionModes } from '@/utils/permissionModeLabels';
 import { rigMetadataFixture } from '@/sync/__testdata__/rigMetadata';
 
-const translate = (key: string) => key.startsWith('localFeatures.') ? localFeatureEnglish[key.split('.')[1] as keyof typeof localFeatureEnglish] : `tr:${key}`;
+const translate = (key: string): string => {
+    const value = key.startsWith('localFeatures.') ? localFeatureEnglish[key.split('.')[1] as keyof typeof localFeatureEnglish] : null;
+    return typeof value === 'string' ? value : `tr:${key}`;
+};
 
 describe('modelModeOptions', () => {
     it('maps metadata option shape into mode options', () => {

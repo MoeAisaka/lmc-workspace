@@ -2,7 +2,6 @@ import * as React from 'react';
 import { View, Pressable, Image, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useIsTablet } from '@/utils/responsive';
 import { openAccountMenu } from './AccountMenu';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
@@ -31,7 +30,6 @@ export const AccountSettingsRow = React.memo(({ onNavigate }: { onNavigate?: () 
     const { theme } = useUnistyles();
     const colors = lmcColors(theme);
     const router = useRouter();
-    const isTablet = useIsTablet();
     const rowRef = React.useRef<View>(null);
     const profile = useProfile();
     const machines = useAllMachines({ includeOffline: true });
@@ -52,9 +50,12 @@ export const AccountSettingsRow = React.memo(({ onNavigate }: { onNavigate?: () 
             accessibilityLabel={t('lmc.list.accountAndSettings')}
             ref={rowRef}
             onPress={() => {
-                // Desktop: ChatGPT-style popover above the row. Phone: the full settings page.
-                if (isTablet && Platform.OS === 'web') {
-                    rowRef.current?.measureInWindow((x, y, width) => openAccountMenu({ x, y, width, inset: 8, insetY: 4 }));
+                // The same quota menu is available from the phone drawer and desktop sidebar.
+                if (Platform.OS === 'web') {
+                    rowRef.current?.measureInWindow((x, y, width) => {
+                        onNavigate?.();
+                        openAccountMenu({ x, y, width, inset: 8, insetY: 4 });
+                    });
                     return;
                 }
                 onNavigate?.(); router.push('/settings');
