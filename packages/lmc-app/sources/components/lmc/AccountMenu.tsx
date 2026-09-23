@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Image, Platform, Pressable, ScrollView, View, useWindowDimensions } from 'react-native';
+import { Pressable, ScrollView, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -9,10 +9,6 @@ import { Modal } from '@/modal';
 import { create } from 'zustand';
 import Animated, { Easing, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useAuth } from '@/auth/AuthContext';
-import { useAllMachines, useProfile } from '@/sync/storage';
-import { getAvatarUrl, getDisplayName } from '@/sync/profile';
-import { machineAgentVersion } from '@/utils/lmc/deviceEngineGroups';
-import { lmcColors } from './lmcColors';
 import { lmcElevation, lmcSurfaceBorder } from './elevation';
 import { openLmcSettings, type LmcSettingsSection } from './settings/LmcSettingsDialog';
 import { t } from '@/text';
@@ -43,10 +39,6 @@ export const useAccountMenu = create<{ anchor: AccountMenuAnchor | null; open: (
 
 const styles = StyleSheet.create((theme) => ({
     menu: { position: 'absolute', padding: 12, borderRadius: 24, overflow: 'hidden', backgroundColor: theme.colors.surface, ...lmcSurfaceBorder(theme), ...lmcElevation(theme, 3) },
-    head: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 8, borderRadius: 10 },
-    avatar: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-    name: { fontSize: 14, color: theme.colors.text, ...Typography.default('semiBold') },
-    sub: { fontSize: 12, lineHeight: 16, color: theme.colors.textSecondary, ...Typography.default() },
     divider: { height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.divider, marginVertical: 4 },
     item: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10 },
     itemText: { fontSize: 14, color: theme.colors.text, ...Typography.default() },
@@ -58,17 +50,10 @@ const styles = StyleSheet.create((theme) => ({
  */
 export function AccountMenu({ anchor, onClose }: { anchor: AccountMenuAnchor; onClose?: () => void }) {
     const { theme } = useUnistyles();
-    const colors = lmcColors(theme);
     const router = useRouter();
     const auth = useAuth();
-    const profile = useProfile();
     const quota = useAccountQuota();
-    const machines = useAllMachines({ includeOffline: true });
     const { width: windowWidth, height } = useWindowDimensions();
-    const online = machines.filter((m) => m.active);
-    const versions = new Set(online.map(machineAgentVersion).filter(Boolean) as string[]);
-    const displayName = getDisplayName(profile) || 'Link my Cli';
-    const avatarUrl = getAvatarUrl(profile);
     // Measured, not guessed: the menu's bottom edge lines up with the top of the
     // card it belongs to, so the two rounded corners meet instead of drifting.
     const [menuHeight, setMenuHeight] = React.useState(296);
@@ -108,16 +93,6 @@ export function AccountMenu({ anchor, onClose }: { anchor: AccountMenuAnchor; on
                 style={[styles.menu, { left, width: menuWidth, maxHeight, top, borderRadius: anchor.cardRadius ?? 24 }]}
             >
                 <ScrollView showsVerticalScrollIndicator contentContainerStyle={{ paddingBottom: 2 }}>
-                <View style={styles.head}>
-                    <View style={[styles.avatar, { backgroundColor: colors.brand }]}>
-                        {avatarUrl ? <Image source={{ uri: avatarUrl }} style={{ width: 34, height: 34 }} /> : <Text style={{ color: '#fff', fontSize: 15, ...Typography.default('semiBold') }}>{displayName.trim().charAt(0).toUpperCase()}</Text>}
-                    </View>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text numberOfLines={1} style={styles.name}>{displayName}</Text>
-                        <Text numberOfLines={1} style={styles.sub}>{[t('lmc.menu.devicesOnline', { count: online.length }), versions.size === 1 ? `Agent ${[...versions][0]}` : null].filter(Boolean).join(' · ')}</Text>
-                    </View>
-                </View>
-                <View style={styles.divider} />
                 <AccountQuotaCards {...quota} onRefresh={quota.refresh} />
                 <View style={styles.divider} />
                 <Item icon="laptop-outline" label={t('lmc.menu.devices')} onPress={open('devices')} />

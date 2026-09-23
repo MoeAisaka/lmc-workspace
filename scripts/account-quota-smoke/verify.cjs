@@ -34,7 +34,7 @@ const w=(id,left)=>({id,remaining:left,resetsAt:now+4*86400000,durationMins:id==
 const snapshot={providers:[
  {engine:'codex',plan:'pro',capturedAt:now-120000,refreshFailed:false,stale:false,windows:[w('five_hour',null),w('seven_day',72)],resetCredits:{count:1,expiresAt:now+86400000}},
  {engine:'claude',plan:'max',capturedAt:now-300000,refreshFailed:false,stale:false,windows:[w('five_hour',98),w('seven_day',21),w('fable_week',60)],resetCredits:null}]};
-apiSocket.machineRPC=async(id,method)=>{if(id!=='quota-fixture'||method!=='account-quota')throw Error('Unexpected RPC');window.calls++;if(replyMode==='failed')throw Error('synthetic');return {snapshot:replyMode==='missing'?{providers:[]}:snapshot};};
+apiSocket.machineRPC=async(id,method)=>{if(id!=='quota-fixture'||method!=='account-quota')throw Error('Unexpected RPC');window.calls++;if(replyMode==='failed')throw Error('synthetic');const result=structuredClone(snapshot);const fable=result.providers[1].windows[2];if(replyMode==='zero')fable.remaining=0;if(replyMode==='unmatched')fable.resetsAt+=86400000;if(replyMode==='pending')fable.pending=true;return {snapshot:replyMode==='missing'?{providers:[]}:result};};
 storage.setState({isDataReady:true,profile:{id:'demo',firstName:'LMC',lastName:'Demo'},machines:{'quota-fixture':{id:'quota-fixture',active:true,createdAt:1,metadata:{host:'Demo',accountQuota:true,happyCliVersion:'1.2.53'}}}});
 window.setTheme=theme=>{UnistylesRuntime.setAdaptiveThemes(false);UnistylesRuntime.setTheme(theme);document.body.style.background=theme==='dark'?'#141414':'#efeff2'};
 function App(){const [size,setSize]=React.useState({w:innerWidth,h:innerHeight});React.useEffect(()=>{const f=()=>setSize({w:innerWidth,h:innerHeight});addEventListener('resize',f);return()=>removeEventListener('resize',f)},[]);
@@ -70,9 +70,10 @@ const server=http.createServer((req,res)=>{
   await page.goto('http://127.0.0.1:'+server.address().port);
   await page.getByRole('button',{name:'Account and settings',exact:true}).click();
   await page.getByText('72%',{exact:true}).waitFor();
-  assert.equal(await page.getByText('Fable weekly remaining',{exact:true}).count(),1);
+  assert.equal(await page.getByTestId('quota-fable-legend').count(),1);
+  assert.equal(await page.getByRole('progressbar').count(),4,'Fable shares the weekly bar, without a separate progress bar');
   assert.equal(await page.evaluate(()=>parentNavigations),0,'opening quota bubble must preserve its parent entry');
-  assert.equal(await page.getByText('Weekly shortfall: 9 points',{exact:false}).count(),1);
+  assert.equal(await page.getByText('9 pts short',{exact:false}).count(),1);
   for(const theme of ['light','dark']){
    await page.evaluate(theme=>setTheme(theme),theme);
    for(const width of [320,390,1000]){
@@ -107,6 +108,15 @@ const server=http.createServer((req,res)=>{
     }
    }
   }
+  for(const mode of ['zero','unmatched','pending']){
+   await page.evaluate(mode=>{replyMode=mode},mode);
+   await page.getByRole('button',{name:'Refresh usage',exact:true}).click();
+   const legend=page.getByTestId('quota-fable-legend');
+   if(mode==='zero')await legend.getByText('Fable 0%',{exact:false}).waitFor();
+   else await legend.getByText('Awaiting matching reset',{exact:false}).waitFor();
+   assert.equal(await legend.getByText('9 pts short',{exact:false}).count(),0);
+   assert.equal(await page.getByRole('progressbar').count(),4);
+  }
   await page.evaluate(()=>{replyMode='failed'});
   await page.getByRole('button',{name:'Refresh usage',exact:true}).click();
   await page.getByText('Unable to refresh. Retrying automatically.',{exact:true}).waitFor();
@@ -115,7 +125,9 @@ const server=http.createServer((req,res)=>{
   await page.getByRole('button',{name:'Refresh usage',exact:true}).click();
   await page.waitForTimeout(100);
   assert.equal(await page.getByText('0%',{exact:true}).count(),0);
-  assert.equal(await page.getByText('Fable weekly remaining',{exact:true}).count(),1);
+  assert.equal(await page.getByTestId('quota-fable-legend').count(),1);
+  assert.equal(await page.getByRole('progressbar').count(),4,'Fable shares the weekly bar, without a separate progress bar');
+  assert.ok((await page.getByTestId('quota-fable-legend').innerText()).includes('Fable —'));
   assert.deepEqual(errors,[]);
   console.log('PASS real AccountMenu + quota hook, light/dark 320/390/1000, scrolling, refresh failure preserves data, missing is not zero');
  }finally{await browser.close();server.close();}

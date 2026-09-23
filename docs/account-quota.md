@@ -45,9 +45,10 @@ the previous successful snapshot. Quota data is cached in browser memory only.
 - The existing dashboard convention maps a full Fable pool to **50 weekly
   points**. This is an explicit visualization assumption, not a provider
   guarantee. Fable's remaining percent × 0.5 is its reservation on the shared
-  weekly bar. Purple is covered reservation; amber is the shortfall. No extra
+  weekly bar, with a compact legend instead of a separate Fable card or bar.
+  Purple is covered reservation; amber is the shortfall. No extra
   quota is added. Comparison requires matching, unexpired weekly reset times.
-- Missing Fable data leaves its slot visible as unknown. A genuine zero remains
+- Missing Fable data leaves its legend visible as unknown. A genuine zero remains
   zero. Reset coupons appear only if the source supplies them.
 
 ## Verification
