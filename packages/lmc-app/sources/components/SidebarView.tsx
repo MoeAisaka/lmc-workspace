@@ -67,6 +67,7 @@ export const SidebarView = React.memo(() => {
     const styles = stylesheet;
     const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
+    const accountCardRef = React.useRef<View>(null);
     const realtimeStatus = useRealtimeStatus();
 
     const [query, setQuery] = React.useState('');
@@ -93,8 +94,8 @@ export const SidebarView = React.memo(() => {
                 <DeviceEngineSessionList hideSearch hideAccount query={query} />
             </View>
 
-            <View style={[styles.card, styles.accountCard, lmcSurfaceBorder(theme), lmcElevation(theme, 1)]}>
-                <AccountSettingsRow />
+            <View ref={accountCardRef} style={[styles.card, styles.accountCard, lmcSurfaceBorder(theme), lmcElevation(theme, 1)]}>
+                <AccountSettingsRow menuCardRef={accountCardRef} />
             </View>
         </View>
     );

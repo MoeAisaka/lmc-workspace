@@ -23,6 +23,10 @@ export interface AccountMenuAnchor {
     x: number;
     y: number;
     width: number;
+    /** When measured from the surrounding card, match its outer width and corners. */
+    cardRadius?: number;
+    /** Close the parent drawer only after choosing a destination, not while browsing this bubble. */
+    onNavigate?: () => void;
     /** Padding between the measured row and the card around it, so the menu can
      *  line up with that card's edges instead of the row's. */
     inset?: number;
@@ -38,7 +42,7 @@ export const useAccountMenu = create<{ anchor: AccountMenuAnchor | null; open: (
 }));
 
 const styles = StyleSheet.create((theme) => ({
-    menu: { position: 'absolute', padding: 12, borderRadius: 24, backgroundColor: theme.colors.surface, ...lmcSurfaceBorder(theme), ...lmcElevation(theme, 3) },
+    menu: { position: 'absolute', padding: 12, borderRadius: 24, overflow: 'hidden', backgroundColor: theme.colors.surface, ...lmcSurfaceBorder(theme), ...lmcElevation(theme, 3) },
     head: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 8, borderRadius: 10 },
     avatar: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
     name: { fontSize: 14, color: theme.colors.text, ...Typography.default('semiBold') },
@@ -69,12 +73,14 @@ export function AccountMenu({ anchor, onClose }: { anchor: AccountMenuAnchor; on
     // card it belongs to, so the two rounded corners meet instead of drifting.
     const [menuHeight, setMenuHeight] = React.useState(296);
     const gap = 8;
-    const menuWidth = Math.min(368, windowWidth - 16);
+    const menuWidth = Math.min(anchor.cardRadius !== undefined ? anchor.width : 368, windowWidth - 16);
     const left = Math.max(8, Math.min(anchor.x - (anchor.inset ?? 0), windowWidth - menuWidth - 8));
     const cardTop = anchor.y - (anchor.insetY ?? anchor.inset ?? 0);
+    const spaceAbove = cardTop - gap - 8;
+    const maxHeight = spaceAbove >= 120 ? Math.min(height - 16, spaceAbove) : height - 16;
     const top = Math.max(8, Math.min(cardTop - menuHeight - gap, height - menuHeight - 8));
 
-    const go = (fn: () => void) => () => { onClose?.(); fn(); };
+    const go = (fn: () => void) => () => { onClose?.(); anchor.onNavigate?.(); fn(); };
     const open = (section: LmcSettingsSection) => go(() => {
         if (windowWidth < 768) {
             router.push(section === 'devices' ? '/settings/devices' : section === 'account' ? '/settings/account' : '/settings');
@@ -99,7 +105,7 @@ export function AccountMenu({ anchor, onClose }: { anchor: AccountMenuAnchor; on
                     const next = Math.ceil(event.nativeEvent.layout.height);
                     setMenuHeight((current) => (Math.abs(current - next) < 1 ? current : next));
                 }}
-                style={[styles.menu, { left, width: menuWidth, maxHeight: height - 16, top }]}
+                style={[styles.menu, { left, width: menuWidth, maxHeight, top, borderRadius: anchor.cardRadius ?? 24 }]}
             >
                 <ScrollView showsVerticalScrollIndicator contentContainerStyle={{ paddingBottom: 2 }}>
                 <View style={styles.head}>

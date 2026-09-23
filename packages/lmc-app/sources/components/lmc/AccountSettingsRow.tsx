@@ -26,7 +26,7 @@ const styles = StyleSheet.create((theme) => ({
  * The user asked for settings to live behind the avatar row instead of a
  * separate item, so the subtitle says what is behind it.
  */
-export const AccountSettingsRow = React.memo(({ onNavigate }: { onNavigate?: () => void }) => {
+export const AccountSettingsRow = React.memo(({ onNavigate, menuCardRef }: { onNavigate?: () => void; menuCardRef?: React.RefObject<View | null> }) => {
     const { theme } = useUnistyles();
     const colors = lmcColors(theme);
     const router = useRouter();
@@ -52,9 +52,10 @@ export const AccountSettingsRow = React.memo(({ onNavigate }: { onNavigate?: () 
             onPress={() => {
                 // The same quota menu is available from the phone drawer and desktop sidebar.
                 if (Platform.OS === 'web') {
-                    rowRef.current?.measureInWindow((x, y, width) => {
-                        onNavigate?.();
-                        openAccountMenu({ x, y, width, inset: 8, insetY: 4 });
+                    (menuCardRef?.current ?? rowRef.current)?.measureInWindow((x, y, width) => {
+                        openAccountMenu(menuCardRef?.current
+                            ? { x, y, width, cardRadius: 16, onNavigate }
+                            : { x, y, width, inset: 8, insetY: 4, onNavigate });
                     });
                     return;
                 }
