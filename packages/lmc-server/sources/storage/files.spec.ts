@@ -49,10 +49,12 @@ it('bounds stalled storage work, keeps timers running and retains slots after ti
     setTimeout(() => { heartbeat = true; }, 10);
     await vi.advanceTimersByTimeAsync(20);
     expect(heartbeat).toBe(true);
-    await expect(files.putLocalFile('c.enc', Buffer.from('c'))).rejects.toMatchObject({ statusCode: 503 });
+    const queuedFailure = expect(files.putLocalFile('c.enc', Buffer.from('c'))).rejects.toMatchObject({ statusCode: 503 });
     expect(mkdir).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(15000);
     await failures;
+    await vi.advanceTimersByTimeAsync(20);
+    await queuedFailure;
     await expect(files.putLocalFile('d.enc', Buffer.from('d'))).rejects.toMatchObject({ statusCode: 503 });
     release();
     await vi.advanceTimersByTimeAsync(0);
@@ -76,4 +78,28 @@ it('does not disguise permission failures as missing files', async () => {
     const files = await import('./files');
     vi.spyOn(fs, 'stat').mockRejectedValueOnce(Object.assign(new Error('private path'), { code: 'EPERM' }));
     await expect(files.localFileExists('a.enc')).rejects.toMatchObject({ statusCode: 503, message: 'Local storage unavailable' });
+});
+
+it('queues healthy concurrent operations instead of rejecting normal multi-image loads', async () => {
+    const files = await import('./files');
+    const values = Array.from({ length: 20 }, (_, i) => Buffer.from(`image-${i}`));
+    await Promise.all(values.map((value, i) => files.putLocalFile(`${i}.enc`, value)));
+    expect(await Promise.all(values.map((_, i) => files.readLocalFile(`${i}.enc`)))).toEqual(values);
+});
+
+it('bounds waiting work and never starts queued operations after their deadline', async () => {
+    const files = await import('./files');
+    vi.useFakeTimers();
+    let release!: () => void;
+    const blocked = new Promise<void>(resolve => { release = resolve; });
+    const mkdir = vi.spyOn(fs, 'mkdir').mockImplementation(() => blocked as any);
+    const failures = Array.from({ length: 66 }, (_, i) =>
+        expect(files.putLocalFile(`${i}.enc`, Buffer.from('x'))).rejects.toMatchObject({ statusCode: 503 }));
+    await expect(files.putLocalFile('overflow.enc', Buffer.from('x'))).rejects.toMatchObject({ statusCode: 503 });
+    await vi.advanceTimersByTimeAsync(15000);
+    await Promise.all(failures);
+    expect(mkdir).toHaveBeenCalledTimes(2);
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mkdir).toHaveBeenCalledTimes(2);
 });

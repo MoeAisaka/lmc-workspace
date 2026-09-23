@@ -1,6 +1,6 @@
-import { access, copyFile, cp, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import { access, copyFile, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 const source = resolve(process.argv[2] || 'deploy/lmc/web-build');
 const target = resolve(process.argv[3] || 'deploy/lmc/web');
@@ -12,10 +12,40 @@ if (!html.includes('rel="icon"')) html = html.replace('</head>', '<link rel="ico
 if (!html.includes('rel="apple-touch-icon"')) html = html.replace('</head>', '<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=musubi1" /></head>');
 if (!html.toString().includes('<html')) throw new Error('Missing Web build HTML');
 await mkdir(target, { recursive: true });
-// Publish assets before HTML. Retain old hashes for tabs opened before this release.
-for (const entry of await readdir(source)) {
-    if (entry === 'index.html') continue;
-    await cp(join(source, entry), join(target, entry), { recursive: true, force: ['favicon.ico', 'favicon-active.ico', 'apple-touch-icon.png', 'lmc-icon-192.png', 'lmc-icon-512.png'].includes(entry), errorOnExist: false });
+// Publish every exported resource before HTML; retain old content hashes.
+const files = [];
+async function collect(directory, prefix = '') {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+        const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+        if (entry.isSymbolicLink()) throw new Error('Build must not contain symlinks');
+        if (entry.isDirectory()) await collect(join(directory, entry.name), relative);
+        else if (entry.isFile() && relative !== 'index.html') files.push(relative);
+    }
+}
+const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+await collect(source);
+const manifest = [];
+for (const relative of files) {
+    const bytes = await readFile(join(source, relative));
+    let previous;
+    try { previous = await readFile(join(target, relative)); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (previous && digest(previous) !== digest(bytes) && /^(assets|_expo)\//.test(relative)) {
+        throw new Error(`Hashed asset content conflict: ${relative}`);
+    }
+    manifest.push({ relative, bytes, previous });
+}
+for (const { relative, bytes, previous } of manifest) {
+    if (previous && digest(previous) === digest(bytes)) continue;
+    const destination = join(target, relative);
+    await mkdir(resolve(destination, '..'), { recursive: true });
+    if (previous) await copyFile(destination, `${destination}.previous-${randomUUID()}`);
+    const pendingAsset = `${destination}.${randomUUID()}.tmp`;
+    await writeFile(pendingAsset, bytes);
+    await rename(pendingAsset, destination);
+}
+for (const { relative, bytes } of manifest) {
+    if (digest(await readFile(join(target, relative))) !== digest(bytes)) throw new Error(`Published asset mismatch: ${relative}`);
 }
 try { await copyFile(join(target, 'index.html'), join(target, `index.previous-${Date.now()}.html`)); }
 catch (error) { if (error.code !== 'ENOENT') throw error; }

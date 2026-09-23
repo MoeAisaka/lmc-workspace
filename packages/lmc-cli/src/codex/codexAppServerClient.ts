@@ -55,6 +55,8 @@ import type { SandboxConfig } from '@/persistence';
 import { initializeSandbox, wrapForMcpTransport } from '@/sandbox/manager';
 import packageJson from '../../package.json';
 
+class CodexDeliveryRejectedError extends Error {}
+
 type PendingRequest = {
     resolve: (result: unknown) => void;
     reject: (error: Error) => void;
@@ -1306,17 +1308,25 @@ export class CodexAppServerClient {
         return { aborted };
     }
 
-    /** Returns false only when no active turn exists; uncertain RPC failures must not be replayed. */
+    /** False means no delivery; uncertain RPC failures throw and must not be replayed. */
     async steerTurn(text: string): Promise<boolean> {
         const turnId = this.pendingTurnCompletion?.turnId ?? this._turnId;
         if (!this.pendingTurnCompletion || !this._threadId || !turnId) return false;
-        const result = await this.request('turn/steer', {
-            threadId: this._threadId,
-            expectedTurnId: turnId,
-            input: [{ type: 'text', text }],
-        }) as { turnId?: string };
-        if (result?.turnId !== turnId) throw new Error('Reply acceptance could not be confirmed');
-        return true;
+        try {
+            const result = await this.request('turn/steer', {
+                threadId: this._threadId,
+                expectedTurnId: turnId,
+                input: [{ type: 'text', text }],
+            }) as { turnId?: string };
+            if (result?.turnId !== turnId) throw new Error('Reply acceptance could not be confirmed');
+            return true;
+        } catch (error) {
+            // Nothing was written, or the server explicitly refused the RPC.
+            // Both send paths already enqueue/restore on false. A timeout,
+            // process exit or malformed success remains uncertain: don't replay.
+            if (error instanceof CodexDeliveryRejectedError) return false;
+            throw error;
+        }
     }
 
     async interruptTurn(opts?: { timeoutMs?: number }): Promise<void> {
@@ -1371,7 +1381,7 @@ export class CodexAppServerClient {
         const timeout = timeoutMs ?? CodexAppServerClient.REQUEST_TIMEOUT_MS;
         return new Promise((resolve, reject) => {
             if (!this.process?.stdin?.writable) {
-                reject(new Error(`Cannot send ${method}: stdin not writable`));
+                reject(new CodexDeliveryRejectedError(`Cannot send ${method}: stdin not writable`));
                 return;
             }
             const id = this.nextId++;
@@ -1433,7 +1443,7 @@ export class CodexAppServerClient {
                 }
                 this.pending.delete(msg.id);
                 if (msg.error) {
-                    pending.reject(new Error(`${pending.method}: ${msg.error.message} (code=${msg.error.code})`));
+                    pending.reject(new CodexDeliveryRejectedError(`${pending.method}: ${msg.error.message} (code=${msg.error.code})`));
                 } else {
                     pending.resolve(msg.result);
                 }

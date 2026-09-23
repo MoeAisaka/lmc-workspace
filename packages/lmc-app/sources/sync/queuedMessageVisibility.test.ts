@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { visibleTranscriptMessages } from './queuedMessageVisibility';
+import { normalizeRawMessage } from './typesRaw';
 import type { Message } from './typesMessage';
 
 const user = (id: string, localId: string | null, text = 'same prompt'): Message => ({
@@ -37,6 +38,17 @@ describe('pending prompt transcript visibility', () => {
         expect(visibleTranscriptMessages(messages, [{ key: 'queued' }])).toEqual([response, original]);
         expect(visibleTranscriptMessages(messages, [])).toBe(messages);
         expect(messages).toHaveLength(3);
+    });
+    it('keeps withdrawn prompts hidden after reload and pagination, regardless of receipt order', () => {
+        const withdrawn = user('stored', 'key');
+        const equalText = user('other', 'other-key');
+        const normalized = normalizeRawMessage('withdrawal', null, 3, { role: 'agent', content: { id: 'receipt', type: 'event', data: { type: 'queue-withdrawn', key: 'key' } } } as any);
+        expect(normalized?.role).toBe('event');
+        const receipt: Message = { kind: 'agent-event', id: 'withdrawal', createdAt: 3, event: normalized!.content as any };
+        for (const messages of [[receipt, withdrawn, equalText], [withdrawn, equalText, receipt]]) {
+            expect(visibleTranscriptMessages(JSON.parse(JSON.stringify(messages)))).toEqual([equalText]);
+        }
+        expect(visibleTranscriptMessages([receipt])).toEqual([]);
     });
     it('supports optimistic ids and unrelated queue entries without text matching', () => {
         const messages = [user('optimistic', null)];

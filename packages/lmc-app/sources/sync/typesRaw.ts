@@ -20,6 +20,9 @@ const usageDataSchema = z.object({
 export type UsageData = z.infer<typeof usageDataSchema>;
 
 const agentEventSchema = z.discriminatedUnion('type', [z.object({
+    type: z.literal('queue-withdrawn'),
+    key: z.string(),
+}), z.object({
     type: z.literal('switch'),
     mode: z.enum(['local', 'remote'])
 }), z.object({

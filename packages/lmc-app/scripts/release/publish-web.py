@@ -19,6 +19,7 @@ if not re.fullmatch(r'[A-Za-z0-9._-]+', args.marker):
     parser.error('--marker must contain only letters, digits, dots, underscores or hyphens')
 live = args.live_dir.expanduser()
 build = args.build_dir.expanduser()
+assert build.resolve() != live.resolve(), 'Build and live directories must differ'
 marker = args.marker
 
 old = (live / 'index.html').read_text()
@@ -30,7 +31,9 @@ assert icons, 'Missing icon links in live index.html'
 new = new.replace('</head>', ''.join(icons) + f'<meta name="lmc-release" content="{marker}" /></head>')
 assert '<html lang="zh-CN">' in new and '<title>Link my Cli</title>' in new
 
-files = [p for folder in ['_expo', 'assets'] for p in (build / folder).rglob('*') if p.is_file()]
+# Include root resources (WASM, workers, icons, manifests) and nested exports.
+files = sorted(p for p in build.rglob('*') if p.is_file() and p != build / 'index.html')
+assert not any(p.is_symlink() for p in build.rglob('*')), 'Build must not contain symlinks'
 # Validate every conflict before modifying live files, even when some are approved.
 allowed = set(args.allow_replace)
 for name in allowed:
@@ -41,7 +44,7 @@ replaced = []
 for src in files:
     dest = live / src.relative_to(build)
     if dest.exists() and hashlib.sha256(src.read_bytes()).digest() != hashlib.sha256(dest.read_bytes()).digest():
-        assert src.name in allowed, (
+        assert src.relative_to(build).parts[0] not in ('_expo', 'assets') or src.name in allowed, (
             f'Asset content conflict: {src.relative_to(build)}. After investigating, use '
             f'--allow-replace {src.name} to retain and replace the old asset; '
             'old tabs may fail to lazy-load this chunk until refreshed.'
@@ -61,11 +64,19 @@ for src in files:
     if src in replacements:
         saved = dest.with_name(f'{dest.name}.pre-{marker}-{time.time_ns()}')
         assert not saved.exists(), f'Asset backup already exists: {saved}'
-        dest.rename(saved)
-        shutil.copy2(src, dest)
+        shutil.copy2(dest, saved)
+        pending_asset = dest.with_name(f'.{dest.name}.{os.getpid()}.tmp')
+        shutil.copy2(src, pending_asset)
+        os.replace(pending_asset, dest)
         replaced.append({'file': src.relative_to(build).as_posix(), 'backup': saved.relative_to(live).as_posix()})
     elif not dest.exists():
         shutil.copy2(src, dest)
+# Check the served tree, not merely the build: an omitted copy must fail before HTML switches.
+for src in files:
+    dest = live / src.relative_to(build)
+    assert dest.is_file() and hashlib.sha256(src.read_bytes()).digest() == hashlib.sha256(dest.read_bytes()).digest(), str(dest)
+for url in re.findall(r'(?:src|href)="(/[^"?]+)', new):
+    assert (live / url.lstrip('/')).is_file(), url
 pending = live / f'.index-{os.getpid()}.tmp'
 pending.write_text(new)
 os.replace(pending, live / 'index.html')

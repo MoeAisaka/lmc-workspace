@@ -54,7 +54,7 @@ python3 packages/lmc-app/scripts/release/publish-web.py --marker lmc-redesign-20
 
 `--allow-replace` 可重复，仅匹配完整文件名，不支持通配符；同一文件名在构建目录中不唯一时拒绝。不要把不同模块撞名或多个文件同时冲突当作普通发布问题：它们应视为构建错误，先核查依赖与构建一致性，重新导出并检查，不能批量放行来消除报错。
 
-替换前将旧资产改名为 `<name>.pre-<marker>-<epoch 纳秒>`，再复制新资产；输出 JSON 的 `replaced` 列出文件及其备份路径。未批准的冲突仍失败。风险是旧标签页在刷新前可能无法懒加载这个分块；有旧文件备份并不能消除这项兼容风险，应告知用户刷新。
+替换前将旧资产复制备份为 `<name>.pre-<marker>-<epoch 纳秒>`，再原子替换新资产；输出 JSON 的 `replaced` 列出文件及其备份路径。未批准的冲突仍失败。风险是旧标签页在刷新前可能无法懒加载这个分块；有旧文件备份并不能消除这项兼容风险，应告知用户刷新。
 
 手动自测（不进 CI）：`bash packages/lmc-app/scripts/release/selftest-publish-web.sh`。它仅在脚本旁创建两个隔离临时目录，验证拒绝、重复参数、旧资产备份及覆盖，结束后清理自己的夹具，不访问线上或 `/tmp`。
 
@@ -63,3 +63,7 @@ python3 packages/lmc-app/scripts/release/publish-web.py --marker lmc-redesign-20
 依赖安装或布局变化后，必须先运行 `export-web.sh`，确认退出 0 且输出 `index.html`，再进行发布。类型检查与单测通过不能代替真实导出。
 
 2026-09-13 的案例：仓库 node_modules 实际软链到 `~/.happy/webapp-local/src` 的共享 hoisted 布局；Expo 缺少局部 ws 8，回落到顶层 ws 7.5.10，导致 `WebSocketServer is not a constructor`。锁文件中 Expo 的 ws 版本没有变化，使用 Expo 绝对路径也不能解决依赖解析问题；恢复局部 ws 8.19.0 后真实导出才通过。安装后要从 `@expo/cli` 所在目录核对 ws 的实际解析路径、版本与 `WebSocketServer` 导出，不要仅看锁文件。
+
+## 根目录资源
+
+发布清单包含完整构建目录（首页最后切换），包含 WASM、worker、manifest 和图标等根目录资源。`_expo/` 与 `assets/` 下同名内容冲突仍按上述显式放行规则处理；其他资源更新会自动备份旧文件并原子替换。切换首页前核验实际目标文件存在且哈希与构建一致。回退涉及根资源更新时，同时从 `replaced` 列表恢复对应备份。

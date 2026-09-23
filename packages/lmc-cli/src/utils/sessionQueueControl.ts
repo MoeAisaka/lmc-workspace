@@ -10,7 +10,7 @@ import { isQueueMode, readQueueKey, readQueueMode } from './queueControlRequest'
 export type QueueSessionClient = {
     updateAgentState(handler: (state: AgentState) => AgentState): void;
     updateMetadata(handler: (metadata: Metadata) => Metadata): void;
-    sendSessionEvent(event: { type: 'message'; message: string }): void;
+    sendSessionEvent(event: { type: 'message'; message: string } | { type: 'queue-withdrawn'; key: string }): void;
     rpcHandlerManager: {
         registerHandler<TRequest = any, TResponse = any>(method: string, handler: (data: TRequest) => Promise<TResponse> | TResponse): void;
     };
@@ -74,6 +74,10 @@ export function registerQueueControlHandlers<T>(
     client.rpcHandlerManager.registerHandler('dequeue', async (request: unknown) => {
         const key = readQueueKey(request);
         if (!key) throw new Error('dequeue needs { key }');
+        if (!queue.snapshot().some(item => item.key === key)) return { removed: false };
+        // Enqueue the durable receipt before publishing removal. No await here:
+        // the consumer cannot take this key between the check and the removal.
+        client.sendSessionEvent({ type: 'queue-withdrawn', key });
         return { removed: queue.removeByKey(key) };
     });
     client.rpcHandlerManager.registerHandler('promote', async (request: unknown) => {

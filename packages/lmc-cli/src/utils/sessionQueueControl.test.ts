@@ -54,7 +54,18 @@ describe('registerQueueControlHandlers', () => {
         queue.push('a', 'm', undefined, { key: 'ka' });
         expect(await f.handlers.get('dequeue')!({ key: 'ka' })).toEqual({ removed: true });
         expect(await f.handlers.get('dequeue')!({ key: 'ka' })).toEqual({ removed: false });
+        expect(f.client.sendSessionEvent).toHaveBeenCalledExactlyOnceWith({ type: 'queue-withdrawn', key: 'ka' });
         await expect(f.handlers.get('dequeue')!({})).rejects.toThrow();
+    });
+
+    it('keeps the queued prompt if the withdrawal receipt cannot be enqueued', async () => {
+        const queue = new MessageQueue2<string>(m => m);
+        const f = fakeClient();
+        vi.mocked(f.client.sendSessionEvent).mockImplementation(() => { throw new Error('receipt failed'); });
+        registerQueueControlHandlers(f.client, queue, { isBusy: () => true, interrupt: async () => {} });
+        queue.push('a', 'm', undefined, { key: 'ka' });
+        await expect(f.handlers.get('dequeue')!({ key: 'ka' })).rejects.toThrow('receipt failed');
+        expect(queue.snapshot().map(item => item.key)).toEqual(['ka']);
     });
 
     it('promote interrupts only when the engine is busy', async () => {

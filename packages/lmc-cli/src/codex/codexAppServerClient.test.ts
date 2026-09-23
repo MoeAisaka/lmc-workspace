@@ -1791,6 +1791,29 @@ describe('CodexAppServerClient sandbox integration', () => {
         await expect(client.steerTurn('不能重复投递')).rejects.toThrow('transport outcome unknown');
     });
 
+    it('returns false for a provably unsent or explicitly rejected steer, but throws for unknown acceptance', async () => {
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client: any = new CodexAppServerClient();
+        const write = vi.fn((line: string) => {
+            const { id } = JSON.parse(line);
+            queueMicrotask(() => client.handleLine(JSON.stringify({ id,
+                error: { code: -32600, message: 'turn mismatch' } }), client.processEpoch));
+        });
+        Object.assign(client, { process: { stdin: { writable: false, write } },
+            _threadId: 'thread-live', _turnId: 'turn-live',
+            pendingTurnCompletion: { turnId: 'turn-live', resolve: vi.fn() } });
+        await expect(client.steerTurn('not sent')).resolves.toBe(false);
+        expect(write).not.toHaveBeenCalled();
+        client.process.stdin.writable = true;
+        await expect(client.steerTurn('rejected')).resolves.toBe(false);
+        expect(write).toHaveBeenCalledTimes(1);
+        write.mockImplementation((line: string) => {
+            const { id } = JSON.parse(line);
+            queueMicrotask(() => client.handleLine(JSON.stringify({ id, result: { turnId: 'different' } }), client.processEpoch));
+        });
+        await expect(client.steerTurn('unknown')).rejects.toThrow('could not be confirmed');
+    });
+
     it('keeps working through a decision message and idle notification until the matching turn completes', async () => {
         const proc = createMockProcess({
             pid: 3002,

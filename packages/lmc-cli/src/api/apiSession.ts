@@ -928,6 +928,8 @@ export class ApiSessionClient extends EventEmitter {
     }
 
     sendSessionEvent(event: {
+        type: 'queue-withdrawn', key: string
+    } | {
         type: 'switch', mode: 'local' | 'remote'
     } | {
         type: 'message', message: string

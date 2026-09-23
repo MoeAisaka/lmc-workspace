@@ -33,11 +33,12 @@ const receipt='Codex 已接收补充回复，将在当前工作中处理。';
 const warning='补充回复尚未确认送达 Codex；未自动重复发送，请检查连接和后续回应。';
 const messages=[...[1,2].map(n=>({kind:'agent-event',id:'receipt-'+n,createdAt:base+3000+n,event:{type:'message',message:receipt}})),{kind:'agent-event',id:'warning',createdAt:base+3000,event:{type:'message',message:warning}},{kind:'agent-text',id:'a',localId:null,createdAt:base+2000,text:'Current reply is still running.'},{kind:'user-text',id:'usr-pending',localId:'queued-key',createdAt:base+1000,text:'Pending unique prompt'},{kind:'user-text',id:'u',localId:'original',createdAt:base,text:'Original question'}];
 function App(){
- const [queued,setQueued]=React.useState(true),[engine,setEngine]=React.useState('codex');
- window.setQueued=setQueued;window.setEngine=setEngine;window.setTheme=name=>{UnistylesRuntime.setAdaptiveThemes(false);UnistylesRuntime.setTheme(name)};
+ const [queued,setQueued]=React.useState(true),[engine,setEngine]=React.useState('codex'),[withdrawn,setWithdrawn]=React.useState(false);
+ window.setWithdrawn=setWithdrawn; window.setQueued=setQueued;window.setEngine=setEngine;window.setTheme=name=>{UnistylesRuntime.setAdaptiveThemes(false);UnistylesRuntime.setTheme(name)};
  const meta={path:'/fixture',host:'test',flavor:engine,modelCatalogs:catalogs,sessionCapabilities:{turnQueue:true,modelDiscovery:true}};
  const session={id:'fixture',active:true,thinking:true,metadata:meta,agentState:{queue:queued?[{key:'queued-key',preview:'Pending unique prompt',createdAt:base+1000}]:[]}};
- storage.setState({sessions:{fixture:session},sessionMessages:{fixture:{messages,isLoaded:true,hasMoreOlder:false,isLoadingOlder:false,messagesMap:Object.fromEntries(messages.map(m=>[m.id,m]))}}});
+ const liveMessages=withdrawn?[{kind:'agent-event',id:'withdrawn',createdAt:base+4000,event:{type:'queue-withdrawn',key:'queued-key'}},...messages]:messages;
+ storage.setState({sessions:{fixture:session},sessionMessages:{fixture:{messages:liveMessages,isLoaded:true,hasMoreOlder:false,isLoadingOlder:false,messagesMap:Object.fromEntries(liveMessages.map(m=>[m.id,m]))}}});
  const models=getAvailableModels(engine,meta,k=>k);
  return h(SafeAreaProvider,{initialMetrics:{frame:{x:0,y:0,width:390,height:900},insets:{top:0,bottom:0,left:0,right:0}}},
  h('div',{id:'menu',style:{width:'min(360px,100vw)'}},h(ComposerModelPanel,{flavor:engine,metadata:meta,modelMode:models[0],availableModels:models,onModelModeChange:()=>{},onEngineSwitch:()=>{},onClose:()=>{},effortLevel:null,availableEffortLevels:[],permissionMode:null,availableModes:[]})),
@@ -90,12 +91,15 @@ const server=http.createServer((req,res)=>{
    }
   }
   for(const engine of ['claude','codex']){
-   await page.evaluate(engine=>{setEngine(engine);setQueued(true)},engine);
+   await page.evaluate(engine=>{setEngine(engine);setQueued(true);setWithdrawn(false)},engine);
    await page.waitForTimeout(100);
    assert.equal(await page.getByText('Pending unique prompt',{exact:true}).count(),0);
    await page.evaluate(()=>setQueued(false));
    await page.getByText('Pending unique prompt',{exact:true}).waitFor();
    assert.equal(await page.getByText('Pending unique prompt',{exact:true}).count(),1);
+   await page.evaluate(()=>setWithdrawn(true));
+   await page.waitForTimeout(100);
+   assert.equal(await page.getByText('Pending unique prompt',{exact:true}).count(),0);
    assert.equal(await page.getByText('Original question',{exact:true}).count(),1);
    assert.equal(await page.getByText('Codex 已接收补充回复，将在当前工作中处理。',{exact:true}).count(),0);
    assert.equal(await page.getByText('补充回复尚未确认送达 Codex；未自动重复发送，请检查连接和后续回应。',{exact:true}).count(),1);

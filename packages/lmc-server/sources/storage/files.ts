@@ -11,35 +11,51 @@ const localFilesDir = path.join(dataDir, 'files');
 // Never perform synchronous IO on the server thread, or fill the shared libuv
 // pool with retries. Timed-out operations retain their slot until IO settles.
 let localOperations = 0;
+let stalledOperations = 0;
 const LOCAL_IO_TIMEOUT_MS = 15_000;
+const MAX_WAITING_OPERATIONS = 64;
+const localWaiters: Array<() => void> = [];
 function unavailable() {
     return Object.assign(new Error('Local storage unavailable'), { statusCode: 503 });
 }
 
-async function localIO<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
-    if (localOperations >= 2) throw unavailable();
-    localOperations++;
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-    const deadline = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => {
+function localIO<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    if (stalledOperations >= 2 || localWaiters.length >= MAX_WAITING_OPERATIONS) {
+        return Promise.reject(unavailable());
+    }
+    return new Promise<T>((resolve, reject) => {
+        const controller = new AbortController();
+        let started = false;
+        let timedOut = false;
+        // The deadline includes time waiting for a slot. Expired queued work
+        // is removed and must never run later, especially for writes/deletes.
+        const timer = setTimeout(() => {
+            timedOut = true;
             controller.abort();
-            console.warn('[local-storage] IO deadline exceeded');
+            if (started) stalledOperations++;
+            else {
+                const index = localWaiters.indexOf(start);
+                if (index >= 0) localWaiters.splice(index, 1);
+            }
             reject(unavailable());
         }, LOCAL_IO_TIMEOUT_MS);
+        const start = () => {
+            started = true;
+            localOperations++;
+            Promise.resolve().then(() => operation(controller.signal)).then(resolve, error => {
+                if (['EPERM', 'EACCES', 'EIO', 'ENODEV', 'ETIMEDOUT', 'ABORT_ERR'].includes(error?.code)) {
+                    reject(unavailable());
+                } else reject(error);
+            }).finally(() => {
+                clearTimeout(timer);
+                localOperations--;
+                if (timedOut) stalledOperations--;
+                while (localOperations < 2 && localWaiters.length) localWaiters.shift()!();
+            });
+        };
+        if (localOperations < 2) start();
+        else localWaiters.push(start);
     });
-    const work = Promise.resolve().then(() => operation(controller.signal)).catch(error => {
-        if (['EPERM', 'EACCES', 'EIO', 'ENODEV', 'ETIMEDOUT', 'ABORT_ERR'].includes(error?.code)) {
-            console.warn('[local-storage] IO failed:', error.code);
-            throw unavailable();
-        }
-        throw error;
-    }).finally(() => { localOperations--; });
-    try {
-        return await Promise.race([work, deadline]);
-    } finally {
-        clearTimeout(timer!);
-    }
 }
 
 // S3 config (only used when S3_HOST is set)
