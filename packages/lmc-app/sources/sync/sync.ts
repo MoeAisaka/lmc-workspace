@@ -690,7 +690,10 @@ class Sync {
             }
             throw error;
         }
-        const { displayText, source = 'chat', attachments, awaitDelivery = false, intent } = options ?? {};
+        const { displayText, source = 'chat', attachments, awaitDelivery = false } = options ?? {};
+        const intent = options?.intent ?? (source === 'option' && session.thinking && session.metadata?.sessionCapabilities?.turnQueue ? 'queue' : undefined);
+        const localId = randomUUID();
+        const queueKey = intent === 'queue' && session.metadata?.sessionCapabilities?.turnQueueLifecycle ? localId : undefined;
 
         const flavor = session.metadata?.flavor;
         const rigAttachmentPolicy = isRigMetadataV1(session.metadata)
@@ -745,6 +748,7 @@ class Sync {
                 for (const att of uploaded) {
                     const fileRecord: RawRecord = {
                         role: 'session',
+                        ...(queueKey ? { meta: { queueKey } } : {}),
                         content: {
                             type: 'session',
                             data: {
@@ -786,9 +790,6 @@ class Sync {
             }
         }
 
-        // Generate local ID
-        const localId = randomUUID();
-
         // Determine sentFrom based on platform
         let sentFrom: string;
         if (Platform.OS === 'web') {
@@ -824,7 +825,8 @@ class Sync {
                 ...(modeMeta.modelProviderId !== undefined ? { modelProviderId: modeMeta.modelProviderId } : {}),
                 ...(modeMeta.effort !== undefined ? { effort: modeMeta.effort } : {}),
                 ...(displayText && { displayText }), // Add displayText if provided
-                ...(intent ? { intent } : {})
+                ...(intent ? { intent } : {}),
+                ...(queueKey ? { queueKey } : {})
             }
         };
         const encryptedRawRecord = await encryption.encryptRawRecord(content);

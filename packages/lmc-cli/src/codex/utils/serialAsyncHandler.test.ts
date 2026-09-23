@@ -52,5 +52,6 @@ describe('createSerialAsyncHandler', () => {
 
         expect(events).toEqual(['first', 'second']);
         expect(onError).toHaveBeenCalledTimes(1);
+        expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'failed' }), 'first');
     });
 });

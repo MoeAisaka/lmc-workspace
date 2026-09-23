@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { visibleTranscriptMessages } from './queuedMessageVisibility';
+import { pendingQueuePrompts, visibleTranscriptMessages } from './queuedMessageVisibility';
 import { normalizeRawMessage } from './typesRaw';
+import { createReducer, reducer } from './reducer/reducer';
 import type { Message } from './typesMessage';
 
 const user = (id: string, localId: string | null, text = 'same prompt'): Message => ({
@@ -8,6 +9,63 @@ const user = (id: string, localId: string | null, text = 'same prompt'): Message
 });
 
 describe('pending prompt transcript visibility', () => {
+    const queued = () => ({ ...user('optimistic', 'key'), meta: { intent: 'queue' as const, queueKey: 'key' } });
+    const released: Message = { kind: 'agent-event', id: 'released', createdAt: 4, event: { type: 'queue-released', keys: ['key'] } };
+    const remoteQueue = [{ key: 'key', preview: 'same prompt', createdAt: 1 }];
+
+    it('starts in the strip before agentState arrives, never flashing in the transcript', () => {
+        const messages = [queued()];
+        for (const queue of [undefined, [], remoteQueue]) {
+            expect(visibleTranscriptMessages(messages, queue)).toEqual([]);
+            expect(pendingQueuePrompts(messages, queue)).toHaveLength(1);
+        }
+        expect(pendingQueuePrompts(messages, [])[0].awaitingAgent).toBe(true);
+        expect(pendingQueuePrompts(messages, remoteQueue)[0].awaitingAgent).toBeUndefined();
+    });
+
+    it('requires a release receipt, including when consumption beats the queue snapshot', () => {
+        const messages = [queued(), released];
+        for (const queue of [undefined, [], remoteQueue]) {
+            expect(visibleTranscriptMessages(messages, queue)).toEqual([messages[0]]);
+            expect(pendingQueuePrompts(messages, queue)).toEqual([]);
+        }
+        // The independent event stream may deliver the receipt before the prompt.
+        expect(pendingQueuePrompts([released], remoteQueue)).toEqual([]);
+        expect(visibleTranscriptMessages(JSON.parse(JSON.stringify(messages)))).toEqual([messages[0]]);
+    });
+
+    it('does not reveal input during a failed steer take/restore or a withdrawal race', () => {
+        const messages = [queued()];
+        for (const queue of [remoteQueue, [], remoteQueue]) expect(visibleTranscriptMessages(messages, queue)).toEqual([]);
+        const withdrawn: Message = { kind: 'agent-event', id: 'withdrawn', createdAt: 3, event: { type: 'queue-withdrawn', key: 'key' } };
+        expect(visibleTranscriptMessages([...messages, withdrawn], [])).toEqual([]);
+        expect(pendingQueuePrompts([...messages, withdrawn], remoteQueue)).toEqual([]);
+    });
+
+    it('keeps attachments with their queued prompt and does not hide matching unrelated text', () => {
+        const attachment: Message = { kind: 'tool-call', id: 'image', localId: 'file-id', createdAt: 1, meta: { queueKey: 'key' }, tool: { name: 'file', input: {}, state: 'completed', createdAt: 1, startedAt: 1, completedAt: 1, description: null }, children: [] };
+        const other = user('other', 'other');
+        expect(visibleTranscriptMessages([attachment, queued(), other], [])).toEqual([other]);
+        expect(pendingQueuePrompts([attachment, queued(), other], [])).toHaveLength(1);
+        expect(visibleTranscriptMessages([attachment, queued(), other, released], [])).toHaveLength(3);
+    });
+
+    it('normalizes durable metadata and receipts without losing their identities', () => {
+        const normalized = normalizeRawMessage('sent', 'key', 1, { role: 'user', content: { type: 'text', text: 'prompt' }, meta: { intent: 'queue', queueKey: 'key' } } as any);
+        expect(normalized?.meta?.queueKey).toBe('key');
+        const receipt = normalizeRawMessage('event', null, 2, { role: 'agent', content: { id: 'receipt', type: 'event', data: { type: 'queue-released', keys: ['key'] } } } as any);
+        expect(receipt?.content).toEqual({ type: 'queue-released', keys: ['key'] });
+        const file = normalizeRawMessage('file', 'file-local', 1, {
+            role: 'session', meta: { queueKey: 'key' }, content: { type: 'session', data: {
+                id: 'image', time: 1, role: 'user', ev: { t: 'file', ref: 'attachment', name: 'image.png', size: 1 },
+            } },
+        } as any);
+        expect(file?.meta?.queueKey).toBe('key');
+        const reduced = reducer(createReducer(), [file!, normalized!, receipt!]).messages;
+        expect(reduced.filter(message => message.meta?.queueKey === 'key')).toHaveLength(2);
+        expect(visibleTranscriptMessages(reduced)).toHaveLength(2);
+    });
+
     it('omits repeated steer receipts even after reload with an empty queue', () => {
         const receipt: Message = { kind: 'agent-event', id: 'receipt', createdAt: 2,
             event: { type: 'message', message: 'Codex 已接收补充回复，将在当前工作中处理。' } };

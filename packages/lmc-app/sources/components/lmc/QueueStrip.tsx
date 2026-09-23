@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Pressable, View } from 'react-native';
+import { ActivityIndicator, Pressable, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
@@ -42,33 +42,36 @@ export const QueueStrip = React.memo(function QueueStrip(props: QueueStripProps)
         <View style={styles.strip} {...({ dataSet: { lmcQueueStrip: 'true' } } as any)}>
             {props.items.map((item) => (
                 <View key={item.key} style={styles.row}>
-                    <Ionicons name="time-outline" size={14} color={colors.placeholder} />
+                    {item.awaitingAgent ? <ActivityIndicator size={14} color={colors.placeholder} /> : <Ionicons name="time-outline" size={14} color={colors.placeholder} />}
                     <Text numberOfLines={1} style={styles.preview}>{item.preview}</Text>
                     <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={t('lmc.queue.steer')}
+                        disabled={item.awaitingAgent}
                         accessibilityHint={props.steerState === 'disabled' ? t('lmc.queue.steerUnavailable') : undefined}
                         onPress={() => props.onSteer(item.key)}
                         hitSlop={4}
-                        style={(p) => [styles.action, { opacity: props.steerState === 'disabled' ? 0.38 : p.pressed ? 0.6 : 1 }]}
+                        style={(p) => [styles.action, { opacity: item.awaitingAgent || props.steerState === 'disabled' ? 0.38 : p.pressed ? 0.6 : 1 }]}
                     >
                         <Text style={styles.actionText}>{t('lmc.queue.steer')}</Text>
                     </Pressable>
                     <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={t('lmc.queue.promote')}
+                        disabled={item.awaitingAgent}
                         onPress={() => props.onPromote(item.key)}
                         hitSlop={4}
-                        style={(p) => [styles.action, { opacity: p.pressed ? 0.6 : 1 }]}
+                        style={(p) => [styles.action, { opacity: item.awaitingAgent ? 0.38 : p.pressed ? 0.6 : 1 }]}
                     >
                         <Text style={styles.actionText}>{t('lmc.queue.promote')}</Text>
                     </Pressable>
                     <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={t('lmc.queue.withdraw')}
+                        disabled={item.awaitingAgent}
                         onPress={() => props.onWithdraw(item.key)}
                         hitSlop={4}
-                        style={(p) => [styles.withdraw, { opacity: p.pressed ? 0.6 : 1 }]}
+                        style={(p) => [styles.withdraw, { opacity: item.awaitingAgent ? 0.38 : p.pressed ? 0.6 : 1 }]}
                     >
                         <Ionicons name="close" size={15} color={colors.tertiary} />
                     </Pressable>

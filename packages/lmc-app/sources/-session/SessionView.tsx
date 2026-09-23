@@ -1,4 +1,5 @@
 import { resolveTurnElapsed } from '@/utils/turnElapsed';
+import { pendingQueuePrompts } from '@/sync/queuedMessageVisibility';
 import { useMachine } from '@/sync/storage';
 import { withModelCatalogs } from '@/sync/modelCatalogMetadata';
 import { EngineAuthBanner } from '@/components/EngineAuthBanner';
@@ -1156,7 +1157,7 @@ export function SessionViewLoaded({
     const handleQueueModeChange = React.useCallback((mode: QueueMode) => {
         sessionSetQueueMode(sessionId, mode).catch((error) => { console.error('queue mode change failed:', error); });
     }, [sessionId]);
-    const queuedPrompts = session.agentState?.queue;
+    const queuedPrompts = React.useMemo(() => pendingQueuePrompts(messages, session.agentState?.queue), [messages, session.agentState?.queue]);
     const queueMode: QueueMode = session.metadata?.queueMode ?? 'batch';
     // Handed over whenever the session can queue at all; the strip shows
     // nothing until something is actually waiting.

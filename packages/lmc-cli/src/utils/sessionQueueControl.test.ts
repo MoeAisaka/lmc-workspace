@@ -26,6 +26,35 @@ describe('attachQueuePublisher', () => {
         expect(f.state().queue).toEqual([expect.objectContaining({ key: 'k1', preview: 'hello' })]);
         await queue.waitForMessagesAndGetAsString();
         expect(f.state().queue).toBeUndefined();
+        expect(f.client.sendSessionEvent).toHaveBeenCalledWith({ type: 'queue-released', keys: ['k1'] });
+    });
+
+    it('receipts each consumed batch and discarded key, never a temporary steer removal', async () => {
+        const queue = new MessageQueue2<string>(m => m);
+        const f = fakeClient();
+        attachQueuePublisher(queue, f.client, 'batch');
+        queue.push('a', 'm', undefined, { key: 'a' });
+        queue.push('b', 'm', undefined, { key: 'b' });
+        const taken = queue.takeByKey('a')!;
+        expect(f.client.sendSessionEvent).not.toHaveBeenCalled();
+        queue.restore(taken);
+        await queue.waitForMessagesAndGetAsString();
+        expect(f.client.sendSessionEvent).toHaveBeenCalledExactlyOnceWith({ type: 'queue-released', keys: ['a', 'b'] });
+        queue.push('old', 'm', undefined, { key: 'old' });
+        queue.pushIsolateAndClear('/clear', 'm', undefined, { key: 'clear' });
+        expect(f.client.sendSessionEvent).toHaveBeenCalledWith({ type: 'queue-withdrawn', key: 'old' });
+        await queue.waitForMessagesAndGetAsString();
+        expect(f.client.sendSessionEvent).toHaveBeenCalledWith({ type: 'queue-released', keys: ['clear'] });
+    });
+
+    it('does not consume a prompt if its durable receipt cannot be queued', async () => {
+        const queue = new MessageQueue2<string>(m => m);
+        const f = fakeClient();
+        attachQueuePublisher(queue, f.client, 'batch');
+        queue.push('a', 'm', undefined, { key: 'a' });
+        vi.mocked(f.client.sendSessionEvent).mockImplementation(() => { throw Error('receipt failed'); });
+        await expect(queue.waitForMessagesAndGetAsString()).rejects.toThrow('receipt failed');
+        expect(queue.snapshot().map(item => item.key)).toEqual(['a']);
     });
 
     it('ignores an unknown persisted mode', () => {
@@ -118,6 +147,7 @@ describe('steer handler', () => {
         expect(await f.handlers.get('steer')!({ key: 'ka' })).toEqual({ steered: true });
         expect(seen).toEqual(['a']);
         expect(queue.snapshot().map(s => s.key)).toEqual(['kb']);
+        expect(f.client.sendSessionEvent).toHaveBeenCalledWith({ type: 'queue-released', keys: ['ka'] });
     });
 
     it('puts a refused item back in its place, and keeps an unconfirmed one out', async () => {

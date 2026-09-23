@@ -472,7 +472,8 @@ export async function runCodex(opts: {
         if (enqueueResult === 'clear') {
             logger.debug('[Codex] /clear command pushed to isolated queue');
         }
-    }, (error) => {
+    }, (error, message) => {
+        if (message.meta?.queueKey) session.sendSessionEvent({ type: 'queue-released', keys: [message.meta.queueKey] });
         if (error instanceof UnsupportedCodexEffortError) {
             session.sendSessionEvent({ type: 'message', message: error.message });
             return;
@@ -480,6 +481,7 @@ export async function runCodex(opts: {
         logger.warn('[Codex] Failed to handle user message', {
             errorName: error instanceof Error ? error.name : typeof error,
         });
+        if (message.meta?.queueKey) session.sendSessionEvent({ type: 'message', message: '消息未能排入队列，请重试。' });
     });
     session.onUserMessage(handleUserMessage);
     let thinking = false;

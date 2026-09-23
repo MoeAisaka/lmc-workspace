@@ -10,7 +10,7 @@ import { isQueueMode, readQueueKey, readQueueMode } from './queueControlRequest'
 export type QueueSessionClient = {
     updateAgentState(handler: (state: AgentState) => AgentState): void;
     updateMetadata(handler: (metadata: Metadata) => Metadata): void;
-    sendSessionEvent(event: { type: 'message'; message: string } | { type: 'queue-withdrawn'; key: string }): void;
+    sendSessionEvent(event: { type: 'message'; message: string } | { type: 'queue-withdrawn'; key: string } | { type: 'queue-released'; keys: string[] }): void;
     rpcHandlerManager: {
         registerHandler<TRequest = any, TResponse = any>(method: string, handler: (data: TRequest) => Promise<TResponse> | TResponse): void;
     };
@@ -28,6 +28,10 @@ export function attachQueuePublisher<T>(queue: MessageQueue2<T>, client: QueueSe
         client.updateAgentState((state) => ({ ...state, queue: snapshot.length > 0 ? snapshot : undefined }));
     };
     queue.setOnChange(publish);
+    queue.setLifecycleHandlers(
+        keys => client.sendSessionEvent({ type: 'queue-released', keys }),
+        keys => keys.forEach(key => client.sendSessionEvent({ type: 'queue-withdrawn', key })),
+    );
     publish(queue.snapshot());
 }
 
@@ -109,6 +113,7 @@ export function registerQueueControlHandlers<T>(
             return { steered: false, reason: 'refused' };
         }
         if (!outcome.steered && outcome.restore !== false) queue.restore(taken);
+        else client.sendSessionEvent({ type: 'queue-released', keys: [key] });
         return { steered: outcome.steered, ...(outcome.reason ? { reason: outcome.reason } : {}) };
     });
 }

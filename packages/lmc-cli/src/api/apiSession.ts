@@ -418,6 +418,10 @@ export class ApiSessionClient extends EventEmitter {
             this.incomingDeliveries.add(delivery);
             void delivery.finally(() => this.incomingDeliveries.delete(delivery)).catch(() => {
                 logger.warn('[API] Incoming message delivery failed');
+                if (message.meta?.queueKey) {
+                    this.sendSessionEvent({ type: 'queue-released', keys: [message.meta.queueKey] });
+                    this.sendSessionEvent({ type: 'message', message: '消息未能排入队列，请重试。' });
+                }
             });
         };
         while (this.pendingMessages.length > 0) {
@@ -928,6 +932,8 @@ export class ApiSessionClient extends EventEmitter {
     }
 
     sendSessionEvent(event: {
+        type: 'queue-released', keys: string[]
+    } | {
         type: 'queue-withdrawn', key: string
     } | {
         type: 'switch', mode: 'local' | 'remote'

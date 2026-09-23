@@ -8,7 +8,7 @@ import type { Metadata } from './storageTypes';
  */
 export type MessageIntent = 'queue' | 'steer' | 'interrupt';
 export type QueueMode = 'batch' | 'sequential';
-export type QueuedPrompt = { key: string; preview: string; createdAt: number };
+export type QueuedPrompt = { key: string; preview: string; createdAt: number; awaitingAgent?: boolean };
 
 /** The CLI publishes its queue and answers dequeue / promote. */
 export function sessionSupportsTurnQueue(metadata?: Metadata | null): boolean {

@@ -227,6 +227,7 @@ export const MessageMetaSchema = z.object({
   // What to do with a message that arrives while the engine is busy. Absent
   // from older apps, which keep the pre-intent behaviour.
   intent: z.enum(['queue', 'steer', 'interrupt']).optional(),
+  queueKey: z.string().optional(),
 })
 
 export type MessageMeta = z.infer<typeof MessageMetaSchema>
@@ -389,7 +390,9 @@ export type Metadata = {
     /** The runner answers `cancel-session-refresh` while a refresh or switch is still queued. */
     cancelRefresh?: boolean;
     /** The runner publishes agentState.queue and answers dequeue / promote; messages may carry meta.intent. */
-    turnQueue?: boolean };
+    turnQueue?: boolean;
+    /** Durable receipts identify when queued input leaves the waiting state. */
+    turnQueueLifecycle?: boolean };
   engineAuth?: { status: 'ready' | 'required' | 'unknown'; checkedAt: number };
   sessionConfiguration?: boolean;
   sessionConfigState?: 'queued' | 'applied' | 'error' | 'refreshing' | 'verifying';

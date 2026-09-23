@@ -876,14 +876,14 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
 
         if (specialCommand.type === 'compact') {
             logger.debug('[start] Detected /compact command');
-            messageQueue.pushIsolateAndClear(specialCommand.originalMessage || message.content.text, currentEnhancedMode(), attachmentsForThisMessage);
+            messageQueue.pushIsolateAndClear(specialCommand.originalMessage || message.content.text, currentEnhancedMode(), attachmentsForThisMessage, { key: message.localKey });
             logger.debugLargeJson('[start] /compact command pushed to queue:', message);
             return;
         }
 
         if (specialCommand.type === 'clear') {
             logger.debug('[start] Detected /clear command');
-            messageQueue.pushIsolateAndClear(specialCommand.originalMessage || message.content.text, currentEnhancedMode(), attachmentsForThisMessage);
+            messageQueue.pushIsolateAndClear(specialCommand.originalMessage || message.content.text, currentEnhancedMode(), attachmentsForThisMessage, { key: message.localKey });
             logger.debugLargeJson('[start] /clear command pushed to queue:', message);
             return;
         }
@@ -913,6 +913,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
                     }
                 }
 
+                if (message.meta?.queueKey) session.sendSessionEvent({ type: 'queue-released', keys: [message.meta.queueKey] });
                 session.sendClaudeSessionMessage({
                     type: 'assistant',
                     uuid: randomUUID(),

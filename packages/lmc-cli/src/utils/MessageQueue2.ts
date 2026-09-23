@@ -56,6 +56,8 @@ export class MessageQueue2<T> {
     private closed = false;
     private onMessageHandler: ((message: string, mode: T) => void) | null = null;
     private onChangeHandler: ((snapshot: QueueSnapshotItem[]) => void) | null = null;
+    private onConsumeHandler: ((keys: string[]) => void) | null = null;
+    private onDiscardHandler: ((keys: string[]) => void) | null = null;
     private queueMode: QueueMode = 'batch';
     modeHasher: (mode: T) => string;
 
@@ -82,6 +84,12 @@ export class MessageQueue2<T> {
      */
     setOnChange(handler: ((snapshot: QueueSnapshotItem[]) => void) | null): void {
         this.onChangeHandler = handler;
+    }
+
+    /** Durable UI receipts are enqueued before the queue changes. */
+    setLifecycleHandlers(onConsume: (keys: string[]) => void, onDiscard: (keys: string[]) => void): void {
+        this.onConsumeHandler = onConsume;
+        this.onDiscardHandler = onDiscard;
     }
 
     setQueueMode(mode: QueueMode): void {
@@ -125,6 +133,7 @@ export class MessageQueue2<T> {
             throw new Error('Cannot push to closed queue');
         }
         logger.debug(`[MessageQueue2] pushIsolateAndClear() clearing ${this.queue.length} pending messages`);
+        if (this.queue.length) this.onDiscardHandler?.(this.queue.map(item => item.key));
         // Clear any pending messages to ensure this message is processed in complete isolation
         this.queue = [];
         this.insert('pushIsolateAndClear', message, mode, { isolate: true, attachments, key: options?.key });
@@ -204,6 +213,7 @@ export class MessageQueue2<T> {
     reset(): void {
         logger.debug(`[MessageQueue2] reset() called. Clearing ${this.queue.length} messages`);
         const hadItems = this.queue.length > 0;
+        if (hadItems) this.onDiscardHandler?.(this.queue.map(item => item.key));
         this.queue = [];
         this.closed = false;
 
@@ -334,6 +344,14 @@ export class MessageQueue2<T> {
         let mode = firstItem.mode;
         let isolate = firstItem.isolate ?? false;
         const targetModeHash = firstItem.modeHash;
+
+        let count = 1;
+        if (!firstItem.isolate && this.queueMode !== 'sequential') {
+            while (count < this.queue.length && this.queue[count].modeHash === targetModeHash && !this.queue[count].isolate) count++;
+        }
+        // If a receipt cannot be queued, leave the prompts untouched. Removing
+        // a snapshot alone is not proof of consumption (steer may be restored).
+        this.onConsumeHandler?.(this.queue.slice(0, count).map(item => item.key));
 
         // An isolated message is processed alone; so is every message when the
         // queue is sequential.

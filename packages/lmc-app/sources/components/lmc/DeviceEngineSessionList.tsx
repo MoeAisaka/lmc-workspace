@@ -529,7 +529,7 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
 
     // Collapsing a hub hides its workers the way a device group hides its rows:
     // same animation, same chevron, so the two levels behave alike.
-    const [collapsed, setCollapsed] = React.useState(() => hubCollapsedById.get(group.hub.id) ?? false);
+    const [collapsed, setCollapsed] = React.useState(() => hubCollapsedById.get(group.hub.id) ?? true);
     const [bodyHeight, setBodyHeight] = React.useState(0);
     const [expandedSettled, setExpandedSettled] = React.useState(!collapsed);
     const progress = useSharedValue(collapsed ? 0 : 1);
@@ -545,7 +545,7 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
     // of the group without being clipped.
     const hubBodyStyle = useAnimatedStyle(() => (expandedSettled
         ? { opacity: 1 }
-        : { height: bodyHeight ? progress.value * bodyHeight : undefined, opacity: progress.value }));
+        : { height: bodyHeight ? progress.value * bodyHeight : collapsed ? 0 : undefined, opacity: progress.value }));
     const hubChevronStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${-90 + progress.value * 90}deg` }] }));
     const toggleCollapsed = () => setCollapsed((value) => { hubCollapsedById.set(group.hub.id, !value); return !value; });
     const hubRingTone = hubTone === 'working' || hubTone === 'attention' || hubTone === 'done' ? hubTone : null;
@@ -608,6 +608,7 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
                                     accessibilityRole="button"
                                     accessibilityLabel={collapsed ? t('lmc.list.expand') : t('lmc.list.collapse')}
                                     accessibilityState={{ expanded: !collapsed }}
+                                    aria-expanded={!collapsed}
                                     onPress={(e) => { e.stopPropagation?.(); toggleCollapsed(); }}
                                     hitSlop={8}
                                     style={({ pressed }) => [styles.hubChevron, pressed && { opacity: 0.6 }]}
@@ -635,7 +636,7 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
                 )}
             </View>
             {hovered && <RNText style={[styles.dropHint, { color: colors.brand }]}>{t('lmc.orchestration.dropToBind')}</RNText>}
-            <Animated.View style={[{ overflow: expandedSettled ? 'visible' : 'hidden' }, hubBodyStyle]}>
+            <Animated.View pointerEvents={collapsed ? 'none' : 'auto'} aria-hidden={collapsed} importantForAccessibility={collapsed ? 'no-hide-descendants' : 'auto'} style={[{ overflow: expandedSettled ? 'visible' : 'hidden' }, hubBodyStyle]}>
             <View onLayout={(event) => {
                 const next = Math.round(event.nativeEvent.layout.height);
                 setBodyHeight((current) => (Math.abs(current - next) < 1 ? current : next));
