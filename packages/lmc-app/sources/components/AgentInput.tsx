@@ -121,6 +121,8 @@ interface AgentInputProps {
      * out, so callers anchoring to AgentInput would float above empty space.
      */
     onActionAreaOffsetChange?: (offset: number) => void;
+    /** Measured space below the card, including the usage row and outer padding. */
+    onBottomSpacingChange?: (spacing: number) => void;
     sessionStatusGitBranch?: string | null;
     /** Unstaged line changes for the checkout, matching the session list. */
     sessionStatusGitChanges?: { insertions: number; deletions: number; approximate: boolean } | null;
@@ -191,11 +193,12 @@ const MOBILE_PRIMARY_ACTION_GEOMETRY = resolveMobileComposerActionGeometry('prim
 // the Shaker's layout.y is relative to innerContainer, which sits this far
 // below AgentInput's top edge.
 const CONTAINER_TOP_PADDING = 8;
+const CONTAINER_BOTTOM_PADDING = 8;
 
 const stylesheet = StyleSheet.create((theme, runtime) => ({
     container: {
         alignItems: 'center',
-        paddingBottom: 8,
+        paddingBottom: CONTAINER_BOTTOM_PADDING,
         paddingTop: CONTAINER_TOP_PADDING,
     },
     innerContainer: {
@@ -1107,6 +1110,10 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     const handleActionAreaLayout = React.useCallback((event: LayoutChangeEvent) => {
         onActionAreaOffsetChange?.(CONTAINER_TOP_PADDING + event.nativeEvent.layout.y);
     }, [onActionAreaOffsetChange]);
+    const onBottomSpacingChange = props.onBottomSpacingChange;
+    const handleUsageLayout = React.useCallback((event: LayoutChangeEvent) => {
+        onBottomSpacingChange?.(CONTAINER_BOTTOM_PADDING + event.nativeEvent.layout.height);
+    }, [onBottomSpacingChange]);
 
     const onChangeTextProp = props.onChangeText;
     const handleTextChange = React.useCallback((text: string) => {
@@ -2097,14 +2104,16 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                     </View>
                 </Shaker>
 
-                <AnimatedFade visible={props.showStatusDetails !== false}>
-                    <AgentInputUsageRow
-                        turnElapsed={props.turnElapsed}
-                        contextStatus={contextStatus}
-                        weekPercent={weekPercent}
-                        usageMenuOptions={usageMenuOptions}
-                    />
-                </AnimatedFade>
+                <View onLayout={onBottomSpacingChange ? handleUsageLayout : undefined}>
+                    <AnimatedFade visible={props.showStatusDetails !== false}>
+                        <AgentInputUsageRow
+                            turnElapsed={props.turnElapsed}
+                            contextStatus={contextStatus}
+                            weekPercent={weekPercent}
+                            usageMenuOptions={usageMenuOptions}
+                        />
+                    </AnimatedFade>
+                </View>
             </View>
         </View>
     );

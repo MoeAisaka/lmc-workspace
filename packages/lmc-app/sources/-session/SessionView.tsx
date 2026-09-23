@@ -16,6 +16,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { AgentGoalBar, type AgentGoalAction } from '@/components/AgentGoalBar';
 import { AgentQuestionBanner } from '@/components/AgentQuestionBanner';
 import { AgentInput } from '@/components/AgentInput';
+import { useSessionDrawer } from '@/components/lmc/sessionDrawerStore';
+import { useFocusEffect } from '@react-navigation/native';
 import { resolveVisibleAgentGoalStatus } from '@/components/agentGoalStatus';
 import type { MultiTextInputHandle } from '@/components/MultiTextInput';
 import { layout } from '@/components/layout';
@@ -859,6 +861,18 @@ export function SessionViewLoaded({
     // above it keep their space, so anchoring to the dock top floats the
     // scroll button over a visually empty band.
     const [composerCardOffset, setComposerCardOffset] = React.useState(0);
+    const [composerBottomSpacing, setComposerBottomSpacing] = React.useState<number | null>(null);
+    useFocusEffect(React.useCallback(() => {
+        if (embedded || !usesFloatingMobileDock || composerBottomSpacing === null) return;
+        const composer = { sessionId, bottomSpacing: composerBottomSpacing };
+        useSessionDrawer.setState({ composer });
+        return () => {
+            // A previously focused screen must not clear a newer chat's anchor.
+            if (useSessionDrawer.getState().composer === composer) {
+                useSessionDrawer.setState({ composer: null });
+            }
+        };
+    }, [embedded, usesFloatingMobileDock, sessionId, composerBottomSpacing]));
     const [isChatAtBottom, setIsChatAtBottom] = React.useState(true);
     const showBottomDockDetails = !usesFloatingMobileDock || isChatAtBottom || isTablet;
     const scrollButtonInset = Math.max(0, bottomDockInset - composerY - composerCardOffset);
@@ -1367,6 +1381,7 @@ export function SessionViewLoaded({
                 sessionStatusUsageLimits={session.agentState?.usageLimits ?? null}
                 agentWorking={sessionStatus.state === 'thinking'}
                 onActionAreaOffsetChange={usesFloatingMobileDock ? handleComposerCardOffsetChange : undefined}
+                onBottomSpacingChange={!embedded && usesFloatingMobileDock ? setComposerBottomSpacing : undefined}
             />
         </View>
     );

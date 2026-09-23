@@ -3,6 +3,7 @@ import { Pressable, useWindowDimensions, View, Platform } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming, runOnJS } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useKeyboardState } from 'react-native-keyboard-controller';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { DeviceEngineSessionList } from './DeviceEngineSessionList';
 import { useSessionDrawer } from './sessionDrawerStore';
@@ -39,14 +40,21 @@ const styles = StyleSheet.create((theme) => ({
 export const FloatingSessionDrawer = React.memo(() => {
     const open = useSessionDrawer((s) => s.open);
     const setOpen = useSessionDrawer((s) => s.setOpen);
+    const composer = useSessionDrawer((s) => s.composer);
     const { width, height } = useWindowDimensions();
     const insets = useSafeAreaInsets();
+    const keyboard = useKeyboardState();
     const { theme } = useUnistyles();
     const panelRef = React.useRef<View>(null);
     const panelWidth = Math.min(DRAWER_MAX_WIDTH, width - DRAWER_MARGIN * 2 - 40);
     const top = Math.max(insets.top, 12) + 40;
-    const bottom = Math.max(insets.bottom, 12) + 28;
-    const panelHeight = Math.max(240, height - top - bottom);
+    // Match AgentContentView's dock inset plus the measured space under the
+    // input card. A fixed 40pt guess drifts when the usage row appears/changes.
+    const keyboardInset = keyboard.isVisible ? Math.max(0, keyboard.height - insets.bottom) : 0;
+    const bottom = composer
+        ? insets.bottom + keyboardInset + composer.bottomSpacing
+        : Math.max(insets.bottom, 12) + 28;
+    const panelHeight = Math.max(composer ? 0 : 240, height - top - bottom);
 
     const progress = useSharedValue(0);
     const [mounted, setMounted] = React.useState(open);
@@ -79,7 +87,7 @@ export const FloatingSessionDrawer = React.memo(() => {
                 <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.list.closeDrawer')} onPress={close} style={{ flex: 1 }} />
             </Animated.View>
             <GestureDetector gesture={swipeClose}>
-                <Animated.View ref={panelRef} style={[styles.panel, panelStyle, { top, width: panelWidth, height: panelHeight, backgroundColor: theme.colors.surface }]}>
+                <Animated.View ref={panelRef} testID="floating-session-drawer" style={[styles.panel, panelStyle, { top, width: panelWidth, height: panelHeight, backgroundColor: theme.colors.surface }]}>
                     <DeviceEngineSessionList onNavigate={close} accountMenuPanelRef={panelRef} />
                 </Animated.View>
             </GestureDetector>
