@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import { canRefreshSession, resumeAfterExit } from './sessionRefresh';
 import type { TrackedSession } from './types';
+vi.mock('node:fs', () => ({ realpathSync: vi.fn(() => '/Volumes/External Disk/LMC-runtime/runtime/agent-releases') }));
 
 const persisted = (): TrackedSession => ({
     startedBy: 'persisted', pid: 0, happySessionId: 'sessionA',
@@ -57,4 +58,12 @@ it('allows registered Claude sessions to use the same safe handoff', async()=>{
  const session={...persisted(),startedBy:'daemon' as const,pid:123};
  session.happySessionMetadataFromLocalWebhook!.flavor='claude';
  expect(await canRefreshSession(session,123,running)).toBe(true);
+});
+
+it.each(['claude', 'codex'])('allows a relocated %s runner after daemon restart', async engine => {
+    const session = persisted();
+    session.happySessionMetadataFromLocalWebhook!.flavor = engine;
+    const proc = { pid: 123, name: 'node', cmd: `node --no-warnings /Volumes/External Disk/LMC-runtime/runtime/agent-releases/upgrades-20260922-v2/dist/index.mjs ${engine}` };
+    expect(await canRefreshSession(session, 123, async () => [proc])).toBe(true);
+    expect(await canRefreshSession(session, 456, async () => [proc])).toBe(false);
 });

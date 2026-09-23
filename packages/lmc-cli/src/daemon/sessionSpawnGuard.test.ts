@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
+import { realpathSync } from 'node:fs';
 import { findLiveSessionProcess, findOrphanedSessionPid, SingleFlight, findProviderSessionPid } from './sessionSpawnGuard';
 import type { TrackedSession } from './types';
+
+vi.mock('node:fs', () => ({ realpathSync: vi.fn(() => '/Volumes/External Disk/LMC-runtime/runtime/agent-releases') }));
 
 const tracked = (pid: number, happySessionId?: string): TrackedSession => ({
     startedBy: 'daemon',
@@ -209,4 +212,41 @@ describe('finding a wrapper by the conversation it resumes', () => {
             expect(findProviderSessionPid([wrapper(3, String(id))], id as any)).toBeUndefined();
         }
     });
+});
+
+
+describe('relocated Agent releases', () => {
+    const root = '/Volumes/External Disk/LMC-runtime/runtime/agent-releases';
+    const thread = '01a0ace8-a4f4-7b03-bca9-377ee29d301a';
+    const session = { ...tracked(0, 's'), startedBy: 'persisted' as const,
+        happySessionMetadataFromLocalWebhook: { hostPid: 123 } } as TrackedSession;
+    const processAt = (entry: string, args: string) => ({ pid: 123, name: 'node',
+        cmd: `node --no-warnings --no-deprecation ${entry} ${args}` });
+
+    it.each(['claude', 'codex'])('recognizes %s under the resolved installation root', async engine => {
+        const proc = processAt(`${root}/upgrades-20260922-v2/dist/index.mjs`, `${engine} --resume ${thread}`);
+        expect(await findOrphanedSessionPid(session, async () => [proc])).toBe(123);
+        expect(findProviderSessionPid([proc], thread)).toBe(123);
+    });
+
+    it.each([
+        [root + '/upgrades-20260922-v2/dist/index.mjs', 'daemon start-sync'],
+        [root + '/upgrades-20260922-v2/dist/index.mjs', 'mcp'],
+        [root + '/upgrades-20260922-v2/dist/codex/bridge.mjs', 'codex'],
+        ['/tmp/agent-releases/upgrades-20260922-v2/dist/index.mjs', 'codex'],
+        ['/Volumes/Other Disk/LMC-runtime/runtime/agent-releases/v1/dist/index.mjs', 'claude'],
+        ['/opt/helper.mjs', root + '/upgrades-20260922-v2/dist/index.mjs codex'],
+    ])('rejects non-session or unconfigured relocated entry %s %s', async (entry, args) => {
+        const proc = processAt(entry, `${args} --resume ${thread}`);
+        expect(await findOrphanedSessionPid(session, async () => [proc])).toBeUndefined();
+        expect(findProviderSessionPid([proc], thread)).toBeUndefined();
+    });
+});
+
+it('fails closed when the relocated installation cannot be resolved', async () => {
+    vi.mocked(realpathSync).mockImplementationOnce(() => { throw new Error('volume unavailable'); });
+    const session = { ...tracked(0, 's'), startedBy: 'persisted' as const,
+        happySessionMetadataFromLocalWebhook: { hostPid: 123 } } as TrackedSession;
+    expect(await findOrphanedSessionPid(session, async () => [{ pid: 123,
+        cmd: 'node /Volumes/External Disk/LMC-runtime/runtime/agent-releases/v1/dist/index.mjs codex' }])).toBeUndefined();
 });

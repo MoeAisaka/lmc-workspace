@@ -1,4 +1,7 @@
 import type { TrackedSession } from './types';
+import { realpathSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join, relative, sep } from 'node:path';
 
 /**
  * A LMC session must have exactly one CLI process behind it.
@@ -112,10 +115,24 @@ function looksLikeHappyCli(proc: RunningProcess): boolean {
     if (!entry) return false;
     const installedHappy = /(?:^|\/)(?:happy|happy-cli|happy-coder)\/dist\/index\.[cm]?js$/.test(entry[1]);
     const installedLmc = /\/\.lmc\/agent-releases\/[a-zA-Z0-9_-]+\/dist\/index\.[cm]?js$/.test(entry[1]);
-    if (!installedHappy && !installedLmc) return false;
+    if (!installedHappy && !installedLmc && !isRelocatedAgentEntry(entry[1])) return false;
     const args = (entry[2] ?? '').trim();
     return args === '' || /^(?:codex|claude)(?:\s|$)/.test(args)
         || /^--(?:happy-starting-mode|resume|started-by)(?:\s|=)/.test(args);
+}
+
+/** The compatibility install directory may point to an external volume. */
+function isRelocatedAgentEntry(entry: string): boolean {
+    try {
+        const root = realpathSync(join(homedir(), '.lmc', 'agent-releases'));
+        // Match only releases inside this machine's actual installation root,
+        // not an arbitrary directory named agent-releases elsewhere on disk.
+        const local = relative(root, entry).split(sep).join('/');
+        return /^[a-zA-Z0-9_-]+\/dist\/index\.[cm]?js$/.test(local);
+    } catch {
+        // Unavailable installation data cannot establish process ownership.
+        return false;
+    }
 }
 
 /** Probes a pid without signalling it. */
