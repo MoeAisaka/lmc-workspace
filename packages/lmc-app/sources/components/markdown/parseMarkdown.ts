@@ -30,6 +30,11 @@ export type MarkdownBlock = {
     headers: MarkdownSpan[][],
     rows: MarkdownSpan[][][]
 } | {
+    type: 'details',
+    summary: MarkdownSpan[],
+    content: string,
+    open: boolean
+} | {
     type: 'image',
     alt: string,
     url: string

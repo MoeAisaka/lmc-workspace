@@ -1,9 +1,10 @@
-import { MarkdownSpan, parseMarkdown } from './parseMarkdown';
+import { MarkdownBlock, MarkdownSpan, parseMarkdown } from './parseMarkdown';
 import * as React from 'react';
 import { Image, Pressable, View, Platform } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { HorizontalScrollView } from '../HorizontalScrollView';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { StyleSheet } from 'react-native-unistyles';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '../StyledText';
 import { Typography } from '@/constants/Typography';
 import { SimpleSyntaxHighlighter } from '../SimpleSyntaxHighlighter';
@@ -94,6 +95,10 @@ export const MarkdownView = React.memo((props: {
                         return <RenderTableBlock headers={block.headers} rows={block.rows} onLinkPress={handleLinkPress} selectable={selectable} key={index} first={index === 0} last={index === blocks.length - 1} />;
                     } else if (block.type === 'image') {
                         return <RenderImageBlock url={block.url} alt={block.alt} key={index} first={index === 0} last={index === blocks.length - 1} />;
+                    } else if (block.type === 'details') {
+                        return <RenderDetailsBlock block={block} key={index}>
+                            <MarkdownView markdown={block.content} sessionId={props.sessionId} onOptionPress={props.onOptionPress} externalCopyHandler={props.externalCopyHandler || markdownCopyV2} />
+                        </RenderDetailsBlock>;
                     } else {
                         return null;
                     }
@@ -134,6 +139,36 @@ type RenderSpanProps = {
     selectable: boolean;
     onLinkPress: (url: string) => void;
 };
+
+function RenderDetailsBlock({ block, children }: {
+    block: Extract<MarkdownBlock, { type: 'details' }>;
+    children: React.ReactNode;
+}) {
+    // Preserve the user's choice when streamed content updates this block.
+    const [expanded, setExpanded] = React.useState(block.open);
+    const { theme } = useUnistyles();
+    const label = block.summary.map(span => span.text).join('') || t('profile.details');
+    return (
+        <View style={style.details}>
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={label}
+                accessibilityState={{ expanded }}
+                aria-expanded={expanded}
+                onPress={() => setExpanded(value => !value)}
+                style={({ pressed }) => [style.detailsSummary, pressed && { opacity: 0.7 }]}
+            >
+                <Ionicons accessible={false} name={expanded ? 'chevron-down' : 'chevron-forward'} size={16} color={theme.colors.textSecondary} />
+                <Text style={style.detailsTitle}>
+                    {block.summary.length ? block.summary.map((span, index) => (
+                        <Text key={index} style={span.styles.map(s => style[s])}>{span.text}</Text>
+                    )) : label}
+                </Text>
+            </Pressable>
+            {expanded && <View style={style.detailsBody}>{children}</View>}
+        </View>
+    );
+}
 
 function RenderTextBlock(props: { spans: MarkdownSpan[], first: boolean, last: boolean, selectable: boolean, onLinkPress: (url: string) => void }) {
     return <Text selectable={props.selectable} style={[style.text, props.first && style.first, props.last && style.last]}><RenderSpans spans={props.spans} baseStyle={style.text} selectable={props.selectable} onLinkPress={props.onLinkPress} /></Text>;
@@ -519,6 +554,34 @@ const style = StyleSheet.create((theme) => ({
     // Code Block
     //
 
+    details: {
+        marginVertical: 8,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+        borderRadius: 8,
+        overflow: 'hidden',
+    },
+    detailsSummary: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        minHeight: 44,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        gap: 8,
+    },
+    detailsTitle: {
+        ...Typography.default(),
+        fontSize: 16,
+        lineHeight: 24,
+        color: theme.colors.textSecondary,
+        flex: 1,
+        minWidth: 0,
+    },
+    detailsBody: {
+        borderTopWidth: 1,
+        borderTopColor: theme.colors.divider,
+        padding: 12,
+    },
     codeBlock: {
         backgroundColor: theme.colors.surfaceHighest,
         borderRadius: 8,

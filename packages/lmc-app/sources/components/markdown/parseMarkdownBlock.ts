@@ -1,5 +1,6 @@
 import type { MarkdownBlock, MarkdownSpan } from "./parseMarkdown";
 import { parseMarkdownSpans } from "./parseMarkdownSpans";
+import { parseMarkdownDetails } from './parseMarkdownDetails';
 
 // Split a pipe-delimited table row into cells, stripping only the leading/trailing
 // empty strings caused by outer pipes while preserving interior empty cells.
@@ -104,6 +105,17 @@ export function parseMarkdownBlock(markdown: string) {
                 blocks.push({ type: 'mermaid', content: contentString });
             } else {
                 blocks.push({ type: 'code-block', language, content: contentString });
+            }
+            continue;
+        }
+
+        const details = parseMarkdownDetails(lines, index - 1);
+        if (details) {
+            blocks.push(details.block);
+            index = details.nextIndex;
+            if (details.trailing.trim()) {
+                // Preserve text following a same-line closing tag.
+                lines[--index] = details.trailing;
             }
             continue;
         }
