@@ -226,6 +226,9 @@ class Sync {
                     this.failPendingOutboxMessages('Message failed to send in background after 30s. Please retry.');
                 }
                 log.log('📱 App became active');
+                // Account-wide list order may have changed while this client
+                // was suspended and missed the realtime settings update.
+                this.settingsSync.invalidate();
                 this.purchasesSync.invalidate();
                 this.profileSync.invalidate();
                 this.machinesSync.invalidate();
@@ -2307,6 +2310,9 @@ class Sync {
             // covers the very first connect; this covers reconnects).
             apiSocket.sendAppState(getCurrentAppState());
 
+            // Socket updates are not replayed after a lost connection. Restore
+            // the shared order (and other account settings), not only sessions.
+            this.settingsSync.invalidate();
             this.sessionsSync.invalidate();
             this.machinesSync.invalidate();
             log.log('🔌 Socket reconnected: Invalidating artifacts sync');

@@ -1,4 +1,6 @@
 import * as React from 'react';
+import { useSetting } from '@/sync/storage';
+import { orderSessions } from '@/sync/sessionOrder';
 
 /**
  * Whole hub groups (header, workers, task rows) reordered as one unit — the
@@ -20,10 +22,11 @@ export interface SortableHubGroupsProps<T> {
 }
 
 /**
- * Native has no drag gesture wired up here yet, the same as
- * `SortableSessionRows`' own native fallback — it renders each group in the
- * order it is given and nothing more.
+ * Native shares the saved account order with Web, even though it does not
+ * yet expose a drag gesture of its own.
  */
-export function SortableHubGroups<T>({ items, getId, renderItem }: SortableHubGroupsProps<T>) {
-    return <>{items.map((item) => <React.Fragment key={getId(item)}>{renderItem(item, {})}</React.Fragment>)}</>;
+export function SortableHubGroups<T>({ storageKey, items, getId, renderItem }: SortableHubGroupsProps<T>) {
+    const orders = useSetting('sessionProjectOrder');
+    const rows = orderSessions(items.map(item => ({ id: getId(item), item })), orders[storageKey]);
+    return <>{rows.map(({ id, item }) => <React.Fragment key={id}>{renderItem(item, {})}</React.Fragment>)}</>;
 }

@@ -1,9 +1,9 @@
 import type { Machine, Session } from '@/sync/storageTypes';
-import { getSessionActivityAt } from '@/utils/sessionActivity';
 import { resolveSessionState } from '@/sync/sessionState';
 import { isRigMetadata } from '@/sync/rig';
 import { getRepoPath, isWorktreePath } from '@/utils/worktreePaths';
 import { t } from '@/text';
+import { compareSessionCreation, compareStableIds } from '@/sync/sessionOrder';
 
 /**
  * The approved list structure: device → engine → session. Status never forms
@@ -55,9 +55,12 @@ export function isArchivedForList(session: Session): boolean {
 
 /** Archived sessions, newest first, for the collapsed section under the device groups. */
 export function collectArchivedSessions(sessions: Session[]): Session[] {
+    // lastMessageSentAt is local to the sending device. Only shared fields
+    // can determine the archive order consistently on phone and desktop.
+    const activityAt = (session: Session) => session.metadata?.lastMeaningfulMessageAt ?? session.createdAt;
     return sessions
         .filter((s) => !s.metadata?.isSideChat && isArchivedForList(s))
-        .sort((a, b) => getSessionActivityAt(b) - getSessionActivityAt(a));
+        .sort((a, b) => activityAt(b) - activityAt(a) || compareStableIds(a.id, b.id));
 }
 
 export function sessionNeedsReply(session: Session): boolean {
@@ -111,7 +114,7 @@ export function buildDeviceEngineGroups(
                 // order by dragging, and a session that starts working must not
                 // jump the queue. Rows with no saved position land at the end,
                 // which is where a newly created session belongs anyway.
-                sessions: [...engines.get(key)!].sort((a, b) => a.createdAt - b.createdAt),
+                sessions: [...engines.get(key)!].sort(compareSessionCreation),
             }));
         const attentionCount = engineGroups.reduce((n, g) => n + g.sessions.filter(sessionNeedsReply).length, 0);
         groups.push({
@@ -130,7 +133,8 @@ export function buildDeviceEngineGroups(
         : groups.filter((g) => g.online || g.engines.length > 0);
     // By name alone. Sorting on presence or on how many sessions want a reply
     // made devices trade places while you were reading them.
-    return visible.sort((a, b) => a.name.localeCompare(b.name));
+    // Pin collation so a phone's language cannot change the device order.
+    return visible.sort((a, b) => a.name.localeCompare(b.name, 'en') || compareStableIds(a.machineId ?? '', b.machineId ?? ''));
 }
 
 /**
@@ -142,5 +146,5 @@ export function buildDeviceEngineGroups(
 export function flattenDeviceSessions(group: LmcDeviceGroup): Session[] {
     return group.engines
         .flatMap((engine) => engine.sessions)
-        .sort((a, b) => a.createdAt - b.createdAt);
+        .sort(compareSessionCreation);
 }

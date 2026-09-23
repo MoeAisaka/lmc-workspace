@@ -1,4 +1,6 @@
 import * as React from 'react';
+import { useSetting } from '@/sync/storage';
+import { orderSessions } from '@/sync/sessionOrder';
 export type SortableSessionRowsProps<T extends { id: string } = { id: string }> = {
     groupId: string;
     disabled?: boolean;
@@ -15,6 +17,8 @@ export type SortableSessionRowsProps<T extends { id: string } = { id: string }> 
     /** A row was released over another group's target: bind, unbind, whatever the target means. */
     onDropOn?: (sessionId: string, target: string) => void;
 };
-export function SortableSessionRows<T extends { id: string }>({ sessions, renderRow }: SortableSessionRowsProps<T>) {
-    return <>{sessions.map((session, index) => <React.Fragment key={session.id}>{renderRow(session, index)}</React.Fragment>)}</>;
+export function SortableSessionRows<T extends { id: string }>({ groupId, sessions, renderRow }: SortableSessionRowsProps<T>) {
+    const orders = useSetting('sessionProjectOrder');
+    const rows = orderSessions(sessions, orders[groupId]);
+    return <>{rows.map((session, index) => <React.Fragment key={session.id}>{renderRow(session, index)}</React.Fragment>)}</>;
 }

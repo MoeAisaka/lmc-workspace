@@ -75,6 +75,30 @@ describe('buildDeviceEngineGroups', () => {
         expect(groups[0].machineId).toBeNull();
         expect(groups[0].engines[0].key).toBe('other');
     });
+
+    it('breaks equal names and creation times consistently across clients', () => {
+        const rows = [session('b', 'm1', 'claude'), session('a', 'm1', 'claude'), session('c', 'm1', 'codex')];
+        const devices = [machine('m2', { metadata: { displayName: 'Same device' } as any }), machine('m1', { metadata: { displayName: 'Same device' } as any })];
+        for (const [sessions, machines] of [[rows, devices], [[...rows].reverse(), [...devices].reverse()]] as [Session[], Machine[]][]) {
+            const groups = buildDeviceEngineGroups(sessions, machines);
+            expect(groups.map(g => g.machineId)).toEqual(['m1', 'm2']);
+            expect(groups[0].engines[0].sessions.map(s => s.id)).toEqual(['a', 'b']);
+            expect(flattenDeviceSessions(groups[0]).map(s => s.id)).toEqual(['a', 'b', 'c']);
+        }
+        expect(buildDeviceEngineGroups([], devices).map(g => g.machineId)).toEqual(['m1', 'm2']);
+        expect(buildDeviceEngineGroups([], [...devices].reverse()).map(g => g.machineId)).toEqual(['m1', 'm2']);
+    });
+
+    it('does not use device-local send times to order archived sessions', () => {
+        const rows = [
+            session('older', 'm1', 'claude', { active: false, createdAt: 10, lastMessageSentAt: 1000, metadata: {} as any }),
+            session('newer', 'm1', 'codex', { active: false, createdAt: 20, metadata: {} as any }),
+            session('latest-activity', 'm1', 'claude', { active: false, createdAt: 5, metadata: { lastMeaningfulMessageAt: 50 } as any }),
+        ];
+        const expected = ['latest-activity', 'newer', 'older'];
+        expect(collectArchivedSessions(rows).map(s => s.id)).toEqual(expected);
+        expect(collectArchivedSessions(rows.map(s => ({ ...s, lastMessageSentAt: undefined }))).map(s => s.id)).toEqual(expected);
+    });
 });
 
 describe('flattenDeviceSessions', () => {

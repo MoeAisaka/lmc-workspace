@@ -48,4 +48,16 @@ describe('splitHubGroups', () => {
         const { hubs } = splitHubGroups([h2, h1], null);
         expect(hubs.map((g) => g.hub.id)).toEqual(['H1', 'H2']);
     });
+
+    it('uses the same order for equal timestamps regardless of client arrival order', () => {
+        const h1 = session('H1', 1, { role: 'hub', workers: [{ sessionId: 'W2' }, { sessionId: 'W1' }] });
+        const h2 = session('H2', 1, { role: 'hub', workers: [] });
+        const w1 = session('W1', 2, { role: 'worker', hub: { sessionId: 'H1' } });
+        const w2 = session('W2', 2, { role: 'worker', hub: { sessionId: 'H1' } });
+        for (const input of [[h1, h2, w1, w2], [w2, w1, h2, h1]]) {
+            const { hubs } = splitHubGroups(input);
+            expect(hubs.map(g => g.hub.id)).toEqual(['H1', 'H2']);
+            expect(hubs[0].workers.map(s => s.id)).toEqual(['W1', 'W2']);
+        }
+    });
 });

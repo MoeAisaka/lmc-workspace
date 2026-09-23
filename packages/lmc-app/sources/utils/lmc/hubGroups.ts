@@ -1,6 +1,6 @@
 import type { Session } from '@/sync/storageTypes';
 import { isArchivedForList } from './deviceEngineGroups';
-import { orderSessions } from '@/sync/sessionOrder';
+import { compareSessionCreation, orderSessions } from '@/sync/sessionOrder';
 
 /**
  * The hub-and-workers layer of the session list.
@@ -38,7 +38,7 @@ export function splitHubGroups(sessions: Session[], order?: readonly string[] | 
             })
             // Oldest first, like every other group: the order says when work
             // started; the user reorders by dragging.
-            .sort((a, b) => a.createdAt - b.createdAt);
+            .sort(compareSessionCreation);
         hubs.push({ hub: session, workers });
         taken.add(session.id);
         for (const worker of workers) taken.add(worker.id);
@@ -47,7 +47,7 @@ export function splitHubGroups(sessions: Session[], order?: readonly string[] | 
     // the user's own drag order, when there is one, wins over it. `orderSessions`
     // sorts stably, so a hub missing from `order` keeps its createdAt place
     // among the other unordered hubs rather than jumping to the front.
-    hubs.sort((a, b) => a.hub.createdAt - b.hub.createdAt);
+    hubs.sort((a, b) => compareSessionCreation(a.hub, b.hub));
     const orderedIds = orderSessions(hubs.map((g) => g.hub), order).map((h) => h.id);
     const byHubId = new Map(hubs.map((g) => [g.hub.id, g]));
     const orderedHubs = orderedIds.map((id) => byHubId.get(id)!);
