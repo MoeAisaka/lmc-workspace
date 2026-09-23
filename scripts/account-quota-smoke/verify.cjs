@@ -68,43 +68,49 @@ const server=http.createServer((req,res)=>{
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
  const browser=await chromium.launch({headless:true,executablePath:process.env.LMC_CHROME_PATH||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});
  try{
-  const context=await browser.newContext({viewport:{width:390,height:740}});
+  const language=process.env.LMC_UI_LANGUAGE || 'en';
+  const context=await browser.newContext({viewport:{width:390,height:740},locale:language==='zh-Hans'?'zh-CN':'en-US'});
+  await context.addInitScript(language=>localStorage.setItem(['mmkv.default','settings'].join(String.fromCharCode(92)),JSON.stringify({settings:{preferredLanguage:language},version:1})),language);
   await context.route('**/*',route=>new URL(route.request().url()).hostname==='127.0.0.1'?route.continue():route.abort());
   const page=await context.newPage();const errors=[];page.on('pageerror',e=>{errors.push(e.message);console.error(e.message)});
   await page.goto('http://127.0.0.1:'+server.address().port);
-  await page.getByRole('button',{name:'Account and settings',exact:true}).click();
+  const labels=await page.evaluate(()=>{const {t}=moduleExport('getCurrentLanguage');return {
+   account:t('lmc.list.accountAndSettings'),signOut:t('lmc.menu.signOut'),usage:t('localFeatures.quotaTitle'),refresh:t('localFeatures.quotaRefresh'),
+   gap:t('localFeatures.quotaFableGap',{points:'9'}),pending:t('localFeatures.quotaFableSyncPending'),retry:t('localFeatures.quotaRetryHint')
+  }});
+  await page.getByRole('button',{name:labels.account,exact:true}).click();
   await page.getByText('72%',{exact:true}).waitFor();
   assert.equal(await page.getByTestId('quota-fable-legend').count(),1);
   assert.equal(await page.getByRole('progressbar').count(),4,'Fable shares the weekly bar, without a separate progress bar');
   assert.equal(await page.evaluate(()=>isSessionDrawerOpen()),true,'opening quota bubble must preserve its parent entry');
-  assert.equal(await page.getByText('9 pts short',{exact:false}).count(),1);
+  assert.equal(await page.getByText(labels.gap,{exact:false}).count(),1);
   for(const theme of ['light','dark']){
    await page.evaluate(theme=>setTheme(theme),theme);
    for(const width of [320,390,1000]){
     await page.setViewportSize({width,height:width===1000?1100:740});
     await page.evaluate(()=>closeQuotaMenu());
     await page.waitForTimeout(180);
-    await page.getByRole('button',{name:'Account and settings',exact:true}).click();
+    await page.getByRole('button',{name:labels.account,exact:true}).click();
     await page.getByText('72%',{exact:true}).waitFor();
     await page.waitForTimeout(200);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
     const card=await page.getByTestId('account-quota-cards').boundingBox();assert.ok(card.x>=0 && card.x+card.width<=width);
-    await page.getByText('Sign out',{exact:true}).scrollIntoViewIfNeeded();
-    await page.getByText('Account usage',{exact:true}).scrollIntoViewIfNeeded();
+    await page.getByText(labels.signOut,{exact:true}).scrollIntoViewIfNeeded();
+    await page.getByText(labels.usage,{exact:true}).scrollIntoViewIfNeeded();
     await page.screenshot({path:path.join(out,theme+'-'+width+'.png')});
-    const originalEntry=await page.getByRole('button',{name:'Account and settings',exact:true}).boundingBox();
+    const originalEntry=await page.getByRole('button',{name:labels.account,exact:true}).boundingBox();
     const menuBottom=await page.getByTestId('account-quota-cards').evaluate(n=>{while(n && !(getComputedStyle(n).position==='absolute' && parseFloat(getComputedStyle(n).borderRadius)>0))n=n.parentElement;return n.getBoundingClientRect().bottom;});
     assert.ok(menuBottom<=originalEntry.y-7,'bubble must remain above the original entry');
     {
-     const geometry=await page.evaluate(()=>{
+     const geometry=await page.evaluate(account=>{
       let menu=document.querySelector('[data-testid=account-quota-cards]');
       while(menu && !(getComputedStyle(menu).position==='absolute' && parseFloat(getComputedStyle(menu).borderRadius)>0))menu=menu.parentElement;
-      let card=document.querySelector('[aria-label="Account and settings"]');
+      let card=document.querySelector('[aria-label='+JSON.stringify(account)+']');
       const desktop=innerWidth>=768;
       while(card && !(getComputedStyle(card).borderRadius===(desktop?'16px':'24px') && getComputedStyle(card).borderTopWidth==='1px'))card=card.parentElement;
       const box=n=>({x:n.getBoundingClientRect().x,width:n.getBoundingClientRect().width,top:n.getBoundingClientRect().top,bottom:n.getBoundingClientRect().bottom,radius:getComputedStyle(n).borderRadius});
       return {menu:box(menu),card:box(card)};
-     });
+     },labels.account);
      console.log('Surface geometry '+JSON.stringify(geometry));
      assert.ok(Math.abs(geometry.menu.x-geometry.card.x)<0.6,'menu left must align to card outer border');
      assert.ok(Math.abs(geometry.menu.width-geometry.card.width)<0.6,'menu width must match card outer border');
@@ -115,19 +121,19 @@ const server=http.createServer((req,res)=>{
   }
   for(const mode of ['zero','unmatched','pending']){
    await page.evaluate(mode=>{replyMode=mode},mode);
-   await page.getByRole('button',{name:'Refresh usage',exact:true}).click();
+   await page.getByRole('button',{name:labels.refresh,exact:true}).click();
    const legend=page.getByTestId('quota-fable-legend');
    if(mode==='zero')await legend.getByText('Fable 0%',{exact:false}).waitFor();
-   else await legend.getByText('Awaiting matching reset',{exact:false}).waitFor();
-   assert.equal(await legend.getByText('9 pts short',{exact:false}).count(),0);
+   else await legend.getByText(labels.pending,{exact:false}).waitFor();
+   assert.equal(await legend.getByText(labels.gap,{exact:false}).count(),0);
    assert.equal(await page.getByRole('progressbar').count(),4);
   }
   await page.evaluate(()=>{replyMode='failed'});
-  await page.getByRole('button',{name:'Refresh usage',exact:true}).click();
-  await page.getByText('Unable to refresh. Retrying automatically.',{exact:true}).waitFor();
+  await page.getByRole('button',{name:labels.refresh,exact:true}).click();
+  await page.getByText(labels.retry,{exact:true}).waitFor();
   assert.equal(await page.getByText('72%',{exact:true}).count(),1);
   await page.evaluate(()=>{replyMode='missing'});
-  await page.getByRole('button',{name:'Refresh usage',exact:true}).click();
+  await page.getByRole('button',{name:labels.refresh,exact:true}).click();
   await page.waitForTimeout(100);
   assert.equal(await page.getByText('0%',{exact:true}).count(),0);
   assert.equal(await page.getByTestId('quota-fable-legend').count(),1);
