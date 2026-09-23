@@ -73,9 +73,7 @@ export function AccountMenu({ anchor, onClose }: { anchor: AccountMenuAnchor; on
 
     const go = (fn: () => void) => () => { onClose?.(); anchor.onNavigate?.(); fn(); };
     const open = (section: LmcSettingsSection) => go(() => {
-        if (windowWidth < 768) {
-            router.push(section === 'devices' ? '/settings/devices' : section === 'account' ? '/settings/account' : '/settings');
-        } else setTimeout(() => openLmcSettings(section), 0);
+        setTimeout(() => openLmcSettings(section), 0);
     });
     const logout = go(async () => {
         if (!await Modal.confirm(t('lmc.menu.signOut'), t('lmc.menu.signOutConfirm'), { cancelText: t('common.cancel'), confirmText: t('lmc.menu.signOut') })) return;

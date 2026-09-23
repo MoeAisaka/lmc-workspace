@@ -25,6 +25,7 @@ interface BaseModalProps {
     transparent?: boolean;
     closeOnBackdrop?: boolean;
     closeOnRequestClose?: boolean;
+    blurBackdrop?: boolean;
 }
 
 export function BaseModal({
@@ -35,6 +36,7 @@ export function BaseModal({
     transparent = true,
     closeOnBackdrop = true,
     closeOnRequestClose = true,
+    blurBackdrop = false,
 }: BaseModalProps) {
     const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -77,10 +79,11 @@ export function BaseModal({
                         <Animated.View
                             style={[
                                 styles.backdrop,
+                                blurBackdrop && ({ backgroundColor: 'rgba(0, 0, 0, 0.08)', backdropFilter: 'blur(5px)', WebkitBackdropFilter: 'blur(5px)' } as any),
                                 {
                                     opacity: fadeAnim.interpolate({
                                         inputRange: [0, 1],
-                                        outputRange: [0, 0.5],
+                                        outputRange: [0, blurBackdrop ? 1 : 0.5],
                                     }),
                                 },
                             ]}

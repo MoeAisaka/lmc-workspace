@@ -8,6 +8,7 @@ import { Typography } from '@/constants/Typography';
 import { PickerMenuRow, PickerMenuTitle } from './PickerMenu';
 import { lmcElevation, lmcSurfaceBorder } from './elevation';
 import { t } from '@/text';
+import { useFlatSettings } from './settings/flatSettings';
 
 /**
  * A settings value that opens its choices in a floating menu.
@@ -73,6 +74,8 @@ const styles = StyleSheet.create((theme) => ({
         color: theme.colors.textSecondary,
         ...Typography.default(),
     },
+    flatTrigger: { minHeight: 44, paddingLeft: 0, paddingRight: 0, flexShrink: 1 },
+    flatLabel: { fontSize: 15, lineHeight: 22, color: theme.colors.text },
     menu: {
         position: 'absolute',
         paddingVertical: 6,
@@ -214,6 +217,7 @@ export function SettingsSelect<T>(props: {
     disabled?: boolean;
 }) {
     const { theme } = useUnistyles();
+    const flat = useFlatSettings();
     const controller = React.useContext(SettingsMenuContext);
     const trigger = React.useRef<View>(null);
     const [hovered, setHovered] = React.useState(false);
@@ -244,11 +248,13 @@ export function SettingsSelect<T>(props: {
             }}
             style={({ pressed }) => [
                 styles.trigger,
+                flat && styles.flatTrigger,
                 (hovered || pressed) && !props.disabled && { backgroundColor: theme.colors.surfacePressed },
                 props.disabled && { opacity: 0.45 },
             ]}
         >
-            <Text style={styles.triggerLabel} numberOfLines={1}>{label}</Text>
+            {!!selected?.leading && selected.leading}
+            <Text style={[styles.triggerLabel, flat && styles.flatLabel]} numberOfLines={1}>{label}</Text>
             <Ionicons name="chevron-down" size={15} color={theme.colors.groupped.chevron} />
         </Pressable>
     );

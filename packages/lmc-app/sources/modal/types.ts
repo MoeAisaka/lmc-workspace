@@ -46,6 +46,8 @@ export interface CustomModalConfig extends BaseModalConfig {
     props?: any;
     /** False requires the custom component to invoke its explicit close action. */
     dismissible?: boolean;
+    /** Soft backdrop for the floating settings surface; other modals keep their default dimming. */
+    blurBackdrop?: boolean;
 }
 
 export type ModalConfig = AlertModalConfig | ConfirmModalConfig | PromptModalConfig | CustomModalConfig;

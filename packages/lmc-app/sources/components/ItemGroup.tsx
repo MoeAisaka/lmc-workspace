@@ -70,11 +70,11 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         paddingBottom: Platform.select({ ios: 8, default: 16 }),
         paddingHorizontal: Platform.select({ ios: 32, default: 24 }),
     },
-    flatHeader: { paddingTop: 18, paddingBottom: 6, paddingHorizontal: 24 },
-    flatHeaderText: { ...Typography.default('semiBold'), fontSize: 11, lineHeight: 16, letterSpacing: 0.4, color: theme.colors.textSecondary, textTransform: 'uppercase', fontWeight: '600' },
-    flatContent: { backgroundColor: 'transparent', marginHorizontal: 24, borderRadius: 0, borderWidth: 0, shadowOpacity: 0, elevation: 0, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider },
-    flatFooter: { paddingTop: 8, paddingBottom: 6, paddingHorizontal: 24 },
-    flatFooterText: { ...Typography.default('regular'), fontSize: 12, lineHeight: 16, color: theme.colors.textSecondary },
+    flatHeader: { paddingTop: 16, paddingBottom: 8, paddingHorizontal: 20 },
+    flatHeaderText: { ...Typography.default('semiBold'), fontSize: 14, lineHeight: 20, letterSpacing: 0, color: theme.colors.text, textTransform: 'none', fontWeight: '600' },
+    flatContent: { backgroundColor: 'transparent', marginHorizontal: 20, borderRadius: 0, borderWidth: 0, shadowOpacity: 0, elevation: 0, ...(Platform.OS === 'web' ? { boxShadow: 'none' } : {}), borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider },
+    flatFooter: { paddingTop: 8, paddingBottom: 8, paddingHorizontal: 20 },
+    flatFooterText: { ...Typography.default('regular'), fontSize: 12, lineHeight: 18, color: theme.colors.textSecondary },
     footerText: {
         ...Typography.default('regular'),
         color: theme.colors.groupped.sectionTitle,
@@ -102,7 +102,7 @@ export const ItemGroup = React.memo<ItemGroupProps>((props) => {
 
     return (
         <View style={[styles.wrapper, style]}>
-            <View style={styles.container}>
+            <View style={[styles.container, flat && { paddingHorizontal: 0 }]}>
                 {/* Header */}
                 {title ? (
                     <View style={[styles.header, flat && styles.flatHeader, headerStyle]}>

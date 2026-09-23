@@ -14,7 +14,7 @@ import { sync } from '@/sync/sync';
 import { t } from '@/text';
 
 type Device = { id: string; createdAt: string; expiresAt: string };
-export default function AccountSettings() {
+export default function AccountSettings({ onNavigate }: { onNavigate?: () => void } = {}) {
     const auth = useAuth();
     const router = useRouter();
     const profile = useProfile();
@@ -58,7 +58,7 @@ export default function AccountSettings() {
             here now, beside the services it manages. */}
         <ItemGroup title={t('lmc.account.engines')} footer={t('lmc.account.enginesFooter')}>
             {!profile.connectedServices?.includes('anthropic') && (
-                <Item title={t('lmc.account.connectClaude')} onPress={() => router.push('/settings/connect/claude')} />
+                <Item title={t('lmc.account.connectClaude')} onPress={() => { onNavigate?.(); router.push('/settings/connect/claude'); }} />
             )}
             {(profile.connectedServices ?? []).length === 0 && <Item title={t('lmc.account.noEngines')} showChevron={false} />}
             {(profile.connectedServices ?? []).map(service => <Item key={service} title={service} subtitle={t('lmc.account.unlink')} onPress={async () => {

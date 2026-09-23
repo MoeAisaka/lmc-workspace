@@ -107,12 +107,14 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
     pressablePressed: {
         backgroundColor: theme.colors.surfacePressedOverlay,
     },
-    flatContainer: { paddingHorizontal: 0, minHeight: 48, paddingVertical: 12 },
+    flatContainer: { paddingHorizontal: 0, minHeight: 56, paddingVertical: 8 },
+    flatCenter: { minWidth: 0 },
+    flatRight: { flexShrink: 1, maxWidth: '50%', marginLeft: 16 },
     flatIcon: { width: 24, height: 24, marginRight: 12, transform: [{ scale: 0.8 }] },
-    flatTitle: { fontSize: 14, lineHeight: 20, letterSpacing: 0 },
-    flatSubtitle: { fontSize: 12, lineHeight: 16, letterSpacing: 0, marginTop: 1 },
-    flatDetail: { fontSize: 13, letterSpacing: 0 },
-    flatDivider: { height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.divider },
+    flatTitle: { fontSize: 15, lineHeight: 22, letterSpacing: 0 },
+    flatSubtitle: { fontSize: 13, lineHeight: 19, letterSpacing: 0, marginTop: 4 },
+    flatDetail: { fontSize: 15, letterSpacing: 0 },
+    flatDivider: { height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.divider, opacity: 0.55 },
 }));
 
 export const Item = React.memo<ItemProps>((props) => {
@@ -225,10 +227,10 @@ export const Item = React.memo<ItemProps>((props) => {
                 )}
 
                 {/* Center Section */}
-                <View style={styles.centerContent}>
+                <View style={[styles.centerContent, flat && styles.flatCenter]}>
                     <Text 
                         style={[styles.title, titleColor, flat && styles.flatTitle, titleStyle]}
-                        numberOfLines={subtitle ? 1 : 2}
+                        numberOfLines={flat ? undefined : subtitle ? 1 : 2}
                     >
                         {title}
                     </Text>
@@ -238,7 +240,7 @@ export const Item = React.memo<ItemProps>((props) => {
                         // subtitles compact and allow longer ones to grow by one line.
                         const effectiveLines = subtitleLines !== undefined
                             ? (subtitleLines <= 0 ? undefined : subtitleLines)
-                            : (typeof subtitle === 'string' && subtitle.indexOf('\n') !== -1 ? undefined : 2);
+                            : (flat || (typeof subtitle === 'string' && subtitle.indexOf('\n') !== -1) ? undefined : 2);
                         return (
                             <Text
                                 style={[styles.subtitle, flat && styles.flatSubtitle, subtitleStyle]}
@@ -251,7 +253,7 @@ export const Item = React.memo<ItemProps>((props) => {
                 </View>
 
                 {/* Right Section */}
-                <View style={styles.rightSection}>
+                <View style={[styles.rightSection, flat && styles.flatRight]}>
                     {detail && !rightElement && (
                         <Text 
                             style={[

@@ -18,6 +18,7 @@ import { isTauri } from '@/utils/isTauri';
 import { useVisibleSessionListViewData } from '@/hooks/useVisibleSessionListViewData';
 import { getSessionShortcutIdsInDisplayOrder } from '@/utils/sessionDisplayOrder';
 import { t } from '@/text';
+import { openLmcSettings } from '@/components/lmc/settings/LmcSettingsDialog';
 
 const EMPTY_SESSION_IDS: readonly string[] = [];
 
@@ -72,7 +73,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
                 category: 'Navigation',
                 shortcut: formatShortcut(preferredModifier, ',', browserSafeShortcuts),
                 action: () => {
-                    router.push('/settings');
+                    openLmcSettings();
                 }
             },
             {
@@ -82,7 +83,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
                 icon: 'person-circle-outline',
                 category: 'Navigation',
                 action: () => {
-                    router.push('/settings/account');
+                    openLmcSettings('account');
                 }
             },
             {
@@ -161,8 +162,8 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
     }, [router]);
 
     const openSettings = useCallback(() => {
-        router.push('/settings');
-    }, [router]);
+        openLmcSettings();
+    }, []);
 
     const openRecentSession = useCallback((index: number) => {
         const sessionId = visibleSessionShortcutIds[index];

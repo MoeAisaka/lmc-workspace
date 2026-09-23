@@ -23,6 +23,7 @@ export function CustomModal({ config, onClose }: CustomModalProps) {
             onClose={onClose}
             closeOnBackdrop={config.dismissible !== false}
             closeOnRequestClose={config.dismissible !== false}
+            blurBackdrop={config.blurBackdrop}
         >
             <Component {...config.props} onClose={onClose} />
         </BaseModal>

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Platform, Pressable, ScrollView, TextInput, View, useWindowDimensions } from 'react-native';
+import { Keyboard, Platform, Pressable, ScrollView, TextInput, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
@@ -14,6 +14,7 @@ import { lmcColors } from '../lmcColors';
 import { lmcElevation, lmcSurfaceBorder } from '../elevation';
 import { FlatSettingsContext } from './flatSettings';
 import { t } from '@/text';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export type LmcSettingsSection = 'general' | 'devices' | 'agents' | 'account' | 'about';
 
@@ -26,76 +27,125 @@ export const LMC_SETTINGS_SECTIONS: { key: LmcSettingsSection; label: string; ic
 ];
 
 const styles = StyleSheet.create((theme) => ({
-    center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16 },
-    dialog: { flexDirection: 'row', borderRadius: 20, overflow: 'hidden', backgroundColor: theme.colors.surface, ...lmcElevation(theme, 4), ...lmcSurfaceBorder(theme) },
-    nav: { width: 220, paddingHorizontal: 10, paddingVertical: 12, gap: 2, backgroundColor: theme.colors.groupped.background, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: theme.colors.divider },
-    close: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.divider, marginBottom: 10 },
-    search: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 12, paddingRight: 8, height: 36, borderRadius: 999, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.divider, marginBottom: 6 },
-    searchInput: { flex: 1, minWidth: 0, fontSize: 13, color: theme.colors.text, ...Typography.default(), ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}) },
-    navItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10 },
-    navLabel: { fontSize: 14, color: theme.colors.text, ...Typography.default() },
-    pane: { flex: 1, minWidth: 0 },
-    paneTitle: { fontSize: 18, color: theme.colors.text, paddingHorizontal: 24, paddingTop: 20, paddingBottom: 12, ...Typography.default('semiBold') },
+    dialog: { borderRadius: 16, overflow: 'hidden', backgroundColor: theme.colors.surface, ...lmcElevation(theme, 3), ...lmcSurfaceBorder(theme) },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 20, paddingRight: 10, minHeight: 56, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider },
+    title: { fontSize: 20, lineHeight: 28, color: theme.colors.text, ...Typography.default('semiBold') },
+    close: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+    search: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, height: 36, borderRadius: 20, borderWidth: 1, borderColor: theme.colors.divider, marginHorizontal: 16, marginTop: 12, marginBottom: 10 },
+    searchInput: { flex: 1, minWidth: 0, height: '100%', fontSize: 16, color: theme.colors.text, ...Typography.default(), ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : {}) },
+    nav: { flexGrow: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider },
+    navContent: { gap: 4, paddingHorizontal: 12, paddingBottom: 8 },
+    navItem: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, minHeight: 44, borderRadius: 12 },
+    navLabel: { fontSize: 15, lineHeight: 22, color: theme.colors.text, ...Typography.default() },
+    pane: { flex: 1, minWidth: 0, minHeight: 0 },
+    paneTitle: { fontSize: 18, lineHeight: 26, color: theme.colors.text, paddingHorizontal: 20, paddingTop: 16, paddingBottom: 10, ...Typography.default('semiBold') },
+    results: { paddingHorizontal: 20, paddingBottom: 20 },
+    result: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider },
+    resultHint: { fontSize: 13, lineHeight: 20, color: theme.colors.textSecondary, marginTop: 4, ...Typography.default() },
 }));
 
 /**
- * ChatGPT-style settings: a centered dialog with a category rail on the left
- * and the selected category's content on the right. Categories reuse the
- * existing settings screens so behaviour stays identical to the phone pages.
+ * One settings surface on phones and desktop. Only the content pane scrolls
+ * vertically; search, categories and the close action remain in reach.
  */
 export function LmcSettingsDialog({ section: initial = 'general', onClose }: { section?: LmcSettingsSection; onClose?: () => void }) {
     const { theme } = useUnistyles();
     const colors = lmcColors(theme);
     const { width, height } = useWindowDimensions();
+    const insets = useSafeAreaInsets();
     const [section, setSection] = React.useState<LmcSettingsSection>(initial);
     const [query, setQuery] = React.useState('');
+    const nav = React.useRef<ScrollView>(null);
+    const tabPositions = React.useRef<Partial<Record<LmcSettingsSection, number>>>({});
     const q = query.trim().toLowerCase();
-    const visible = q ? LMC_SETTINGS_SECTIONS.filter((s) => s.label.toLowerCase().includes(q) || s.keywords.includes(q)) : LMC_SETTINGS_SECTIONS;
+    // Search the names people see in the panes, as well as category aliases.
+    // Results navigate to existing controls instead of mounting every pane
+    // (and starting device/account requests) for a search.
+    const terms: Record<LmcSettingsSection, string[]> = {
+        general: [
+            t('settings.appearance'), t('settingsLanguage.currentLanguage'),
+            t('settingsAppearance.usageLimitShowRemaining'), t('settingsAppearance.userMessageBubbleColor'),
+            t('settingsAppearance.alwaysShowContextSize'), t('settingsFeatures.enterToSend'),
+            t('settingsFeatures.commandPalette'), t('settingsAppearance.groupSessionsByEngine'),
+            t('settingsAppearance.compactToolCalls'), t('settingsFeatures.fileDiffsSidebar'),
+            t('settingsFeatures.groupToolCalls'), t('settingsAppearance.showLineNumbersInToolViews'),
+        ],
+        devices: [t('lmc.menu.devices')],
+        agents: [t('localFeatures.model'), t('localFeatures.effort'), t('localFeatures.permission'), 'Claude Code', 'Codex'],
+        account: [t('lmc.profile.name'), t('lmc.profile.changeAvatar'), t('lmc.account.connectDevice'), t('lmc.menu.signOut')],
+        about: [t('lmc.about.webVersion'), t('lmc.about.changelog')],
+    };
+    const visible = LMC_SETTINGS_SECTIONS.filter((s) => [s.label, s.keywords, ...terms[s.key]].some(text => text.toLowerCase().includes(q)));
     const current = LMC_SETTINGS_SECTIONS.find((s) => s.key === section)!;
     const close = () => onClose?.();
+    const select = (next: LmcSettingsSection) => { Keyboard.dismiss(); setSection(next); setQuery(''); };
+    React.useEffect(() => {
+        nav.current?.scrollTo({ x: Math.max(0, (tabPositions.current[section] ?? 0) - 12), animated: false });
+    }, [section, width]);
+    const availableHeight = Math.max(0, height - insets.top - insets.bottom);
+    const tabLabel = (item: typeof current) => item.key === 'devices' ? t('settings.machines')
+        : item.key === 'account' ? t('settings.account') : item.label;
 
     const pane = section === 'general' ? <AppearanceSettingsScreen />
-        : section === 'agents' ? <AgentsSettingsScreen />
-        : section === 'account' ? <AccountSettings />
+        : section === 'agents' ? <AgentsSettingsScreen onNavigate={close} />
+        : section === 'account' ? <AccountSettings onNavigate={close} />
         : section === 'devices' ? <ScrollView><DevicesUpgradePane onNavigate={close} /></ScrollView>
         : <ScrollView><AboutPane onNavigate={close} /></ScrollView>;
 
     return (
-        <View style={styles.center} pointerEvents="box-none">
-            <View style={[styles.dialog, { width: Math.min(720, width - 32), height: Math.min(640, height - 48) }]}>
-                <View style={styles.nav}>
-                    <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.settings.close')} onPress={close} style={({ pressed }) => [styles.close, pressed && { opacity: 0.6 }]}>
-                        <Ionicons name="close" size={18} color={theme.colors.text} />
+        <View testID="lmc-settings-dialog" style={[styles.dialog, { width: Math.min(820, width - insets.left - insets.right - 24), height: Math.min(720, availableHeight * 0.84) }]}>
+            <View style={styles.header}>
+                <Text accessibilityRole="header" style={styles.title}>{t('settings.title')}</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.settings.close')} onPress={close} style={({ pressed }) => [styles.close, pressed && { backgroundColor: colors.rowSelected }]}>
+                    <Ionicons name="close" size={22} color={theme.colors.text} />
+                </Pressable>
+            </View>
+            <View style={styles.search}>
+                <Ionicons name="search-outline" size={20} color={colors.tertiary} />
+                <TextInput accessibilityLabel={t('lmc.settings.search')} placeholder={t('lmc.settings.search')} placeholderTextColor={colors.tertiary} value={query} onChangeText={setQuery} autoCorrect={false} autoCapitalize="none" style={styles.searchInput} />
+            </View>
+            <ScrollView ref={nav} horizontal showsHorizontalScrollIndicator={false} style={styles.nav} contentContainerStyle={styles.navContent} keyboardShouldPersistTaps="handled">
+                {LMC_SETTINGS_SECTIONS.map((item) => (
+                    <Pressable
+                        key={item.key}
+                        testID={`settings-tab-${item.key}`}
+                        accessibilityRole="tab"
+                        accessibilityState={{ selected: !q && item.key === section }}
+                        onLayout={(event) => {
+                            const x = event.nativeEvent.layout.x;
+                            tabPositions.current[item.key] = x;
+                            if (item.key === section) nav.current?.scrollTo({ x: Math.max(0, x - 12), animated: false });
+                        }}
+                        onPress={() => select(item.key)}
+                        style={({ pressed }) => [styles.navItem, !q && item.key === section && { backgroundColor: colors.rowSelected }, pressed && { opacity: 0.7 }]}
+                    >
+                        <Ionicons name={item.icon} size={20} color={theme.colors.text} />
+                        <Text numberOfLines={1} style={styles.navLabel}>{tabLabel(item)}</Text>
                     </Pressable>
-                    <View style={styles.search}>
-                        <Ionicons name="search-outline" size={16} color={colors.tertiary} />
-                        <TextInput accessibilityLabel={t('lmc.settings.search')} placeholder={t('lmc.settings.search')} placeholderTextColor={colors.tertiary} value={query} onChangeText={setQuery} style={styles.searchInput} />
-                    </View>
-                    {visible.map((item) => (
-                        <Pressable
-                            key={item.key}
-                            accessibilityRole="button"
-                            accessibilityState={{ selected: item.key === section }}
-                            onPress={() => setSection(item.key)}
-                            style={({ pressed }) => [styles.navItem, item.key === section && { backgroundColor: colors.rowSelected }, pressed && { opacity: 0.7 }]}
-                        >
-                            <Ionicons name={item.icon} size={18} color={theme.colors.text} />
+                ))}
+            </ScrollView>
+            <View style={styles.pane} testID="settings-pane">
+                {q ? <ScrollView contentContainerStyle={styles.results} keyboardShouldPersistTaps="handled">
+                    {visible.map(item => <Pressable key={item.key} accessibilityRole="button" onPress={() => select(item.key)} style={({ pressed }) => [styles.result, pressed && { opacity: 0.6 }]}>
+                        <Ionicons name={item.icon} size={20} color={theme.colors.text} />
+                        <View style={{ flex: 1, minWidth: 0 }}>
                             <Text style={styles.navLabel}>{item.label}</Text>
-                        </Pressable>
-                    ))}
-                    {visible.length === 0 && <Text style={[styles.navLabel, { color: colors.tertiary, padding: 10 }]}>{t('lmc.list.noMatches')}</Text>}
-                </View>
-                <View style={styles.pane}>
-                    <Text style={styles.paneTitle}>{current.label}</Text>
+                            <Text style={styles.resultHint}>{terms[item.key].filter(text => text.toLowerCase().includes(q)).join(' · ') || item.keywords}</Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />
+                    </Pressable>)}
+                    {visible.length === 0 && <Text style={[styles.resultHint, { paddingVertical: 20 }]}>{t('lmc.list.noMatches')}</Text>}
+                </ScrollView> : <>
+                    <Text accessibilityRole="header" style={styles.paneTitle}>{current.label}</Text>
                     <FlatSettingsContext.Provider value={true}>
-                        <View style={{ flex: 1, minHeight: 0 }}>{pane}</View>
+                        <View key={section} style={styles.pane}>{pane}</View>
                     </FlatSettingsContext.Provider>
-                </View>
+                </>}
             </View>
         </View>
     );
 }
 
 export function openLmcSettings(section: LmcSettingsSection = 'general') {
-    Modal.show({ component: LmcSettingsDialog, props: { section } });
+    Modal.show({ component: LmcSettingsDialog, props: { section }, blurBackdrop: true });
 }

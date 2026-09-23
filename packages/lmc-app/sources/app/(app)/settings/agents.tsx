@@ -59,7 +59,7 @@ function optionName(options: ModeOption[], key: string | null | undefined): stri
     return options.find((option) => option.key === key)?.name ?? key;
 }
 
-export default function AgentsSettingsScreen() {
+export default function AgentsSettingsScreen({ onNavigate }: { onNavigate?: () => void } = {}) {
     const { theme } = useUnistyles();
     const router = useRouter();
     const [agentDefaultOverrides, setAgentDefaultOverrides] = useSettingMutable('agentDefaultOverrides');
@@ -190,7 +190,7 @@ export default function AgentsSettingsScreen() {
                                 }
                                 style={{ opacity: choice.online ? 1 : 0.5 }}
                                 onPress={targetMachine
-                                    ? () => router.push(`/machine/${targetMachine.id}`)
+                                    ? () => { onNavigate?.(); router.push(`/machine/${targetMachine.id}`); }
                                     : undefined}
                             />
                         );
