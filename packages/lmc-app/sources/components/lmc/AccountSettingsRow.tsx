@@ -58,10 +58,10 @@ export const AccountSettingsRow = React.memo(({ onNavigate, menuCardRef, menuPan
                 if (Platform.OS === 'web') {
                     (menuCardRef?.current ?? rowRef.current)?.measureInWindow((x, y, width) => {
                         if (menuPanelRef?.current) {
-                            // Use the phone drawer's horizontal bounds, but stay above
-                            // the account row so the original entry remains visible.
-                            menuPanelRef.current.measureInWindow((panelX, _panelY, panelWidth) => {
-                                openAccountMenu({ x: panelX, y, width: panelWidth, cardRadius: 24, onNavigate });
+                            // Match the phone drawer's top and horizontal bounds,
+                            // keeping the original account entry visible below it.
+                            menuPanelRef.current.measureInWindow((panelX, panelY, panelWidth) => {
+                                openAccountMenu({ x: panelX, y, width: panelWidth, panelTop: panelY, cardRadius: 24, onNavigate });
                             });
                         } else {
                             openAccountMenu({ x, y, width, cardRadius: menuCardRef?.current ? 16 : 12, onNavigate });

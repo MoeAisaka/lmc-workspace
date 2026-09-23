@@ -21,6 +21,8 @@ export interface AccountMenuAnchor {
     width: number;
     /** When measured from the surrounding card, match its outer width and corners. */
     cardRadius?: number;
+    /** Phone drawer's top edge; the bubble starts here and scrolls above the avatar row. */
+    panelTop?: number;
     /** Close the parent drawer only after choosing a destination, not while browsing this bubble. */
     onNavigate?: () => void;
     /** Padding between the measured row and the card around it, so the menu can
@@ -62,8 +64,12 @@ export function AccountMenu({ anchor, onClose }: { anchor: AccountMenuAnchor; on
     const left = Math.max(8, Math.min(anchor.x - (anchor.inset ?? 0), windowWidth - menuWidth - 8));
     const cardTop = anchor.y - (anchor.insetY ?? anchor.inset ?? 0);
     const spaceAbove = cardTop - gap - 8;
-    const maxHeight = spaceAbove >= 120 ? Math.min(height - 16, spaceAbove) : height - 16;
-    const top = Math.max(8, Math.min(cardTop - menuHeight - gap, height - menuHeight - 8));
+    const top = anchor.panelTop !== undefined
+        ? Math.max(8, anchor.panelTop)
+        : Math.max(8, Math.min(cardTop - menuHeight - gap, height - menuHeight - 8));
+    const maxHeight = anchor.panelTop !== undefined
+        ? Math.max(0, Math.min(cardTop - gap, height - 8) - top)
+        : spaceAbove >= 120 ? Math.min(height - 16, spaceAbove) : height - 16;
 
     const go = (fn: () => void) => () => { onClose?.(); anchor.onNavigate?.(); fn(); };
     const open = (section: LmcSettingsSection) => go(() => {

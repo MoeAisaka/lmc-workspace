@@ -86,8 +86,9 @@ const server=http.createServer((req,res)=>{
   assert.equal(await page.getByText(labels.gap,{exact:false}).count(),1);
   for(const theme of ['light','dark']){
    await page.evaluate(theme=>setTheme(theme),theme);
-   for(const width of [320,390,1000]){
-    await page.setViewportSize({width,height:width===1000?1100:740});
+   for(const viewport of [{width:320,height:568},{width:390,height:740},{width:430,height:900},{width:667,height:390},{width:1000,height:1100}]){
+    const {width}=viewport;
+    await page.setViewportSize(viewport);
     await page.evaluate(()=>closeQuotaMenu());
     await page.waitForTimeout(180);
     await page.getByRole('button',{name:labels.account,exact:true}).click();
@@ -116,6 +117,7 @@ const server=http.createServer((req,res)=>{
      assert.ok(Math.abs(geometry.menu.width-geometry.card.width)<0.6,'menu width must match card outer border');
      assert.equal(geometry.menu.radius,geometry.card.radius);
      if(width>=768)assert.ok(geometry.menu.bottom<=geometry.card.top-7,'menu must leave the account card unobscured');
+     else assert.ok(Math.abs(geometry.menu.top-geometry.card.top)<0.6,'phone menu top must align with the drawer card');
     }
    }
   }
@@ -155,6 +157,6 @@ const server=http.createServer((req,res)=>{
   assert.equal(await page.getByRole('progressbar').count(),4,'Fable shares the weekly bar, without a separate progress bar');
   assert.ok((await page.getByTestId('quota-fable-legend').innerText()).includes('Fable —'));
   assert.deepEqual(errors,[]);
-  console.log('PASS real AccountMenu + quota hook, light/dark 320/390/1000, scrolling, refresh failure preserves data and height, missing is not zero');
+  console.log('PASS real AccountMenu + quota hook, phone top alignment at 320/390/430/667, desktop 1000, light/dark, scrolling, refresh failure preserves data and height, missing is not zero');
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exit(1)});
