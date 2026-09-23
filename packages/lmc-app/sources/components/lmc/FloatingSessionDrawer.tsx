@@ -42,6 +42,7 @@ export const FloatingSessionDrawer = React.memo(() => {
     const { width, height } = useWindowDimensions();
     const insets = useSafeAreaInsets();
     const { theme } = useUnistyles();
+    const panelRef = React.useRef<View>(null);
     const panelWidth = Math.min(DRAWER_MAX_WIDTH, width - DRAWER_MARGIN * 2 - 40);
     const top = Math.max(insets.top, 12) + 40;
     const bottom = Math.max(insets.bottom, 12) + 28;
@@ -78,8 +79,8 @@ export const FloatingSessionDrawer = React.memo(() => {
                 <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.list.closeDrawer')} onPress={close} style={{ flex: 1 }} />
             </Animated.View>
             <GestureDetector gesture={swipeClose}>
-                <Animated.View style={[styles.panel, panelStyle, { top, width: panelWidth, height: panelHeight, backgroundColor: theme.colors.surface }]}>
-                    <DeviceEngineSessionList onNavigate={close} />
+                <Animated.View ref={panelRef} style={[styles.panel, panelStyle, { top, width: panelWidth, height: panelHeight, backgroundColor: theme.colors.surface }]}>
+                    <DeviceEngineSessionList onNavigate={close} accountMenuPanelRef={panelRef} />
                 </Animated.View>
             </GestureDetector>
         </View>

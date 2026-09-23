@@ -218,6 +218,8 @@ export const SessionSearchRow = React.memo(({ query, onQueryChange, onNavigate }
 interface DeviceEngineSessionListProps {
     /** Called after any navigation so a drawer can close itself. */
     onNavigate?: () => void;
+    /** Match the account bubble to the containing phone drawer's outer edges. */
+    accountMenuPanelRef?: React.RefObject<View | null>;
     /** Hide the search + new-session row (the desktop sidebar has its own). */
     hideSearch?: boolean;
     /** Hide the bottom account/settings row. */
@@ -762,7 +764,7 @@ const ArchivedSection = React.memo(({ sessions, open, onToggle, selectedSessionI
  * status ring and one line of "what the agent is doing" per row. Shared by
  * the desktop sidebar and the phone floating drawer.
  */
-export const DeviceEngineSessionList = React.memo(({ onNavigate, hideSearch, hideAccount, query: controlledQuery, contentPaddingBottom = 8 }: DeviceEngineSessionListProps) => {
+export const DeviceEngineSessionList = React.memo(({ onNavigate, accountMenuPanelRef, hideSearch, hideAccount, query: controlledQuery, contentPaddingBottom = 8 }: DeviceEngineSessionListProps) => {
     const { theme } = useUnistyles();
     const colors = lmcColors(theme);
     const router = useRouter();
@@ -927,7 +929,7 @@ export const DeviceEngineSessionList = React.memo(({ onNavigate, hideSearch, hid
             </ScrollView>
             {!hideAccount && (
                 <View style={styles.footer}>
-                    <AccountSettingsRow onNavigate={onNavigate} />
+                    <AccountSettingsRow onNavigate={onNavigate} menuPanelRef={accountMenuPanelRef} />
                 </View>
             )}
         </View>

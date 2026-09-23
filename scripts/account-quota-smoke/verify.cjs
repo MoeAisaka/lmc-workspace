@@ -15,20 +15,24 @@ const capture = `window.modules = new Map(); const define = window.__d;
 window.__d = (factory,id,deps) => { window.modules.set(id,{factory,deps}); define(factory,id,deps); };
 window.moduleExport = name => {
  const re = new RegExp('\\\\.'+name+'\\\\s*=(?!=)');
- for (const [id,m] of window.modules) if (re.test(m.factory.toString())) { const e=window.__r(id); if(e[name]) return e; }
+ for (const [id,m] of window.modules) if (re.test(m.factory.toString()) || m.factory.toString().includes(JSON.stringify(name))) { const e=window.__r(id); if(e[name]) return e; }
  throw new Error('Module export not found: '+name);
 };`;
 const fixture = `
 const init=modules.get(0); __r(init.deps[0]);__r(init.deps[1]);
 const React=moduleExport('useState'),h=React.createElement,{createRoot}=moduleExport('createRoot');
 const {AccountMenuLayer,useAccountMenu}=moduleExport('AccountMenuLayer'),{AuthProvider}=moduleExport('AuthProvider');
-const {AccountSettingsRow}=moduleExport('AccountSettingsRow');
+const {FloatingSessionDrawer}=moduleExport('FloatingSessionDrawer');
+const {useSessionDrawer}=moduleExport('useSessionDrawer');
+const {GestureHandlerRootView}=moduleExport('GestureHandlerRootView');
+useSessionDrawer.getState().setOpen(true);
+window.isSessionDrawerOpen=()=>useSessionDrawer.getState().open;
 const {SidebarView}=moduleExport('SidebarView');
 window.closeQuotaMenu=()=>useAccountMenu.getState().close();
 const {storage}=moduleExport('storage'),{apiSocket}=moduleExport('apiSocket');
 const {UnistylesRuntime}=moduleExport('UnistylesRuntime');
 const {SafeAreaProvider}=moduleExport('SafeAreaProvider');
-window.calls=0;window.parentNavigations=0;window.replyMode='success';
+window.calls=0;window.replyMode='success';
 const now=Date.now();
 const w=(id,left)=>({id,remaining:left,resetsAt:now+4*86400000,durationMins:id==='five_hour'?300:10080,pending:false});
 const snapshot={providers:[
@@ -38,7 +42,7 @@ apiSocket.machineRPC=async(id,method)=>{if(id!=='quota-fixture'||method!=='accou
 storage.setState({isDataReady:true,profile:{id:'demo',firstName:'LMC',lastName:'Demo'},machines:{'quota-fixture':{id:'quota-fixture',active:true,createdAt:1,metadata:{host:'Demo',accountQuota:true,happyCliVersion:'1.2.53'}}}});
 window.setTheme=theme=>{UnistylesRuntime.setAdaptiveThemes(false);UnistylesRuntime.setTheme(theme);document.body.style.background=theme==='dark'?'#141414':'#efeff2'};
 function App(){const [size,setSize]=React.useState({w:innerWidth,h:innerHeight});React.useEffect(()=>{const f=()=>setSize({w:innerWidth,h:innerHeight});addEventListener('resize',f);return()=>removeEventListener('resize',f)},[]);
-return h(SafeAreaProvider,{initialMetrics:{frame:{x:0,y:0,width:size.w,height:size.h},insets:{top:0,bottom:0,left:0,right:0}}},h(AuthProvider,{initialCredentials:null},h('div',{style:{width:size.w,height:size.h}},size.w>=768?h('div',{style:{display:'flex',height:size.h,width:360}},h(SidebarView,{})):h('div',{style:{position:'absolute',bottom:10,left:12,width:Math.min(340,size.w-24)}},h(AccountSettingsRow,{onNavigate:()=>window.parentNavigations++})),h(AccountMenuLayer,{}))));}
+return h(SafeAreaProvider,{initialMetrics:{frame:{x:0,y:0,width:size.w,height:size.h},insets:{top:0,bottom:0,left:0,right:0}}},h(AuthProvider,{initialCredentials:null},h('div',{style:{width:size.w,height:size.h}},size.w>=768?h('div',{style:{display:'flex',height:size.h,width:360}},h(SidebarView,{})):h(GestureHandlerRootView,{style:{flex:1}},h(FloatingSessionDrawer,{})),h(AccountMenuLayer,{}))));}
 createRoot(document.getElementById('root')).render(h(App));
 `;
 const fonts=fs.readdirSync(path.join(root,'assets/sources/assets/fonts')).filter(f=>f.startsWith('IBMPlexSans-')).map(f=>`@font-face{font-family:'${f.split('.')[0]}';src:url('/assets/sources/assets/fonts/${f}')}`).join('');
@@ -72,7 +76,7 @@ const server=http.createServer((req,res)=>{
   await page.getByText('72%',{exact:true}).waitFor();
   assert.equal(await page.getByTestId('quota-fable-legend').count(),1);
   assert.equal(await page.getByRole('progressbar').count(),4,'Fable shares the weekly bar, without a separate progress bar');
-  assert.equal(await page.evaluate(()=>parentNavigations),0,'opening quota bubble must preserve its parent entry');
+  assert.equal(await page.evaluate(()=>isSessionDrawerOpen()),true,'opening quota bubble must preserve its parent entry');
   assert.equal(await page.getByText('9 pts short',{exact:false}).count(),1);
   for(const theme of ['light','dark']){
    await page.evaluate(theme=>setTheme(theme),theme);
@@ -91,12 +95,13 @@ const server=http.createServer((req,res)=>{
     const originalEntry=await page.getByRole('button',{name:'Account and settings',exact:true}).boundingBox();
     const menuBottom=await page.getByTestId('account-quota-cards').evaluate(n=>{while(n && !(getComputedStyle(n).position==='absolute' && parseFloat(getComputedStyle(n).borderRadius)>0))n=n.parentElement;return n.getBoundingClientRect().bottom;});
     assert.ok(menuBottom<=originalEntry.y-7,'bubble must remain above the original entry');
-    if(width>=768){
+    {
      const geometry=await page.evaluate(()=>{
       let menu=document.querySelector('[data-testid=account-quota-cards]');
       while(menu && !(getComputedStyle(menu).position==='absolute' && parseFloat(getComputedStyle(menu).borderRadius)>0))menu=menu.parentElement;
       let card=document.querySelector('[aria-label="Account and settings"]');
-      while(card && !(getComputedStyle(card).borderRadius==='16px' && getComputedStyle(card).borderTopWidth==='1px'))card=card.parentElement;
+      const desktop=innerWidth>=768;
+      while(card && !(getComputedStyle(card).borderRadius===(desktop?'16px':'24px') && getComputedStyle(card).borderTopWidth==='1px'))card=card.parentElement;
       const box=n=>({x:n.getBoundingClientRect().x,width:n.getBoundingClientRect().width,top:n.getBoundingClientRect().top,bottom:n.getBoundingClientRect().bottom,radius:getComputedStyle(n).borderRadius});
       return {menu:box(menu),card:box(card)};
      });
@@ -104,7 +109,7 @@ const server=http.createServer((req,res)=>{
      assert.ok(Math.abs(geometry.menu.x-geometry.card.x)<0.6,'menu left must align to card outer border');
      assert.ok(Math.abs(geometry.menu.width-geometry.card.width)<0.6,'menu width must match card outer border');
      assert.equal(geometry.menu.radius,geometry.card.radius);
-     assert.ok(geometry.menu.bottom<=geometry.card.top-7,'menu must leave the account card unobscured');
+     if(width>=768)assert.ok(geometry.menu.bottom<=geometry.card.top-7,'menu must leave the account card unobscured');
     }
    }
   }

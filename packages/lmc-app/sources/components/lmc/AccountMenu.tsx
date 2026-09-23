@@ -58,7 +58,7 @@ export function AccountMenu({ anchor, onClose }: { anchor: AccountMenuAnchor; on
     // card it belongs to, so the two rounded corners meet instead of drifting.
     const [menuHeight, setMenuHeight] = React.useState(296);
     const gap = 8;
-    const menuWidth = Math.min(anchor.cardRadius !== undefined ? anchor.width : 368, windowWidth - 16);
+    const menuWidth = Math.min(anchor.width, windowWidth - 16);
     const left = Math.max(8, Math.min(anchor.x - (anchor.inset ?? 0), windowWidth - menuWidth - 8));
     const cardTop = anchor.y - (anchor.insetY ?? anchor.inset ?? 0);
     const spaceAbove = cardTop - gap - 8;
