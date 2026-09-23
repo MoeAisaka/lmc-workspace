@@ -38,9 +38,9 @@ export const useAccountMenu = create<{ anchor: AccountMenuAnchor | null; open: (
 }));
 
 const styles = StyleSheet.create((theme) => ({
-    menu: { position: 'absolute', padding: 12, borderRadius: 24, overflow: 'hidden', backgroundColor: theme.colors.surface, ...lmcSurfaceBorder(theme), ...lmcElevation(theme, 3) },
-    divider: { height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.divider, marginVertical: 4 },
-    item: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 10 },
+    menu: { position: 'absolute', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 24, overflow: 'hidden', backgroundColor: theme.colors.surface, ...lmcSurfaceBorder(theme), ...lmcElevation(theme, 3) },
+    divider: { height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.divider, marginVertical: 3 },
+    item: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, paddingVertical: 6, minHeight: 32, borderRadius: 10 },
     itemText: { fontSize: 14, color: theme.colors.text, ...Typography.default() },
 }));
 

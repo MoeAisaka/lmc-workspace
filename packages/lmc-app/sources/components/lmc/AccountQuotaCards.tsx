@@ -10,17 +10,17 @@ import { t } from '@/text';
 import { lmcColors } from './lmcColors';
 
 const styles = StyleSheet.create(theme => ({
-    section: { gap: 10, paddingVertical: 10 },
+    section: { gap: 6, paddingVertical: 4 },
     heading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    card: { backgroundColor: theme.dark ? 'rgba(255,255,255,0.045)' : '#F8F8F8', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
+    card: { backgroundColor: theme.dark ? 'rgba(255,255,255,0.045)' : '#F8F8F8', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 8, gap: 6 },
     provider: { flexDirection: 'row', alignItems: 'center', gap: 7 },
     name: { color: theme.colors.text, fontSize: 15, ...Typography.default('semiBold') },
     label: { color: theme.colors.textSecondary, fontSize: 12, lineHeight: 16, ...Typography.default() },
     note: { color: theme.colors.textSecondary, fontSize: 11, lineHeight: 15, ...Typography.default() },
-    value: { color: theme.colors.text, fontSize: 24, lineHeight: 30, ...Typography.default('semiBold') },
-    columns: { flexDirection: 'row', gap: 20 },
-    window: { flex: 1, minWidth: 0, gap: 4 },
-    track: { height: 5, borderRadius: 3, backgroundColor: theme.dark ? '#404044' : '#E4E4E7', marginVertical: 3 },
+    value: { color: theme.colors.text, fontSize: 24, lineHeight: 28, ...Typography.default('semiBold') },
+    columns: { flexDirection: 'row', gap: 16 },
+    window: { flex: 1, minWidth: 0, gap: 3 },
+    track: { height: 5, borderRadius: 3, backgroundColor: theme.dark ? '#404044' : '#E4E4E7', marginVertical: 2 },
     legend: { flexDirection: 'row', alignItems: 'center', gap: 5 },
     dot: { width: 5, height: 5, borderRadius: 3 },
     refresh: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
