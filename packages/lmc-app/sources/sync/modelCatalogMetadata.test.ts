@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { withModelCatalogs } from './modelCatalogMetadata';
-import { getAvailableModels, getEffortLevelsForModel, getCatalogDefaultEffort, assertModelEffort } from '@/components/modelModeOptions';
+import { catalogModelName, getAvailableModels, getEffortLevelsForModel, getCatalogDefaultEffort, assertModelEffort } from '@/components/modelModeOptions';
 import { engineModelGroups } from './engineModelCatalog';
 import { resolveMessageModeMeta } from './messageMeta';
 import type { Metadata, MachineMetadata } from './storageTypes';
@@ -14,6 +14,13 @@ const metadata = (flavor: string) => ({ path: '/', host: 'test', flavor, session
 const t = (key: string) => key;
 
 describe('discovered model catalogs', () => {
+    it('keeps Claude generation and context visible without marketing descriptions', () => {
+        expect(catalogModelName({id:'claude-opus-5-5[1m]',name:'Opus (1M context)'})).toBe('Opus 5.5 [1M]');
+        expect(catalogModelName({id:'claude-fable-5-1',name:'Fable'})).toBe('Fable 5.1');
+        expect(catalogModelName({id:'claude-haiku-4-5-20251001',name:'Haiku'})).toBe('Haiku 4.5');
+        expect(catalogModelName({id:'claude-next',name:'Team custom model'})).toBe('Team custom model');
+        expect(catalogModelName({id:'gpt-6-sol',name:'GPT-6-Sol'})).toBe('GPT-6-Sol');
+    });
     it.each(['claude', 'codex'])('updates %s menus, preserving a selected custom model', engine => {
         const merged = withModelCatalogs(metadata(engine), machine)!;
         const models = getAvailableModels(engine, merged, t, 'private-model');

@@ -129,6 +129,12 @@ const {
         s3bucket: 'test-bucket',
         isLocalStorage: vi.fn(() => state.useLocalStorage),
         getLocalFilesDir: vi.fn(() => '/tmp/project-test-files'),
+        readLocalFile: vi.fn(async (ref: string) => {
+            const bytes = state.uploads.get(ref);
+            if (!bytes) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+            return bytes;
+        }),
+        localFileExists: vi.fn(async (ref: string) => state.uploads.has(ref)),
         putLocalFile: vi.fn(async (filePath: string, data: Buffer) => state.uploads.set(filePath, data)),
         deleteProjectAvatars: vi.fn(async () => undefined),
     };
@@ -138,20 +144,7 @@ const {
 
 vi.mock('@/storage/db', () => ({ db: dbMock }));
 vi.mock('@/storage/files', () => filesMock);
-vi.mock('fs', async () => {
-    const actual = await vi.importActual<typeof import('fs')>('fs');
-    return {
-        ...actual,
-        existsSync: vi.fn((filePath: string) => {
-            const ref = filePath.replace(/^\/tmp\/project-test-files\//, '');
-            return state.uploads.has(ref);
-        }),
-        readFileSync: vi.fn((filePath: string) => {
-            const ref = filePath.replace(/^\/tmp\/project-test-files\//, '');
-            return state.uploads.get(ref) ?? Buffer.alloc(0);
-        }),
-    };
-});
+
 vi.mock('@/storage/seq', () => ({ allocateUserSeq: vi.fn(async () => 1) }));
 vi.mock('@/app/events/eventRouter', () => ({
     eventRouter: { emitUpdate },

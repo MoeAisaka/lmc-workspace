@@ -116,7 +116,7 @@ function TimelineRow({ step, selected, onPress, metadata, sessionId }: {
 
 const styles = StyleSheet.create(theme => ({
     process: { marginHorizontal: 16, marginVertical: 4, paddingHorizontal: 14, paddingVertical: 10, gap: 4, borderRadius: 10, backgroundColor: theme.colors.processSurface },
-    row: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 34, borderRadius: 6 },
+    row: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 34, borderRadius: 6, paddingHorizontal: 8 },
     highlight: { backgroundColor: theme.colors.surfacePressed },
     subdued: { opacity: 0.45 },
     status: { width: 14, flexShrink: 0, alignItems: 'center', justifyContent: 'center' },
@@ -126,8 +126,13 @@ const styles = StyleSheet.create(theme => ({
     subtitle: { fontSize: 12, lineHeight: 18, color: theme.colors.textSecondary, ...Typography.default() },
     spinner: { width: 14, height: 14, alignItems: 'center', justifyContent: 'center' },
     spinnerScale: { transform: [{ scale: 0.7 }] },
-    parallel: { paddingLeft: 12, paddingVertical: 4, gap: 2 },
-    parallelTitle: { fontSize: 12, lineHeight: 20, color: theme.colors.textSecondary, ...Typography.default() },
+    parallel: {
+        marginVertical: 2, paddingHorizontal: 10, paddingVertical: 8, gap: 4,
+        borderRadius: 8, borderWidth: 1,
+        borderColor: theme.colors.processGroupBorder,
+        backgroundColor: theme.colors.processSurface,
+    },
+    parallelTitle: { paddingHorizontal: 8, fontSize: 12, lineHeight: 20, color: theme.colors.textSecondary, ...Typography.default() },
     earlier: { minHeight: 28, justifyContent: 'center', marginBottom: 4 },
     earlierText: { fontSize: 12, lineHeight: 20, color: theme.colors.textSecondary, ...Typography.default() },
 }));

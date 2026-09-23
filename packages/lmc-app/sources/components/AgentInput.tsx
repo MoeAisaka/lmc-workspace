@@ -787,16 +787,16 @@ export const AgentInputUsageRow = React.memo(function AgentInputUsageRow(p: Usag
         return null;
     }
     const weekText = p.weekPercent != null ? (
-        <Text style={{ fontSize: 11, color: theme.colors.textSecondary, ...Typography.default() }}>
+        <Text numberOfLines={1} style={{ fontSize: 11, color: theme.colors.textSecondary, ...Typography.default() }}>
             {t('agentInput.context.percentWeek', { percent: Math.round(p.weekPercent) })}
         </Text>
     ) : null;
     return (
-        <View style={{
-            flexDirection: compact ? 'column' : 'row',
-            alignItems: compact ? 'stretch' : 'center',
+        <View testID="agent-input-usage" style={{
+            flexDirection: 'row',
+            alignItems: 'center',
             justifyContent: 'flex-end',
-            gap: compact ? 3 : 10,
+            gap: compact ? 8 : 10,
             // 18 = 10pt shell inset + 8pt action inset: lines the gauge up
             // with the effort label's right edge.
             paddingHorizontal: 18,
@@ -804,9 +804,9 @@ export const AgentInputUsageRow = React.memo(function AgentInputUsageRow(p: Usag
             minHeight: 18,
         }}>
             {p.turnElapsed && <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0 }}>
-                <TurnElapsedLabel timing={p.turnElapsed} />
+                <TurnElapsedLabel timing={p.turnElapsed} compact={compact} />
             </View>}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: compact ? 'flex-start' : 'flex-end', gap: 10, flexShrink: 0 }}>
+            <View testID="agent-input-usage-figures" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: compact ? 8 : 10, flexShrink: 1, maxWidth: compact ? '72%' : undefined }}>
                 {weekText && (
                     p.usageMenuOptions.length > 0 ? (
                         <NativeSettingsMenu
@@ -830,11 +830,12 @@ export const AgentInputUsageRow = React.memo(function AgentInputUsageRow(p: Usag
                 )}
                 {p.contextStatus && (
                     <Pressable
+                        testID="agent-input-context"
                         onPress={() => setShowPreciseContext((current) => !current)}
                         hitSlop={{ top: 12, bottom: 14, left: 10, right: 14 }}
-                        style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flexShrink: 1, minWidth: 0 }}
                     >
-                        <Text style={{ fontSize: 11, color: p.contextStatus.color, ...Typography.default() }}>
+                        <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 11, color: p.contextStatus.color, ...Typography.default() }}>
                             {showPreciseContext
                                 ? p.contextStatus.detailText
                                 : t('agentInput.context.percentContext', { percent: p.contextStatus.percent })}

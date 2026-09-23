@@ -8,7 +8,7 @@ import type { TurnElapsed } from '@/utils/turnElapsed';
 import { t } from '@/text';
 
 /** Owns the one-second clock so the composer and transcript do not rerender. */
-export const TurnElapsedLabel = React.memo(function TurnElapsedLabel({ timing }: { timing: TurnElapsed }) {
+export const TurnElapsedLabel = React.memo(function TurnElapsedLabel({ timing, compact = false }: { timing: TurnElapsed; compact?: boolean }) {
     const { theme } = useUnistyles();
     const live = timing.status === 'running' && timing.endedAt === null;
     const seconds = useElapsedTime(live ? timing.startedAt : null);
@@ -17,7 +17,9 @@ export const TurnElapsedLabel = React.memo(function TurnElapsedLabel({ timing }:
     const duration = elapsed === null ? t('toolGroup.timeline.timeUnrecorded')
         : `${timing.approximate ? '≈ ' : ''}${formatWorkDuration(elapsed)}`;
     const status = timing.status === 'unknown' ? '' : ` · ${t(`toolGroup.timeline.${timing.status}`)}`;
-    return <Text testID="turn-elapsed" style={{ fontSize: 12, lineHeight: 18, color: theme.colors.textSecondary, ...Typography.default() }}>
-        {t('toolGroup.timeline.turnElapsed', { duration })}{status}
+    const fullLabel = `${t('toolGroup.timeline.turnElapsed', { duration })}${status}`;
+    return <Text testID="turn-elapsed" numberOfLines={1} accessibilityLabel={fullLabel}
+        style={{ fontSize: compact ? 11 : 12, lineHeight: 18, color: theme.colors.textSecondary, ...Typography.default() }}>
+        {compact ? duration : fullLabel}
     </Text>;
 });

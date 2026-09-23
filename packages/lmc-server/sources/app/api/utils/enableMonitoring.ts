@@ -3,10 +3,22 @@ import { Fastify } from "../types";
 import { httpRequestsCounter, httpRequestDurationHistogram, getMetricsLabelsFromRequest } from "@/app/monitoring/metrics2";
 import { debug } from "@/utils/log";
 import { recordProductionRequest, startProductionLogSummary } from "@/app/monitoring/productionLogSummary";
+import { performance } from 'node:perf_hooks';
 
 export function enableMonitoring(app: Fastify) {
     const stopProductionLogSummary = startProductionLogSummary();
     app.addHook('onClose', async () => stopProductionLogSummary());
+    // Log stalls after recovery; the independent service launcher probes while
+    // this event loop is blocked. No request bodies or filesystem paths logged.
+    let previousTick = performance.now();
+    const loopMonitor = setInterval(() => {
+        const now = performance.now();
+        const delayMs = Math.round(now - previousTick - 1000);
+        previousTick = now;
+        if (delayMs > 1000) console.warn(`[event-loop] stalled delayMs=${delayMs}`);
+    }, 1000);
+    (loopMonitor as unknown as NodeJS.Timeout).unref();
+    app.addHook('onClose', async () => clearInterval(loopMonitor));
 
     // Add metrics hooks
     app.addHook('onRequest', async (request, reply) => {

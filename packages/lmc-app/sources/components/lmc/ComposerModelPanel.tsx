@@ -226,10 +226,8 @@ function ModelList(props: {
                         <PickerMenuRow
                             key={`${section.key}:${model.key}`}
                             label={model.name}
-                            // Grouped by engine, a model's note is a word about
-                            // the model — it rides the row. Ungrouped, it is the
-                            // provider, which needs the line under the name.
-                            meta={section.title ? model.description : undefined}
+                            // Engine catalogs contain paragraphs, not compact
+                            // badges. Reserve the row for the model name.
                             description={section.title ? undefined : model.description}
                             selected={props.selectedKey === model.key}
                             disabled={props.disabled || model.disabled}

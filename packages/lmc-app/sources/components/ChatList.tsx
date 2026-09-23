@@ -20,6 +20,7 @@ import { usesControlledSessionUi } from '@/sync/rig';
 import { buildAgentTurnCopyTextByMessageId } from '@/utils/agentTurnCopy';
 import { buildMessageEngineMap } from '@/sync/messageEngine';
 import { MessageEngineProvider } from './MessageEngineContext';
+import { visibleTranscriptMessages } from '@/sync/queuedMessageVisibility';
 
 const SCROLL_THRESHOLD = 300;
 const DOCK_DETAILS_SHOW_OFFSET = 16;
@@ -42,11 +43,15 @@ export const ChatList = React.memo((props: {
     onBottomDockVisibilityChange?: (visible: boolean) => void;
 }) => {
     const { messages, hasMoreOlder, isLoadingOlder } = useSessionMessages(props.session.id);
+    const transcriptMessages = React.useMemo(
+        () => visibleTranscriptMessages(messages, props.session.agentState?.queue),
+        [messages, props.session.agentState?.queue],
+    );
     return (
         <ChatListInternal
             metadata={props.session.metadata}
             sessionId={props.session.id}
-            messages={messages}
+            messages={transcriptMessages}
             hasMoreOlder={hasMoreOlder}
             isLoadingOlder={isLoadingOlder}
             topContentInset={props.topContentInset}

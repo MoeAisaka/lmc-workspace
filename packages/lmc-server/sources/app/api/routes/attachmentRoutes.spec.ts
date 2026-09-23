@@ -7,7 +7,6 @@ const {
     state,
     dbMock,
     filesMock,
-    fsMock,
     resetState,
     seedSession
 } = vi.hoisted(() => {
@@ -68,31 +67,23 @@ const {
         s3bucket: "test-bucket",
         isLocalStorage: vi.fn(() => state.useLocalStorage),
         getLocalFilesDir: vi.fn(() => "/tmp/test-files"),
+        readLocalFile: vi.fn(async (ref: string) => {
+            const bytes = state.uploads.get(ref);
+            if (!bytes) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+            return bytes;
+        }),
+        localFileExists: vi.fn(async (ref: string) => state.uploads.has(ref)),
         putLocalFile: vi.fn(async (filePath: string, data: Buffer) => {
             state.uploads.set(filePath, data);
         }),
     };
 
-    const fsMock = {
-        existsSync: vi.fn((p: string) => {
-            const rel = p.replace(/^\/tmp\/test-files\//, "");
-            return state.uploads.has(rel);
-        }),
-        readFileSync: vi.fn((p: string) => {
-            const rel = p.replace(/^\/tmp\/test-files\//, "");
-            return state.uploads.get(rel) ?? Buffer.alloc(0);
-        }),
-    };
-
-    return { state, dbMock, filesMock, fsMock, resetState, seedSession };
+    return { state, dbMock, filesMock, resetState, seedSession };
 });
 
 vi.mock("@/storage/db", () => ({ db: dbMock }));
 vi.mock("@/storage/files", () => filesMock);
-vi.mock("fs", async () => {
-    const actual = await vi.importActual<typeof import("fs")>("fs");
-    return { ...actual, existsSync: fsMock.existsSync, readFileSync: fsMock.readFileSync };
-});
+
 
 import { attachmentRoutes } from "./attachmentRoutes";
 
@@ -119,6 +110,7 @@ async function createApp() {
     );
 
     attachmentRoutes(typed);
+    typed.get('/health-fixture', async () => ({ status: 'ok' }));
     await typed.ready();
     return typed;
 }
@@ -212,6 +204,31 @@ describe("attachmentRoutes — PUT (local-mode upload)", () => {
     let app: Fastify;
     beforeEach(() => { resetState(); });
     afterEach(async () => { if (app) await app.close(); });
+
+    it('keeps other requests responsive while storage waits, and returns 503 on storage failure', async () => {
+        seedSession('s1', 'u1');
+        app = await createApp();
+        let rejectIO!: (error: Error) => void;
+        let entered!: () => void;
+        const started = new Promise<void>(resolve => { entered = resolve; });
+        filesMock.putLocalFile.mockImplementationOnce(() => {
+            entered();
+            return new Promise<void>((_, reject) => { rejectIO = reject; });
+        });
+        const upload = app.inject({ method: 'PUT', url: '/v1/sessions/s1/attachments/stalled.enc',
+            headers: { 'x-user-id': 'u1', 'content-type': 'application/octet-stream' }, payload: Buffer.from('x') }).then(r => r);
+        await started;
+        try {
+            const health = await app.inject('/health-fixture');
+            expect(health.statusCode).toBe(200);
+            const other = await app.inject({ method: 'POST', url: '/v1/sessions/s1/attachments/request-upload',
+                headers: { 'x-user-id': 'u1' }, payload: { filename: 'next.enc', size: 1 } });
+            expect(other.statusCode).toBe(200);
+        } finally {
+            rejectIO(Object.assign(new Error('Local storage unavailable'), { statusCode: 503 }));
+        }
+        expect((await upload).statusCode).toBe(503);
+    });
 
     it("accepts the encrypted blob from the session owner and stores it under the session prefix", async () => {
         seedSession("s1", "u1");

@@ -24,7 +24,7 @@ import { kvRoutes } from "./routes/kvRoutes";
 import { v3SessionRoutes } from "./routes/v3SessionRoutes";
 import { attachmentRoutes } from "./routes/attachmentRoutes";
 import { projectRoutes } from "./routes/projectRoutes";
-import { isLocalStorage, getLocalFilesDir } from "@/storage/files";
+import { isLocalStorage, getLocalFilesDir, readLocalFile } from "@/storage/files";
 import * as path from "path";
 import * as fs from "fs";
 
@@ -94,7 +94,7 @@ export async function startApi(opts: StartApiOptions = {}) {
 
     // Serve local files when using local storage
     if (isLocalStorage()) {
-        app.get('/files/*', function (request, reply) {
+        app.get('/files/*', async function (request, reply) {
             const filePath = (request.params as any)['*'];
             const baseDir = path.resolve(getLocalFilesDir());
             const fullPath = path.resolve(baseDir, filePath);
@@ -102,12 +102,12 @@ export async function startApi(opts: StartApiOptions = {}) {
                 reply.code(403).send('Forbidden');
                 return;
             }
-            if (!fs.existsSync(fullPath)) {
-                reply.code(404).send('Not found');
-                return;
+            try {
+                return reply.send(await readLocalFile(filePath));
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code === 'ENOENT') return reply.code(404).send('Not found');
+                throw error;
             }
-            const stream = fs.createReadStream(fullPath);
-            reply.send(stream);
         });
     }
 
@@ -145,8 +145,12 @@ export async function startApi(opts: StartApiOptions = {}) {
         });
         const sendIndex = async (_request: unknown, reply: any) => {
             const indexPath = path.join(opts.staticDir!, 'index.html');
-            if (!fs.existsSync(indexPath)) return reply.code(404).send({ error: 'Not found' });
-            const html = (await fs.promises.readFile(indexPath, 'utf8')).replace(/<html\b[^>]*>/i, '<html lang="zh-CN">');
+            let source: string;
+            try { source = await fs.promises.readFile(indexPath, 'utf8'); } catch (error) {
+                if ((error as NodeJS.ErrnoException).code === 'ENOENT') return reply.code(404).send({ error: 'Not found' });
+                throw error;
+            }
+            const html = source.replace(/<html\b[^>]*>/i, '<html lang="zh-CN">');
             const injected = injectScript ? html.replace(/<head[^>]*>/i, (m) => `${m}\n${injectScript}`) : html;
             return reply.header('Cache-Control', 'no-cache').type('text/html').send(injected);
         };

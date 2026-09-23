@@ -6,7 +6,6 @@
  * stores/serves opaque values.
  */
 import { z } from 'zod';
-import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import * as privacyKit from 'privacy-kit';
@@ -17,6 +16,8 @@ import {
     s3bucket,
     isLocalStorage,
     getLocalFilesDir,
+    readLocalFile,
+    localFileExists,
     putLocalFile,
     deleteProjectAvatars,
 } from '@/storage/files';
@@ -299,7 +300,7 @@ export function projectRoutes(app: Fastify) {
         }
         if (isLocalStorage()) {
             const fullPath = localProjectAvatarPath(projectId, request.body.ref);
-            if (!fullPath || !fs.existsSync(fullPath)) {
+            if (!fullPath || !await localFileExists(request.body.ref)) {
                 return reply.code(404).send({ error: 'Project avatar upload not found' });
             }
         } else {
@@ -492,7 +493,14 @@ export function projectRoutes(app: Fastify) {
         if (project.avatarRef !== ref) return reply.code(404).send({ error: 'Project avatar not found' });
         const fullPath = localProjectAvatarPath(projectId, ref);
         if (!fullPath) return reply.code(404).send({ error: 'Invalid project avatar file' });
-        if (!fs.existsSync(fullPath)) return reply.code(404).send({ error: 'Project avatar not found' });
-        return reply.type('application/octet-stream').send(fs.readFileSync(fullPath));
+        try {
+            const bytes = await readLocalFile(ref);
+            return reply.type('application/octet-stream').send(bytes);
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+                return reply.code(404).send({ error: 'Project avatar not found' });
+            }
+            throw error;
+        }
     });
 }

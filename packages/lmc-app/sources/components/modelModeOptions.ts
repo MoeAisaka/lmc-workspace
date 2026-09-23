@@ -366,6 +366,17 @@ export function getHardcodedModelModes(flavor: AgentFlavor, _translate: Translat
     return getClaudeModelModes().map(option => option.description === '1M context' ? { ...option, description: _translate('localFeatures.millionContext') } : option);
 }
 
+/** Claude's SDK calls every generation simply "Opus"/"Sonnet". Keep
+ * version/context visible when the descriptive paragraph is not displayed.
+ * Unknown IDs and provider-custom display names pass through unchanged.
+ */
+export function catalogModelName(model: { id: string; name: string }): string {
+    const match = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?(\[1m\])?$/i.exec(model.id);
+    if (!match || !new RegExp(`^${match[1]}(?: \\(1M context\\))?$`, 'i').test(model.name)) return model.name;
+    const family = match[1][0].toUpperCase() + match[1].slice(1);
+    return `${family} ${match[2]}${match[3] ? `.${match[3]}` : ''}${match[4] ? ' [1M]' : ''}`;
+}
+
 export function getAvailableModels(
     flavor: AgentFlavor,
     metadata: Metadata | null | undefined,
@@ -423,10 +434,10 @@ export function getAvailableModels(
     }
     const catalog = flavor === 'claude' || flavor === 'codex' ? metadata?.modelCatalogs?.[flavor] : undefined;
     if (catalog?.models.length) {
-        const models = catalog.models.map(model => ({ key: model.id, name: model.name, description: model.description ?? null }));
+        const models = catalog.models.map(model => ({ key: model.id, name: catalogModelName(model), description: model.description ?? null }));
         if (selectedKey && selectedKey !== 'default' && !isForeignModelKey(selectedKey, flavor) && !models.some(model => model.key === selectedKey)) {
             const selected = findCatalogModel(catalog, selectedKey);
-            models.push({key: selectedKey, name: selected?.name ?? selectedKey, description: selected?.description ?? null});
+            models.push({key: selectedKey, name: selected ? catalogModelName(selected) : selectedKey, description: selected?.description ?? null});
         }
         if (selectedKey === 'default') models.push({ key: 'default', name: translate('localFeatures.defaultLabel'), description: null });
         return models;

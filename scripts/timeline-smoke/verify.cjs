@@ -45,9 +45,10 @@ function App(){
   if(mode==='running'){const last=list.at(-1);last.tool.startedAt=Date.now()-5000;last.tool.completedAt=null;last.tool.state='running';}
   if(mode==='waiting'){const last=list.at(-1);last.tool.startedAt=null;last.tool.completedAt=null;last.tool.state='running';last.tool.permission={id:'p',status:'pending'};}
   if(mode==='error'){list.at(-1).tool.state='error';list.at(-1).tool.result='Build failed';}
+  if(mode==='parallel-pairs')list[3].tool.completedAt=base+84000;
   if(mode==='history'){list.at(-1).tool.startedAt=null;list.at(-1).tool.completedAt=null;list.at(-1).tool.state='running';}
   list.splice(1,0,{kind:'agent-text',id:'progress',localId:null,createdAt:base+10000,text:'Progress prose remains visible.'});
-  return [...(['complete','history','error'].includes(mode)?[answer]:[]),...list.reverse(),user];
+  return [...(['complete','history','error','parallel-pairs'].includes(mode)?[answer]:[]),...list.reverse(),user];
  },[mode]);
  const group=groupMessagesForDisplay(messages,true,{timelineCurrentTurn:true,collapseCurrentTurn:!['running','waiting'].includes(mode)}).find(x=>x.type==='agent-work-group');
  React.useEffect(()=>{useToolOverlay.getState().setOpener(setSelected);return()=>useToolOverlay.getState().setOpener(null)},[]);
@@ -65,7 +66,7 @@ function App(){
    h(AgentWorkGroupView,{group,metadata:null,sessionId:'fixture',expanded,onToggle:()=>setExpanded(x=>!(x??true))}),
    group.completedAt!==null&&h('p',{'data-testid':'final',style:{padding:'0 16px'}},answer.text),
    h('div',{'data-testid':'composer',style:{border:'1px solid '+theme.colors.divider,borderRadius:18,margin:'24px 16px 0',padding:16}},'输入消息…'),
-   h(AgentInputUsageRow,{turnElapsed:timing,contextStatus:{percent:52,detailText:'52k / 100k',color:theme.colors.textSecondary},weekPercent:74,usageMenuOptions:[]})),
+   h(AgentInputUsageRow,{turnElapsed:timing,contextStatus:{percent:52,detailText:'104,000 / 200,000 tokens',color:theme.colors.textSecondary},weekPercent:74,usageMenuOptions:[]})),
   selectedTool&&h('div',{'data-testid':'detail',style:{position:'fixed',background:theme.colors.surface,inset:'10% 8%',border:'1px solid '+theme.colors.divider,borderRadius:16,display:'flex',flexDirection:'column',overflow:'auto'}},
    h('button',{onClick:()=>setSelected(null)},'Close detail'),h(ToolFullView,{tool:selectedTool,active:group.completedAt===null})));
 }
@@ -101,6 +102,14 @@ const server=http.createServer((req,res)=>{
   const header=page.getByRole('button',{name:/Execution/});
   const toggle=async()=>{const before=await header.getAttribute('aria-expanded');await header.click();await page.waitForFunction(before=>document.querySelector('[aria-label^="Execution"]').getAttribute('aria-expanded')!==before,before,{timeout:5000})};
   const rows=()=>page.locator('[data-testid^="timeline-step-"]');
+  const checkSingleLineFooter=async()=>{
+   const actual=await page.getByTestId('agent-input-usage').evaluate(row=>{
+    const elapsed=row.querySelector('[data-testid="turn-elapsed"]').getBoundingClientRect();
+    const figures=row.querySelector('[data-testid="agent-input-usage-figures"]').getBoundingClientRect();
+    return {height:row.getBoundingClientRect().height,centerDelta:Math.abs((elapsed.top+elapsed.bottom-figures.top-figures.bottom)/2),overlap:elapsed.right>figures.left,overflow:document.documentElement.scrollWidth>innerWidth};
+   });
+   assert.ok(actual.height<=24);assert.ok(actual.centerDelta<1);assert.equal(actual.overlap,false);assert.equal(actual.overflow,false);
+  };
   assert.equal(await rows().count(),5); // Completed defaults expanded.
   assert.equal(await page.getByText('Progress prose remains visible.',{exact:true}).count(),1);
   await page.getByTestId('timeline-parallel').waitFor({timeout:5000});
@@ -146,6 +155,10 @@ const server=http.createServer((req,res)=>{
   assert.equal(await rows().count(),5); // Explicit expansion survives completion.
   await page.evaluate(()=>setScenario('running'));await page.waitForTimeout(100);
   assert.equal(await page.getByTestId('timeline-type-test').innerText(),commandIcon);
+  assert.equal(await page.getByTestId('timeline-step-test').evaluate(row=>{
+   const status=row.querySelector('[data-testid^="timeline-status-"]');
+   return status.getBoundingClientRect().left-row.getBoundingClientRect().left;
+  }),8); // Running spinner has breathing room inside its highlight.
   assert.match(await page.getByTestId('turn-elapsed').innerText(),/Running/);
   const before=await page.getByTestId('turn-elapsed').innerText();await page.waitForTimeout(1100);assert.notEqual(await page.getByTestId('turn-elapsed').innerText(),before);
   await page.evaluate(()=>setScenario('history'));await page.waitForTimeout(100);assert.match(await page.getByTestId('timeline-step-test').innerText(),/Completion not recorded/);
@@ -156,19 +169,54 @@ const server=http.createServer((req,res)=>{
   await toggle();assert.match(await page.getByTestId('timeline-step-test').innerText(),/Waiting for approval/);
   await page.screenshot({path:path.join(out,'waiting.png'),fullPage:true});
   await page.evaluate(()=>setScenario('complete'));await page.setViewportSize({width:390,height:844});await page.evaluate(()=>setPreviewTheme('dark'));await page.waitForTimeout(200);
+  await checkSingleLineFooter();
+  assert.equal(await page.getByTestId('turn-elapsed').innerText(),'2m14s');
+  assert.match(await page.getByTestId('turn-elapsed').getAttribute('aria-label'),/Turn total.*Completed/);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   assert.ok((await rowHeights()).every(height=>Math.abs(height-34)<0.02));
   await checkStepTypography();
   await page.screenshot({path:path.join(out,'mobile-dark.png'),fullPage:true});
   await page.setViewportSize({width:320,height:740});await page.evaluate(()=>setScenario('running'));await page.waitForTimeout(100);
+  await checkSingleLineFooter();
+  assert.match(await page.getByTestId('turn-elapsed').getAttribute('aria-label'),/Running/);
+  await page.getByTestId('agent-input-context').click();await checkSingleLineFooter();
+  assert.match(await page.getByTestId('agent-input-context').innerText(),/104,000/);
+  await page.getByTestId('agent-input-context').click();
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   assert.ok(Math.abs(await page.getByTestId('timeline-step-test').evaluate(row=>row.getBoundingClientRect().height)-34)<0.02);
   await page.screenshot({path:path.join(out,'mobile-running-narrow.png'),fullPage:true});
   await page.evaluate(()=>setPreviewTheme('light'));await page.waitForTimeout(100);
+  await checkSingleLineFooter();
   assert.equal(await page.getByTestId('timeline-process').first().evaluate(n=>getComputedStyle(n).backgroundColor),'rgb(249, 249, 250)');
-  assert.equal(await page.getByTestId('timeline-parallel').evaluate(n=>getComputedStyle(n).backgroundColor),'rgba(0, 0, 0, 0)');
+  assert.equal(await page.getByTestId('timeline-parallel').evaluate(n=>getComputedStyle(n).backgroundColor),await page.getByTestId('timeline-process').first().evaluate(n=>getComputedStyle(n).backgroundColor));
+  await page.setViewportSize({width:1100,height:1000});await page.evaluate(()=>setScenario('parallel-pairs'));await page.waitForTimeout(100);
+  const groups=page.getByTestId('timeline-parallel');assert.equal(await groups.count(),2);
+  const dimensions=await groups.evaluateAll(nodes=>{
+   const a=nodes[0].getBoundingClientRect(),b=nodes[1].getBoundingClientRect(),s=getComputedStyle(nodes[0]);
+   return {gap:b.top-a.bottom,radius:s.borderRadius,border:s.borderTopWidth,color:s.borderTopColor,paddingX:s.paddingLeft,paddingY:s.paddingTop};
+  });
+  assert.deepEqual(dimensions,{gap:8,radius:'8px',border:'1px',color:'rgb(226, 226, 229)',paddingX:'10px',paddingY:'8px'});
+  const checkAlignment=async()=>assert.equal(await groups.evaluateAll(nodes=>nodes.every(group=>{
+   const rows=[...group.querySelectorAll('[data-testid^="timeline-step-"]')];
+   const positions=rows.map(row=>{
+    const status=row.querySelector('[data-testid^="timeline-status-"]').getBoundingClientRect();
+    const box=row.getBoundingClientRect();
+    return {left:status.left,inset:status.left-box.left,right:box.right-row.lastElementChild.getBoundingClientRect().right};
+   });
+   const title=group.firstElementChild;
+   const titleLeft=title.getBoundingClientRect().left+parseFloat(getComputedStyle(title).paddingLeft);
+   return positions.every(p=>p.inset===8&&p.right===8&&p.left===positions[0].left&&p.left===titleLeft);
+  })),true);
+  await checkAlignment();
+  assert.equal(await rows().count(),5);await page.screenshot({path:path.join(out,'d25-parallel-desktop.png'),fullPage:true});
+  await page.setViewportSize({width:320,height:740});await page.evaluate(()=>setPreviewTheme('dark'));await page.waitForTimeout(100);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  assert.equal(await groups.first().evaluate(n=>getComputedStyle(n).backgroundColor),await page.getByTestId('timeline-process').first().evaluate(n=>getComputedStyle(n).backgroundColor));
+  assert.equal(await groups.first().evaluate(n=>getComputedStyle(n).borderTopColor),'rgb(65, 65, 68)');
+  await checkAlignment();
+  await page.screenshot({path:path.join(out,'d25-parallel-mobile-dark.png'),fullPage:true});
   assert.deepEqual(errors,[]);
-  console.log('PASS exported Web: D24 short regular titles, process surfaces, 34px rows, default expansion with manual folding and recent steps, no per-step times, detail timing, fold/unfold, final text, live/frozen footer, stale/error states, mobile width, dark/light theme; no browser errors');
+  console.log('PASS exported Web: D25 nested parallel groups, short regular titles, process surfaces, 34px rows, default expansion with manual folding and recent steps, no per-step times, detail timing, fold/unfold, final text, live/frozen footer, stale/error states, mobile width, dark/light theme; no browser errors');
   console.log('Artifacts: '+out);
  } finally {await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1});

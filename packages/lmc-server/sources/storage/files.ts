@@ -1,10 +1,46 @@
-import * as fs from 'fs';
+import { promises as fs } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import * as path from 'path';
 import { Client } from 'minio';
 
 const useLocalStorage = !process.env.S3_HOST;
 const dataDir = process.env.DATA_DIR || './data';
 const localFilesDir = path.join(dataDir, 'files');
+
+// A removable-volume permission prompt can stall a filesystem call indefinitely.
+// Never perform synchronous IO on the server thread, or fill the shared libuv
+// pool with retries. Timed-out operations retain their slot until IO settles.
+let localOperations = 0;
+const LOCAL_IO_TIMEOUT_MS = 15_000;
+function unavailable() {
+    return Object.assign(new Error('Local storage unavailable'), { statusCode: 503 });
+}
+
+async function localIO<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    if (localOperations >= 2) throw unavailable();
+    localOperations++;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    const deadline = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+            controller.abort();
+            console.warn('[local-storage] IO deadline exceeded');
+            reject(unavailable());
+        }, LOCAL_IO_TIMEOUT_MS);
+    });
+    const work = Promise.resolve().then(() => operation(controller.signal)).catch(error => {
+        if (['EPERM', 'EACCES', 'EIO', 'ENODEV', 'ETIMEDOUT', 'ABORT_ERR'].includes(error?.code)) {
+            console.warn('[local-storage] IO failed:', error.code);
+            throw unavailable();
+        }
+        throw error;
+    }).finally(() => { localOperations--; });
+    try {
+        return await Promise.race([work, deadline]);
+    } finally {
+        clearTimeout(timer!);
+    }
+}
 
 // S3 config (only used when S3_HOST is set)
 let s3client: any = null;
@@ -33,7 +69,7 @@ export { s3client, s3bucket, s3host };
 
 export async function loadFiles() {
     if (useLocalStorage) {
-        fs.mkdirSync(localFilesDir, { recursive: true });
+        await localIO(() => fs.mkdir(localFilesDir, { recursive: true }));
         return;
     }
     await s3client.bucketExists(s3bucket);
@@ -57,8 +93,34 @@ export function getLocalFilesDir() {
 
 export async function putLocalFile(filePath: string, data: Buffer) {
     const fullPath = path.join(localFilesDir, filePath);
-    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-    fs.writeFileSync(fullPath, data);
+    await localIO(async signal => {
+        await fs.mkdir(path.dirname(fullPath), { recursive: true });
+        signal.throwIfAborted();
+        const temporary = `${fullPath}.${randomUUID()}.tmp`;
+        try {
+            await fs.writeFile(temporary, data, { flag: 'wx', signal });
+            signal.throwIfAborted();
+            await fs.rename(temporary, fullPath);
+        } finally {
+            await fs.rm(temporary, { force: true });
+        }
+    });
+}
+
+/** Read opaque local bytes without blocking unrelated HTTP/WebSocket work. */
+export function readLocalFile(filePath: string): Promise<Buffer> {
+    return localIO(signal => fs.readFile(path.join(localFilesDir, filePath), { signal }));
+}
+
+/** Only absence is false; inaccessible storage must remain a retryable error. */
+export async function localFileExists(filePath: string): Promise<boolean> {
+    try {
+        await localIO(() => fs.stat(path.join(localFilesDir, filePath)));
+        return true;
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+        throw error;
+    }
 }
 
 /**
@@ -70,9 +132,7 @@ export async function deleteSessionAttachments(sessionId: string): Promise<void>
     const prefix = `sessions/${sessionId}/attachments`;
     if (useLocalStorage) {
         const dir = path.join(localFilesDir, prefix);
-        if (fs.existsSync(dir)) {
-            fs.rmSync(dir, { recursive: true, force: true });
-        }
+        await localIO(() => fs.rm(dir, { recursive: true, force: true }));
         return;
     }
 
@@ -99,9 +159,7 @@ export async function deleteProjectAvatars(projectId: string): Promise<void> {
     const prefix = `projects/${projectId}/avatar`;
     if (useLocalStorage) {
         const dir = path.join(localFilesDir, prefix);
-        if (fs.existsSync(dir)) {
-            fs.rmSync(dir, { recursive: true, force: true });
-        }
+        await localIO(() => fs.rm(dir, { recursive: true, force: true }));
         return;
     }
 

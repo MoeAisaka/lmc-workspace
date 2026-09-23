@@ -9,12 +9,10 @@
  * Cleanup happens when sessions are deleted (Phase 8).
  */
 import { z } from 'zod';
-import * as fs from 'fs';
-import * as path from 'path';
 import * as crypto from 'crypto';
 import { Fastify } from '../types';
 import { db } from '@/storage/db';
-import { s3client, s3bucket, isLocalStorage, getLocalFilesDir, putLocalFile } from '@/storage/files';
+import { s3client, s3bucket, isLocalStorage, readLocalFile, putLocalFile } from '@/storage/files';
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB: LMC delivers arbitrary files to the session's Mac, not just images
 const PRESIGNED_TTL_SECONDS = 15 * 60; // 15 minutes (design spec)
@@ -287,12 +285,15 @@ export function attachmentRoutes(app: Fastify) {
         const ref = `sessions/${sessionId}/attachments/${attachmentFile}`;
 
         if (isLocalStorage()) {
-            const fullPath = path.join(getLocalFilesDir(), ref);
-            if (!fs.existsSync(fullPath)) {
-                return reply.code(404).send({ error: 'Attachment not found' });
+            try {
+                const bytes = await readLocalFile(ref);
+                return reply.type('application/octet-stream').send(bytes);
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+                    return reply.code(404).send({ error: 'Attachment not found' });
+                }
+                throw error;
             }
-            reply.header('Content-Type', 'application/octet-stream');
-            return reply.type('application/octet-stream').send(fs.readFileSync(fullPath));
         } else {
             // S3 mode: redirect to presigned GET URL (15 min, per design).
             const url = await s3client.presignedGetObject(s3bucket, ref, PRESIGNED_TTL_SECONDS);
