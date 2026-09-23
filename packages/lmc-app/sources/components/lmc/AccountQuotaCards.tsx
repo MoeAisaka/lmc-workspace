@@ -85,16 +85,20 @@ export function AccountQuotaCards({ snapshot, loading, failed, available, now, o
                 <View style={styles.provider}>
                     <ProviderIcon kind={engine} size={18} /><Text style={styles.name}>{engine === 'codex' ? 'Codex' : 'Claude'}</Text>
                     {p?.plan && <Text numberOfLines={1} style={styles.plan}>{p.plan.toUpperCase()}</Text>}
-                    {p?.capturedAt && <View style={styles.sampled} accessibilityLabel={t('localFeatures.quotaSampled', { date: date(p.capturedAt, now) })}>
-                        <Ionicons name="time-outline" size={11} color={theme.colors.textSecondary} />
-                        <Text style={[styles.note, { flexShrink: 1, textAlign: 'right' }]}>{date(p.capturedAt, now)}</Text>
-                    </View>}
+                    <View style={styles.sampled} accessibilityLabel={p?.capturedAt
+                        ? `${showStatus ? `${t('localFeatures.quotaStale')} · ` : ''}${t('localFeatures.quotaSampled', { date: date(p.capturedAt, now) })}`
+                        : t('localFeatures.quotaWaiting')}>
+                        <Ionicons name={showStatus && p?.capturedAt ? 'alert-circle-outline' : 'time-outline'} size={11} color={showStatus && p?.capturedAt ? warn : theme.colors.textSecondary} />
+                        <Text numberOfLines={1} style={[styles.note, { flexShrink: 1, textAlign: 'right' }, showStatus && p?.capturedAt ? { color: warn } : undefined]}>
+                            {p?.capturedAt ? date(p.capturedAt, now) : t('localFeatures.quotaWaiting')}
+                        </Text>
+                    </View>
                 </View>
                 <View style={styles.columns}>
                     {renderWindow(p?.windows.find(w => w.id === 'five_hour'), t('localFeatures.quotaFiveHour'))}
                     {renderWindow(weekly, t('localFeatures.quotaWeekly'), true, share ? [{ left: 0, width: share.covered, color: purple }, { left: weekly!.remaining!, width: share.overflow, color: warn }] : undefined)}
                 </View>
-                {(today !== null || engine === 'claude' || p?.resetCredits || showStatus) && <View style={styles.details}>
+                {(today !== null || engine === 'claude' || p?.resetCredits) && <View style={styles.details}>
                 {today !== null && <View style={styles.detailRow}>
                     <Text style={styles.note}>{t(today < 0 ? 'localFeatures.quotaOverLabel' : 'localFeatures.quotaTodayLabel')}</Text>
                     <Text style={[styles.note, styles.detailValue, today < 0 && { color: warn }]}>{t('localFeatures.quotaPoints', { points: n(Math.abs(today)) })}</Text>
@@ -114,10 +118,11 @@ export function AccountQuotaCards({ snapshot, loading, failed, available, now, o
                     <Text style={styles.note}>{t('localFeatures.quotaCredits', { count: p.resetCredits.count })}</Text>
                     {p.resetCredits.expiresAt && <Text style={[styles.note, styles.detailValue]}>{t('localFeatures.quotaExpires', { date: date(p.resetCredits.expiresAt, now) })}</Text>}
                 </View>}
-                {showStatus && <Text style={styles.note}>{p?.capturedAt ? t('localFeatures.quotaStale') : t('localFeatures.quotaWaiting')}</Text>}
                 </View>}
             </View>;
         })}
-        <Text style={styles.note}>{!available ? t('localFeatures.quotaOffline') : failed ? t('localFeatures.quotaRetryHint') : t('localFeatures.quotaShared')}</Text>
+        {/* Refresh failures keep the existing sample and layout. Status belongs
+            in the header/footer, not in extra rows that make both cards jump. */}
+        <Text numberOfLines={1} style={styles.note}>{!available ? t('localFeatures.quotaOffline') : failed ? t('localFeatures.quotaRetryHint') : t('localFeatures.quotaShared')}</Text>
     </View>;
 }

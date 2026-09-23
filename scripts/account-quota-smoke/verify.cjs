@@ -128,10 +128,25 @@ const server=http.createServer((req,res)=>{
    assert.equal(await legend.getByText(labels.gap,{exact:false}).count(),0);
    assert.equal(await page.getByRole('progressbar').count(),4);
   }
-  await page.evaluate(()=>{replyMode='failed'});
-  await page.getByRole('button',{name:labels.refresh,exact:true}).click();
-  await page.getByText(labels.retry,{exact:true}).waitFor();
-  assert.equal(await page.getByText('72%',{exact:true}).count(),1);
+  for(const width of [320,390,1000]){
+   await page.setViewportSize({width,height:width===1000?1100:740});
+   await page.evaluate(()=>{replyMode='success';closeQuotaMenu()});
+   await page.waitForTimeout(180);
+   await page.getByRole('button',{name:labels.account,exact:true}).click();
+   await page.getByText(labels.gap,{exact:false}).waitFor();
+   // Animated parent transforms can introduce sub-pixel floating point noise.
+   const sizes=async()=>Promise.all(['quota-codex','quota-claude','account-quota-cards'].map(async id=>Math.round((await page.getByTestId(id).boundingBox()).height*10)/10));
+   const before=await sizes();
+   await page.evaluate(()=>{replyMode='failed'});
+   await page.getByRole('button',{name:labels.refresh,exact:true}).click();
+   await page.getByText(labels.retry,{exact:true}).waitFor();
+   assert.equal(await page.getByText('72%',{exact:true}).count(),1);
+   assert.deepEqual(await sizes(),before,`refresh failure must not stretch quota cards at ${width}px`);
+   await page.evaluate(()=>{replyMode='success'});
+   await page.getByRole('button',{name:labels.refresh,exact:true}).click();
+   await page.getByText(labels.retry,{exact:true}).waitFor({state:'hidden'});
+   assert.deepEqual(await sizes(),before,`recovery must not shrink quota cards at ${width}px`);
+  }
   await page.evaluate(()=>{replyMode='missing'});
   await page.getByRole('button',{name:labels.refresh,exact:true}).click();
   await page.waitForTimeout(100);
@@ -140,6 +155,6 @@ const server=http.createServer((req,res)=>{
   assert.equal(await page.getByRole('progressbar').count(),4,'Fable shares the weekly bar, without a separate progress bar');
   assert.ok((await page.getByTestId('quota-fable-legend').innerText()).includes('Fable —'));
   assert.deepEqual(errors,[]);
-  console.log('PASS real AccountMenu + quota hook, light/dark 320/390/1000, scrolling, refresh failure preserves data, missing is not zero');
+  console.log('PASS real AccountMenu + quota hook, light/dark 320/390/1000, scrolling, refresh failure preserves data and height, missing is not zero');
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exit(1)});
