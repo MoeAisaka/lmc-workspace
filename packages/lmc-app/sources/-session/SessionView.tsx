@@ -847,6 +847,7 @@ export function SessionViewLoaded({
     const isLandscape = useIsLandscape();
     const deviceType = useDeviceType();
     const isTablet = useIsTablet();
+    const { width: inputWindowWidth } = useWindowDimensions();
     // Only the portrait phone chat uses an overlay dock. Tablet, desktop,
     // landscape, and embedded views retain their existing split layout.
     // The composer floats over the transcript, which scrolls beneath it and
@@ -914,7 +915,8 @@ export function SessionViewLoaded({
     const pendingCommunications = useSessionPendingCommunications(sessionId);
     const acknowledgedCliVersions = useLocalSetting('acknowledgedCliVersions');
     const zenMode = useLocalSetting('zenMode');
-    const sessionInputHorizontalPadding = Platform.OS === 'web' || isRunningOnMac() || isTablet ? 12 : 8;
+    // Match AgentInput's viewport breakpoint, including a narrow web browser.
+    const sessionInputHorizontalPadding = inputWindowWidth > 700 ? 12 : 8;
     const chatListTopContentInset = embedded || (isLandscape && deviceType === 'phone')
         ? 12
         // Web: clear the top bar (or the floating pills on a phone), plus air.
