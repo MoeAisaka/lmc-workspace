@@ -93,6 +93,11 @@ function createMockProcess(opts?: {
         } catch {}
         return origWrite(data, ...args);
     };
+    stdin.once('finish', () => {
+        proc.exitCode = 0;
+        proc.emit('exit', 0, null);
+        proc.emit('close', 0, null);
+    });
     return proc;
 }
 
@@ -125,6 +130,8 @@ describe('CodexAppServerClient sandbox integration', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        // All child PIDs in this file are synthetic; never signal host processes.
+        vi.spyOn(process, 'kill').mockImplementation(() => true);
         process.env.RUST_LOG = originalRustLog;
         mockExecSync.mockReturnValue('codex-cli 0.107.0');
         mockInitializeSandbox.mockResolvedValue(mockSandboxCleanup);
@@ -133,6 +140,7 @@ describe('CodexAppServerClient sandbox integration', () => {
     });
 
     afterAll(() => {
+        vi.restoreAllMocks();
         process.env.RUST_LOG = originalRustLog;
     });
 

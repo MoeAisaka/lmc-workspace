@@ -36,10 +36,11 @@ export function queueSteerState(metadata?: Metadata | null): SteerState {
 }
 
 /** Why the runner would not steer a queued prompt, as something to show a person. */
-export function steerFailureKey(reason: string | undefined): 'lmc.queue.steerUnavailable' | 'lmc.queue.steerTooLate' | 'lmc.queue.steerUnconfirmed' | 'lmc.queue.steerNotNow' {
+export function steerFailureKey(reason: string | undefined): 'lmc.queue.steerUnavailable' | 'lmc.queue.steerTooLate' | 'lmc.queue.steerUnconfirmed' | 'lmc.queue.steerNotNow' | 'lmc.queue.steerAttachments' {
     if (reason === 'unsupported') return 'lmc.queue.steerUnavailable';
     if (reason === 'gone') return 'lmc.queue.steerTooLate';
     if (reason === 'unconfirmed') return 'lmc.queue.steerUnconfirmed';
+    if (reason === 'attachments') return 'lmc.queue.steerAttachments';
     return 'lmc.queue.steerNotNow';
 }
 

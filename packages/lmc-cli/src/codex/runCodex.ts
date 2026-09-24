@@ -56,6 +56,7 @@ import { emitReadyIfIdle } from './emitReadyIfIdle';
 import { enqueueCodexUserText, isCodexClearText } from './codexClearCommand';
 import { downloadCodexFileEventAttachment } from './utils/attachmentEvents';
 import { prepareCodexImageInputItems } from './utils/imageInput';
+import { steerCodexPrompt } from './steerPrompt';
 import { createSerialAsyncHandler } from './utils/serialAsyncHandler';
 import { buildCodexThreadBackfillEnvelopes } from './utils/threadImageBackfill';
 import { threadHasLmcSystemBlock } from './utils/threadHasLmcSystem';
@@ -427,7 +428,7 @@ export async function runCodex(opts: {
             return;
         }
         // Steering belongs to the running turn only when nothing about it
-        // changes: same settings, no attachments, not a command, nothing
+        // changes: same settings, not a command, nothing
         // already waiting ahead. Apps that predate `intent` send none and get
         // the old behaviour (steer when possible); an explicit 'queue' never
         // steers, and an explicit 'steer' that cannot be honoured says why.
@@ -436,12 +437,15 @@ export async function runCodex(opts: {
             // existing turn's old sandbox policy.
             && activeTurnIsHub === isHub(session.getMetadata())
             && messageQueue.size() === 0
-            && attachmentsForThisMessage.length === 0
-            && message.content.text.trim().length > 0
+            && (attachmentsForThisMessage.length === 0 || intent === 'steer')
+            && (message.content.text.trim().length > 0 || attachmentsForThisMessage.length > 0)
             && !message.content.text.trimStart().startsWith('/');
         if ((intent === 'steer' || intent === undefined) && steerEligible) {
             try {
-                if (await client.steerTurn(message.content.text)) {
+                if ((await steerCodexPrompt(client, message.content.text, attachmentsForThisMessage, {
+                    sessionId: session.sessionId,
+                    canSteer: () => activeTurnModeHash === hashCodexEnhancedMode(enhancedMode) && activeTurnIsHub === isHub(session.getMetadata()),
+                })).steered) {
                     if (client.hasPendingTurnCompletion()) {
                         thinking = true;
                         session.keepAlive(true, 'remote');
@@ -464,7 +468,7 @@ export async function runCodex(opts: {
             key: queueKey,
         });
         if (intent === 'steer' && turnRunning && enqueueResult === 'queued') {
-            session.sendSessionEvent({ type: 'message', message: '这条无法补充进当前回合（设置有变、带附件、是命令，或前面还有排队消息），已排队，本轮结束后处理。' });
+            session.sendSessionEvent({ type: 'message', message: '这条暂时无法补充进当前回合（设置变化、附件未能读取、命令或前面还有排队消息），仍在队列中等本轮结束。' });
         } else if (intent === undefined && activeTurnModeHash !== null && enqueueResult === 'queued') {
             // Older apps have no queue strip; the transcript is their only notice.
             session.sendSessionEvent({ type: 'message', message: '回复已排队，将在当前轮次结束后发送（含附件、命令或配置变化的消息不插入当前轮次）。' });
@@ -625,8 +629,8 @@ export async function runCodex(opts: {
                         session.sendSessionEvent({
                             type: 'message',
                             message: abortResult.resumedThread
-                                ? 'Force-stopped active task after interrupt timeout. Codex backend was restarted and the previous thread was resumed.'
-                                : 'Force-stopped active task after interrupt timeout. Codex backend was restarted, but the previous thread could not be resumed.',
+                                ? '已停止当前回合并恢复原 Codex 会话，接下来处理排队消息。'
+                                : '当前回合已停止，原 Codex 会话尚未恢复。会话标识和排队消息已保留，正在重试恢复。',
                         });
                     }
                 }
@@ -705,7 +709,7 @@ export async function runCodex(opts: {
         interrupt: handleAbort,
         // Same conditions the send path checks before steering: the running
         // turn must still be the one this prompt was written against, and the
-        // prompt must be plain text. Each refusal names itself so the app can
+        // prompt may include supported images. Each refusal names itself so the app can
         // say which condition failed rather than "not possible".
         steer: async (item) => {
             if (activeTurnModeHash === null) return { steered: false, reason: 'idle' };
@@ -713,11 +717,13 @@ export async function runCodex(opts: {
             // A role change needs a new guarded turn, not a steer into the
             // existing turn's old sandbox policy.
             if (activeTurnIsHub !== isHub(session.getMetadata())) return { steered: false, reason: 'settings' };
-            if (item.attachments && item.attachments.length > 0) return { steered: false, reason: 'attachments' };
             if (item.isolate || item.message.trimStart().startsWith('/')) return { steered: false, reason: 'command' };
-            if (item.message.trim().length === 0) return { steered: false, reason: 'command' };
             try {
-                if (!await client.steerTurn(item.message)) return { steered: false, reason: 'refused' };
+                const outcome = await steerCodexPrompt(client, item.message, item.attachments, {
+                    sessionId: session.sessionId,
+                    canSteer: () => activeTurnModeHash === hashCodexEnhancedMode(item.mode) && activeTurnIsHub === isHub(session.getMetadata()),
+                });
+                if (!outcome.steered) return outcome;
             } catch {
                 // A lost response is not evidence of failed delivery. Never
                 // put it back where it would be sent a second time.
@@ -1247,8 +1253,10 @@ export async function runCodex(opts: {
         }
 
         let pending: { message: string; mode: EnhancedMode; isolate: boolean; hash: string; attachments?: PendingAttachment[] } | null = null;
+        let recoveryNoticeSent = false;
 
         while (!shouldExit) {
+            if (abortInProgress) await abortInProgress;
             logActiveHandles('loop-top');
             if (!configurationBlocked && !pending && messageQueue.size() === 0) {
                 try {
@@ -1312,6 +1320,22 @@ export async function runCodex(opts: {
                 }
                 if (shouldExit) break;
                 if (!configurationBlocked && configurationQueue.hasPending && !thinking && messageQueue.size() === 0) continue;
+            }
+
+            // Recovery must succeed BEFORE the queue emits a release receipt.
+            // Otherwise an inserted reply disappears from the strip while its
+            // provider thread is still unavailable.
+            try {
+                await client.ensureThreadReady();
+                recoveryNoticeSent = false;
+            } catch (error) {
+                logger.debug('[Codex] Waiting for original thread recovery:', error);
+                if (!recoveryNoticeSent) {
+                    session.sendSessionEvent({ type: 'message', message: '原 Codex 会话暂时无法恢复，排队消息仍保留；正在重试，不会新建上下文。' });
+                    recoveryNoticeSent = true;
+                }
+                await new Promise(resolve => setTimeout(resolve, 5_000));
+                continue;
             }
 
             let message: { message: string; mode: EnhancedMode; isolate: boolean; hash: string; attachments?: PendingAttachment[] } | null = pending;

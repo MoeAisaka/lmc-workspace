@@ -18,7 +18,8 @@ describe('steerFailureKey', () => {
         expect(steerFailureKey('unsupported')).toBe('lmc.queue.steerUnavailable');
         expect(steerFailureKey('gone')).toBe('lmc.queue.steerTooLate');
         expect(steerFailureKey('unconfirmed')).toBe('lmc.queue.steerUnconfirmed');
-        for (const reason of ['settings', 'attachments', 'command', 'refused', 'idle', undefined]) {
+        expect(steerFailureKey('attachments')).toBe('lmc.queue.steerAttachments');
+        for (const reason of ['settings', 'command', 'refused', 'idle', undefined]) {
             expect(steerFailureKey(reason)).toBe('lmc.queue.steerNotNow');
         }
     });

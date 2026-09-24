@@ -64,6 +64,8 @@ type PendingRequest = {
     epoch: number;
 };
 
+type AbortResult = { hadActiveTurn: boolean; aborted: boolean; forcedRestart: boolean; resumedThread: boolean };
+
 type LegacyPatchChanges = Record<string, Record<string, unknown>>;
 
 export type ApprovalHandler = (params: {
@@ -224,6 +226,9 @@ export class CodexAppServerClient {
     private pending = new Map<number, PendingRequest>();
     private processEpoch = 0;
     private connected = false;
+    private processShutdown: Promise<void> | null = null;
+    private threadNeedsResume = false;
+    private pendingAbort: Promise<AbortResult> | null = null;
     private sandboxConfig?: SandboxConfig;
     private sandboxCleanup: (() => Promise<void>) | null = null;
     public sandboxEnabled = false;
@@ -631,6 +636,21 @@ export class CodexAppServerClient {
     async connect(): Promise<void> {
         if (this.connected) return;
 
+        // Ending stdin / sending SIGTERM only REQUESTS shutdown. Starting a
+        // replacement before the old process closes races its rollout writer
+        // lock. Keep this barrier across failed recovery attempts as well.
+        if (this.processShutdown) {
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            try {
+                await Promise.race([
+                    this.processShutdown,
+                    new Promise<never>((_, reject) => {
+                        timer = setTimeout(() => reject(new Error('Previous Codex process has not exited yet')), 5_000);
+                    }),
+                ]);
+            } finally { if (timer) clearTimeout(timer); }
+        }
+
         if (!isAppServerAvailable()) {
             throw new Error(
                 'Codex CLI is not installed\n\n' +
@@ -703,6 +723,7 @@ export class CodexAppServerClient {
                 return;
             }
             this.connected = false;
+            this.threadNeedsResume = this._threadId !== null;
             // Reject all pending requests
             for (const [id, req] of this.pending) {
                 if (req.epoch !== epoch) continue;
@@ -755,6 +776,16 @@ export class CodexAppServerClient {
         this.readline?.close();
         this.readline = null;
 
+        if (proc && proc.exitCode == null && proc.signalCode == null) {
+            const shutdown = new Promise<void>(resolve => {
+                proc.once('close', () => {
+                    if (this.processShutdown === shutdown) this.processShutdown = null;
+                    resolve();
+                });
+            });
+            this.processShutdown = shutdown;
+        }
+
         try {
             proc?.stdin?.end();
             if (pid && process.platform !== 'win32') {
@@ -789,6 +820,7 @@ export class CodexAppServerClient {
             this._threadId = null;
             this.threadDefaults = null;
         }
+        this.threadNeedsResume = this._threadId !== null;
 
         // Fail in-flight requests from this process generation.
         for (const [id, req] of this.pending) {
@@ -892,6 +924,7 @@ export class CodexAppServerClient {
 
         const result = await this.request('thread/start', params) as NewConversationResponse;
         this._threadId = result.thread.id;
+        this.threadNeedsResume = false;
         this._turnId = null;
         this.rawSubagentActivitySignaturesByItemId.clear();
         this.rememberThreadDefaults(opts);
@@ -931,6 +964,7 @@ export class CodexAppServerClient {
 
         const result = await this.request('thread/resume', params) as ResumeConversationResponse;
         this._threadId = result.thread.id;
+        this.threadNeedsResume = false;
         this._turnId = null;
         this.rawSubagentActivitySignaturesByItemId.clear();
         this.rememberThreadDefaults({
@@ -1063,22 +1097,28 @@ export class CodexAppServerClient {
 
     async reconnectAndResumeThread(): Promise<boolean> {
         const threadId = this._threadId;
-        await this.disconnectInternal({ preserveThreadState: !!threadId });
-        await this.connect();
-
-        if (!threadId) {
-            return false;
-        }
-
         try {
+            await this.disconnectInternal({ preserveThreadState: !!threadId });
+            await this.connect();
+            if (!threadId) return false;
             await this.resumeThread({ threadId });
             return true;
         } catch (error) {
             logger.warn('[CodexAppServer] Failed to resume thread after reconnect', error);
-            this._threadId = null;
-            this.threadDefaults = null;
+            // A failed resume must NEVER authorize a fresh thread. Preserve
+            // the identity and defaults so queued input can retry this thread.
+            this._threadId = threadId;
+            this.threadNeedsResume = threadId !== null;
             return false;
         }
+    }
+
+    /** Call before taking queued input; failure leaves it waiting in the UI. */
+    async ensureThreadReady(): Promise<void> {
+        if (this.pendingAbort) await this.pendingAbort;
+        if (!this.threadNeedsResume) return;
+        await this.connect();
+        await this.resumeThread();
     }
 
     // ─── Turn management ────────────────────────────────────────
@@ -1121,13 +1161,11 @@ export class CodexAppServerClient {
         this.resolvePendingTurn(aborted);
     }
 
-    private async waitForTurnCompletion(timeoutMs: number): Promise<boolean> {
-        if (!this.hasPendingTurnCompletion()) {
-            return true;
-        }
-
+    private async waitForTurnCompletion(timeoutMs: number, target: NonNullable<CodexAppServerClient['pendingTurnCompletion']>): Promise<boolean> {
         const deadline = Date.now() + Math.max(0, timeoutMs);
-        while (this.hasPendingTurnCompletion()) {
+        // Observe the captured turn, not whichever turn happens to be current
+        // on the next poll. A queued follow-up can begin between two polls.
+        while (this.pendingTurnCompletion === target) {
             if (Date.now() >= deadline) {
                 return false;
             }
@@ -1143,11 +1181,19 @@ export class CodexAppServerClient {
     async abortTurnWithFallback(opts?: {
         gracePeriodMs?: number;
         forceRestartOnTimeout?: boolean;
-    }): Promise<{ hadActiveTurn: boolean; aborted: boolean; forcedRestart: boolean; resumedThread: boolean }> {
-        const hadActiveTurn = this.hasPendingTurnCompletion();
+    }): Promise<AbortResult> {
+        if (this.pendingAbort) return this.pendingAbort;
+        const operation = this.abortCurrentTurn(opts);
+        this.pendingAbort = operation;
+        try { return await operation; }
+        finally { if (this.pendingAbort === operation) this.pendingAbort = null; }
+    }
+
+    private async abortCurrentTurn(opts?: { gracePeriodMs?: number; forceRestartOnTimeout?: boolean }): Promise<AbortResult> {
+        const target = this.pendingTurnCompletion;
 
         // No active turn pending in this client call-site.
-        if (!hadActiveTurn) {
+        if (!target) {
             return { hadActiveTurn: false, aborted: false, forcedRestart: false, resumedThread: false };
         }
 
@@ -1158,7 +1204,7 @@ export class CodexAppServerClient {
         // is the mechanism that actually makes Stop Execution reliable.
         void this.interruptTurn({ timeoutMs: Math.max(1, gracePeriodMs) });
 
-        const settled = await this.waitForTurnCompletion(gracePeriodMs);
+        const settled = await this.waitForTurnCompletion(gracePeriodMs, target);
         if (settled) {
             return { hadActiveTurn: true, aborted: true, forcedRestart: false, resumedThread: false };
         }
@@ -1258,6 +1304,9 @@ export class CodexAppServerClient {
         extraInputItems?: InputItem[];
         turnTimeoutMs?: number;
     }): Promise<{ aborted: boolean }> {
+        // Includes the entire interrupt + shutdown + resume operation, not
+        // just the interrupt RPC acknowledgement.
+        await this.ensureThreadReady();
         // Wait for any in-flight interruptTurn() to complete before starting a new
         // turn. Otherwise the stale turn/interrupt RPC can reach Codex after our
         // turn/start and abort the wrong turn.
@@ -1309,14 +1358,17 @@ export class CodexAppServerClient {
     }
 
     /** False means no delivery; uncertain RPC failures throw and must not be replayed. */
-    async steerTurn(text: string): Promise<boolean> {
+    async steerTurn(text: string, opts?: { extraInputItems?: InputItem[]; expectedTurnId?: string }): Promise<boolean> {
         const turnId = this.pendingTurnCompletion?.turnId ?? this._turnId;
-        if (!this.pendingTurnCompletion || !this._threadId || !turnId) return false;
+        if (this.pendingAbort || this.threadNeedsResume || !this.pendingTurnCompletion || !this._threadId || !turnId) return false;
+        if (opts?.expectedTurnId && turnId !== opts.expectedTurnId) return false;
+        const input: InputItem[] = [...(text.length ? [{ type: 'text' as const, text }] : []), ...(opts?.extraInputItems ?? [])];
+        if (!input.length) return false;
         try {
             const result = await this.request('turn/steer', {
                 threadId: this._threadId,
                 expectedTurnId: turnId,
-                input: [{ type: 'text', text }],
+                input,
             }) as { turnId?: string };
             if (result?.turnId !== turnId) throw new Error('Reply acceptance could not be confirmed');
             return true;
@@ -1365,6 +1417,7 @@ export class CodexAppServerClient {
         );
         this.resolvePendingTurn(true);
         this._threadId = null;
+        this.threadNeedsResume = false;
         this._turnId = null;
         this.threadDefaults = null;
         this.completedTurnIds.clear();
