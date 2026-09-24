@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
+import { MessageCopyButton } from '@/components/MessageCopyButton';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import type { QueueMode, QueuedPrompt, SteerState } from '@/sync/turnQueue';
@@ -44,6 +45,7 @@ export const QueueStrip = React.memo(function QueueStrip(props: QueueStripProps)
                 <View key={item.key} style={styles.row}>
                     {item.awaitingAgent ? <ActivityIndicator size={14} color={colors.placeholder} /> : <Ionicons name="time-outline" size={14} color={colors.placeholder} />}
                     <Text numberOfLines={1} style={styles.preview}>{item.preview}</Text>
+                    <MessageCopyButton text={item.copyText} compact />
                     <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={t('lmc.queue.steer')}

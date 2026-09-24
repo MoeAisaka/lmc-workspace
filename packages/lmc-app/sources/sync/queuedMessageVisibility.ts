@@ -44,7 +44,17 @@ function queueReceipts(messages: Message[]) {
  */
 export function pendingQueuePrompts(messages: Message[], queue?: readonly QueuedPrompt[] | null): QueuedPrompt[] {
     const { released, withdrawn } = queueReceipts(messages);
-    const items = new Map((queue ?? []).filter(item => !released.has(item.key) && !withdrawn.has(item.key)).map(item => [item.key, item]));
+    const fullText = new Map<string, string>();
+    for (const message of messages) {
+        if (message.kind === 'user-text') {
+            fullText.set(message.meta?.queueKey ?? message.localId ?? message.id, message.displayText ?? message.text);
+        }
+    }
+    // The agent publishes only a short preview. Join by durable identity, even
+    // on legacy queues; never copy that preview or match unrelated equal text.
+    const items = new Map<string, QueuedPrompt>((queue ?? [])
+        .filter(item => !released.has(item.key) && !withdrawn.has(item.key))
+        .map(item => [item.key, { ...item, copyText: fullText.get(item.key) }]));
     const awaiting = messages.filter(message => message.kind === 'user-text' && message.meta?.queueKey)
         .sort((a, b) => a.createdAt - b.createdAt);
     for (const message of awaiting) {
@@ -52,7 +62,7 @@ export function pendingQueuePrompts(messages: Message[], queue?: readonly Queued
         const key = message.meta!.queueKey!;
         if (items.has(key) || released.has(key) || withdrawn.has(key)) continue;
         const preview = (message.displayText ?? message.text).replace(/\s+/g, ' ').trim();
-        items.set(key, { key, preview: preview.length > 120 ? preview.slice(0, 119) + '…' : preview, createdAt: message.createdAt, awaitingAgent: true });
+        items.set(key, { key, preview: preview.length > 120 ? preview.slice(0, 119) + '…' : preview, createdAt: message.createdAt, awaitingAgent: true, copyText: fullText.get(key) });
     }
     return [...items.values()];
 }

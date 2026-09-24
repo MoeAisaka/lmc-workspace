@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { pendingQueuePrompts, visibleTranscriptMessages } from './queuedMessageVisibility';
 import { normalizeRawMessage } from './typesRaw';
 import { createReducer, reducer } from './reducer/reducer';
-import type { Message } from './typesMessage';
+import type { Message, UserTextMessage } from './typesMessage';
 
-const user = (id: string, localId: string | null, text = 'same prompt'): Message => ({
+const user = (id: string, localId: string | null, text = 'same prompt'): UserTextMessage => ({
     kind: 'user-text', id, localId, text, createdAt: 1,
 });
 
@@ -21,6 +21,38 @@ describe('pending prompt transcript visibility', () => {
         }
         expect(pendingQueuePrompts(messages, [])[0].awaitingAgent).toBe(true);
         expect(pendingQueuePrompts(messages, remoteQueue)[0].awaitingAgent).toBeUndefined();
+    });
+
+    it('copies complete text with whitespace before and after the agent acknowledges it', () => {
+        const text = `  **完整原文**\n\n${'长消息 '.repeat(60)}\n最后一行  `;
+        const message = { ...queued(), text };
+        for (const queue of [undefined, [], remoteQueue]) {
+            const [item] = pendingQueuePrompts([message], queue);
+            expect(item.copyText).toBe(text);
+            expect(item.preview.length).toBeLessThanOrEqual(120);
+            expect(visibleTranscriptMessages([message], queue)).toEqual([]);
+        }
+        expect(remoteQueue[0]).not.toHaveProperty('copyText');
+    });
+
+    it('waits for the matching message instead of copying a truncated or equal preview', () => {
+        expect(pendingQueuePrompts([], remoteQueue)[0].copyText).toBeUndefined();
+        const unrelated = user('other', 'other', 'same prompt');
+        expect(pendingQueuePrompts([unrelated], remoteQueue)[0].copyText).toBeUndefined();
+        expect(pendingQueuePrompts([unrelated, user('stored', 'key', 'full prompt\nlast line')], remoteQueue)[0].copyText)
+            .toBe('full prompt\nlast line');
+    });
+
+    it('uses sender-facing text, preserving an empty caption without copying internal framing', () => {
+        const message: Message = { ...queued(), text: 'internal engine framing', displayText: 'visible text\nnext line' };
+        expect(pendingQueuePrompts([message], remoteQueue)[0].copyText).toBe('visible text\nnext line');
+        expect(pendingQueuePrompts([{ ...message, displayText: '' }], remoteQueue)[0].copyText).toBe('');
+    });
+
+    it('supports message id and durable queue key without requiring a local id', () => {
+        expect(pendingQueuePrompts([user('key', null, 'old queue')], remoteQueue)[0].copyText).toBe('old queue');
+        const message = { ...user('derived-id', null, 'durable queue'), meta: { queueKey: 'key' } };
+        expect(pendingQueuePrompts([message], remoteQueue)[0].copyText).toBe('durable queue');
     });
 
     it('requires a release receipt, including when consumption beats the queue snapshot', () => {

@@ -3,7 +3,6 @@ import * as React from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
-import * as Clipboard from 'expo-clipboard';
 import { MarkdownView } from "./markdown/MarkdownView";
 import { t } from '@/text';
 import { Message, UserTextMessage, AgentTextMessage, ToolCallMessage } from "@/sync/typesMessage";
@@ -17,6 +16,7 @@ import { layout } from "./layout";
 import { parseLocalCommandMessage, isUserSlashCommandEcho } from './parseLocalCommandMessage';
 import { resolveUserMessageBubbleColor } from '@/utils/userMessageBubbleColor';
 import { LongPressCopyable } from './LongPressCopyable';
+import { MessageCopyButton } from './MessageCopyButton';
 import { useMessageFlavor } from './MessageEngineContext';
 import { isHandoffDelivery } from '@/sync/engineHandoff';
 import { isEngineSwitchRequest, switchDurationEndingAt } from '@/sync/engineSwitchProgress';
@@ -185,6 +185,7 @@ function UserTextBlock(props: {
             <Text style={styles.goalSentText}>{t('message.sentAsGoal')}</Text>
           </View>
         </LongPressCopyable>
+        <MessageCopyButton text={parsed.goal} style={styles.userCopyAction} />
       </View>
     );
   }
@@ -202,19 +203,21 @@ function UserTextBlock(props: {
             <Text style={styles.commandChipText}>/{parsed.commandName}</Text>
           </View>
         </LongPressCopyable>
+        <MessageCopyButton text={commandText} style={styles.userCopyAction} />
       </View>
     );
   }
 
   return (
     <View style={styles.userMessageContainer}>
-      {/* Long-press copies the whole message through our own menu rather than the
-          OS selection callout. Rewind remains in session actions. */}
+      {/* Native long-press remains available; the visible button also works in
+          phone browsers, where the OS can swallow long-press gestures. */}
       <LongPressCopyable style={styles.userCopyTarget} text={parsed.text}>
         <View style={[styles.userMessageBubble, styles.userMessageBubbleSolid, bubbleStyle]}>
           <MarkdownView externalCopyHandler markdown={parsed.text} onOptionPress={handleOptionPress} sessionId={props.sessionId} />
         </View>
       </LongPressCopyable>
+      {parsed.text ? <MessageCopyButton text={parsed.text} style={styles.userCopyAction} /> : null}
     </View>
   );
 }
@@ -238,53 +241,6 @@ function AgentTextBlock(props: {
       <MarkdownView markdown={props.message.text} inferOptions onOptionPress={handleOptionPress} sessionId={props.sessionId} />
       {props.copyText ? <MessageCopyButton text={props.copyText} /> : null}
     </View>
-  );
-}
-
-// The glyph is deliberately small, so widen the touch target well past it.
-const COPY_HIT_SLOP = { top: 14, bottom: 14, left: 14, right: 20 };
-
-function MessageCopyButton(props: { text: string }) {
-  const { theme } = useUnistyles();
-  const [copied, setCopied] = React.useState(false);
-  const resetTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  React.useEffect(() => () => {
-    if (resetTimerRef.current) {
-      clearTimeout(resetTimerRef.current);
-    }
-  }, []);
-
-  const handleCopy = React.useCallback(async () => {
-    try {
-      await Clipboard.setStringAsync(props.text);
-      setCopied(true);
-      if (resetTimerRef.current) {
-        clearTimeout(resetTimerRef.current);
-      }
-      resetTimerRef.current = setTimeout(() => setCopied(false), 1500);
-    } catch (error) {
-      console.error('Failed to copy message:', error);
-    }
-  }, [props.text]);
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={copied ? t('common.copied') : t('common.copy')}
-      hitSlop={COPY_HIT_SLOP}
-      onPress={handleCopy}
-      style={({ pressed }) => [
-        styles.copyAction,
-        pressed && styles.copyActionPressed,
-      ]}
-    >
-      <Ionicons
-        name={copied ? 'checkmark' : 'copy-outline'}
-        size={16}
-        color={theme.colors.text}
-      />
-    </Pressable>
   );
 }
 
@@ -496,18 +452,8 @@ const styles = StyleSheet.create((theme) => ({
     borderRadius: 20,
     maxWidth: '100%',
   },
-  copyAction: {
-    // No width, so the box shrink-wraps the glyph and its left edge lands on the
-    // same x as the markdown text above it. hitSlop carries the touch target.
-    alignSelf: 'flex-start',
-    height: 20,
-    justifyContent: 'center',
-    // Sits fully below the last markdown block's trailing margin, clear of the
-    // reply text.
-    marginTop: 0,
-  },
-  copyActionPressed: {
-    opacity: 0.5,
+  userCopyAction: {
+    alignSelf: 'flex-end',
   },
   userCopyTarget: {
     alignItems: 'flex-end',
