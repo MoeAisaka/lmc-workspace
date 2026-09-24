@@ -5,6 +5,7 @@ import { generateThumbhash } from '@/utils/thumbhash';
 import { attachmentSizeLimit, MAX_IMAGES_PER_MESSAGE } from '@/sync/attachmentTypes';
 import type { AttachmentPreview } from '@/sync/attachmentTypes';
 import { t } from '@/text';
+import { getFilesFromClipboard, getFilesFromDrop } from '@/utils/pasteImages.web';
 
 /**
  * Pasting and dropping files onto a composer.
@@ -67,7 +68,9 @@ export function useComposerFileTransfer(
                 || (active instanceof HTMLElement && active.isContentEditable);
             if (!isEditableTarget) return;
 
-            const { getFilesFromClipboard } = await import('@/utils/pasteImages.web');
+            // Clipboard payloads are readable only during event dispatch. Take
+            // File references and cancel native insertion before any await;
+            // keyboard paste clears clipboardData once this handler yields.
             const files = getFilesFromClipboard(event);
             if (!files.length) return;
             event.preventDefault();
@@ -92,7 +95,7 @@ export function useComposerFileTransfer(
         const handleDrop = async (event: DragEvent) => {
             if (!isFileDrag(event)) return;
             event.preventDefault();
-            const { getFilesFromDrop } = await import('@/utils/pasteImages.web');
+            // Drop data has the same event-scoped lifetime as clipboard data.
             const files = getFilesFromDrop(event);
             if (!files.length) return;
             await accept(files, 'drop');

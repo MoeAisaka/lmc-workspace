@@ -432,7 +432,7 @@ export async function runCodex(opts: {
         // already waiting ahead. Apps that predate `intent` send none and get
         // the old behaviour (steer when possible); an explicit 'queue' never
         // steers, and an explicit 'steer' that cannot be honoured says why.
-        const steerEligible = activeTurnModeHash === hashCodexEnhancedMode(enhancedMode)
+        const steerEligible = activeTurnModeHash === hashCodexEnhancedMode(enhancedMode, 'steer')
             // A role change needs a new guarded turn, not a steer into the
             // existing turn's old sandbox policy.
             && activeTurnIsHub === isHub(session.getMetadata())
@@ -444,7 +444,7 @@ export async function runCodex(opts: {
             try {
                 if ((await steerCodexPrompt(client, message.content.text, attachmentsForThisMessage, {
                     sessionId: session.sessionId,
-                    canSteer: () => activeTurnModeHash === hashCodexEnhancedMode(enhancedMode) && activeTurnIsHub === isHub(session.getMetadata()),
+                    canSteer: () => activeTurnModeHash === hashCodexEnhancedMode(enhancedMode, 'steer') && activeTurnIsHub === isHub(session.getMetadata()),
                 })).steered) {
                     if (client.hasPendingTurnCompletion()) {
                         thinking = true;
@@ -713,7 +713,7 @@ export async function runCodex(opts: {
         // say which condition failed rather than "not possible".
         steer: async (item) => {
             if (activeTurnModeHash === null) return { steered: false, reason: 'idle' };
-            if (activeTurnModeHash !== hashCodexEnhancedMode(item.mode)) return { steered: false, reason: 'settings' };
+            if (activeTurnModeHash !== hashCodexEnhancedMode(item.mode, 'steer')) return { steered: false, reason: 'settings' };
             // A role change needs a new guarded turn, not a steer into the
             // existing turn's old sandbox policy.
             if (activeTurnIsHub !== isHub(session.getMetadata())) return { steered: false, reason: 'settings' };
@@ -721,7 +721,7 @@ export async function runCodex(opts: {
             try {
                 const outcome = await steerCodexPrompt(client, item.message, item.attachments, {
                     sessionId: session.sessionId,
-                    canSteer: () => activeTurnModeHash === hashCodexEnhancedMode(item.mode) && activeTurnIsHub === isHub(session.getMetadata()),
+                    canSteer: () => activeTurnModeHash === hashCodexEnhancedMode(item.mode, 'steer') && activeTurnIsHub === isHub(session.getMetadata()),
                 });
                 if (!outcome.steered) return outcome;
             } catch {
@@ -1476,7 +1476,7 @@ export async function runCodex(opts: {
                     includeTitleInstruction: first,
                 });
 
-                activeTurnModeHash = hashCodexEnhancedMode(message.mode);
+                activeTurnModeHash = hashCodexEnhancedMode(message.mode, 'steer');
                 const result = await client.sendTurnAndWait(turnPrompt, {
                     model: message.mode.model,
                     approvalPolicy: executionPolicy.approvalPolicy,

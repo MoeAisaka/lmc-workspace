@@ -13,11 +13,15 @@ export interface CodexEnhancedMode {
     effort?: ReasoningEffort;
 }
 
-export function hashCodexEnhancedMode(mode: CodexEnhancedMode): string {
+export function hashCodexEnhancedMode(mode: CodexEnhancedMode, purpose: 'queue' | 'steer' = 'queue'): string {
     return hashObject({
         permissionMode: mode.permissionMode,
         model: mode.model,
-        appendSystemPrompt: mode.appendSystemPrompt,
+        // App scaffolding is injected when the thread starts, not on follow-up
+        // turns. A stale browser tab can carry an older options prompt without
+        // changing the running model, effort or permission policy. Keep the
+        // full prompt in queue grouping, but never use it to reject a steer.
+        appendSystemPrompt: purpose === 'queue' ? mode.appendSystemPrompt : undefined,
         effort: mode.effort,
     });
 }

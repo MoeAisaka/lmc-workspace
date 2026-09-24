@@ -90,6 +90,27 @@ describe('stripLmcSystemBlocks', () => {
 });
 
 describe('hashCodexEnhancedMode', () => {
+    const runningMode: CodexEnhancedMode = {
+        permissionMode: 'yolo', model: 'gpt-6-astra', effort: 'max',
+        appendSystemPrompt: 'Offer reply options at the end of the final answer.',
+    };
+
+    it('allows steering from a newer page whose reply-option instructions changed', () => {
+        expect(hashCodexEnhancedMode({
+            ...runningMode,
+            appendSystemPrompt: 'Offer reply options with questions, including progress updates.',
+        }, 'steer')).toBe(hashCodexEnhancedMode(runningMode, 'steer'));
+    });
+
+    it.each([
+        { model: 'gpt-6-sol' },
+        { effort: 'high' as const },
+        { permissionMode: 'read-only' as const },
+    ])('still separates real execution changes while steering: %j', change => {
+        expect(hashCodexEnhancedMode({ ...runningMode, ...change }, 'steer'))
+            .not.toBe(hashCodexEnhancedMode(runningMode, 'steer'));
+    });
+
     it('separates queued Codex messages with different append system prompts', () => {
         const baseMode: CodexEnhancedMode = {
             permissionMode: 'default',
