@@ -20,6 +20,7 @@ import { isHttpMarkdownLink, parseFileReference } from './linkUtils';
 import { chooseSessionFile } from '@/utils/lmc/sessionFileActions';
 import { openFileReference } from '@/utils/lmc/openFileReference';
 import { openExternalUrl } from '@/utils/openExternalUrl';
+import { inferQuestionOptions } from './inferQuestionOptions';
 
 // Option type for callback
 export type Option = {
@@ -29,6 +30,8 @@ export type Option = {
 export const MarkdownView = React.memo((props: { 
     markdown: string;
     onOptionPress?: (option: Option) => void;
+    /** Recover brief answer lists in assistant prose, never in documents/tool output. */
+    inferOptions?: boolean;
     sessionId?: string;
     /**
      * The parent owns long-press copy (see LongPressCopyable). Suppresses native
@@ -36,7 +39,10 @@ export const MarkdownView = React.memo((props: {
      */
     externalCopyHandler?: boolean;
 }) => {
-    const blocks = React.useMemo(() => parseMarkdown(props.markdown), [props.markdown]);
+    const blocks = React.useMemo(() => {
+        const parsed = parseMarkdown(props.markdown);
+        return props.inferOptions ? inferQuestionOptions(parsed) : parsed;
+    }, [props.markdown, props.inferOptions]);
     
     // Backwards compatibility: The original version just returned the view, wrapping the list of blocks.
     // It made each of the individual text elements selectable. When we enable the markdownCopyV2 feature,
@@ -288,6 +294,8 @@ function RenderOptionsBlock(props: {
                     return (
                         <Pressable
                             key={index}
+                            accessibilityRole="button"
+                            accessibilityLabel={item}
                             style={({ pressed }) => [
                                 style.optionPressable,
                                 style.optionButton,
