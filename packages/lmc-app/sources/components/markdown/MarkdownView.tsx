@@ -1,6 +1,6 @@
 import { MarkdownBlock, MarkdownSpan, parseMarkdown } from './parseMarkdown';
 import * as React from 'react';
-import { Image, Pressable, View, Platform } from 'react-native';
+import { ActivityIndicator, Image, Pressable, View, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { HorizontalScrollView } from '../HorizontalScrollView';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -21,6 +21,7 @@ import { chooseSessionFile } from '@/utils/lmc/sessionFileActions';
 import { openFileReference } from '@/utils/lmc/openFileReference';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { inferQuestionOptions } from './inferQuestionOptions';
+import { useMarkdownImage } from '@/hooks/useMarkdownImage';
 
 // Option type for callback
 export type Option = {
@@ -100,7 +101,7 @@ export const MarkdownView = React.memo((props: {
                     } else if (block.type === 'table') {
                         return <RenderTableBlock headers={block.headers} rows={block.rows} onLinkPress={handleLinkPress} selectable={selectable} key={index} first={index === 0} last={index === blocks.length - 1} />;
                     } else if (block.type === 'image') {
-                        return <RenderImageBlock url={block.url} alt={block.alt} key={index} first={index === 0} last={index === blocks.length - 1} />;
+                        return <RenderImageBlock url={block.url} alt={block.alt} sessionId={props.sessionId} key={index} first={index === 0} last={index === blocks.length - 1} />;
                     } else if (block.type === 'details') {
                         return <RenderDetailsBlock block={block} key={index}>
                             <MarkdownView markdown={block.content} sessionId={props.sessionId} onOptionPress={props.onOptionPress} externalCopyHandler={props.externalCopyHandler || markdownCopyV2} />
@@ -262,17 +263,26 @@ function RenderCodeBlock(props: { content: string, language: string | null, firs
     );
 }
 
-function RenderImageBlock(props: { url: string, alt: string, first: boolean, last: boolean }) {
+function RenderImageBlock(props: { url: string, alt: string, sessionId?: string, first: boolean, last: boolean }) {
     const accessibleLabel = props.alt || 'Markdown image';
+    const image = useMarkdownImage(props.url, props.sessionId);
 
     return (
         <View style={[style.imageBlock, props.first && style.first, props.last && style.last]}>
-            <Image
-                source={{ uri: props.url }}
-                style={style.image}
-                accessibilityLabel={accessibleLabel}
-                resizeMode="contain"
-            />
+            <View style={style.image}>
+                {image.uri && <Image
+                    source={{ uri: image.uri }}
+                    style={{ width: '100%', height: '100%' }}
+                    accessibilityLabel={accessibleLabel}
+                    resizeMode="contain"
+                    onError={image.onError}
+                />}
+                {image.status === 'loading' && <ActivityIndicator accessibilityLabel={t('common.loading')} />}
+                {image.status === 'failed' && <Pressable accessibilityRole="button" onPress={image.retry} style={{ padding: 12 }}>
+                    <Text style={style.imageCaption}>{t('common.retry')}</Text>
+                </Pressable>}
+                {image.status === 'unsupported' && <Text style={[style.imageCaption, { padding: 16 }]}>{t('lmc.resources.unsupported')}</Text>}
+            </View>
             {props.alt ? (
                 <Text style={style.imageCaption}>{props.alt}</Text>
             ) : null}
@@ -644,6 +654,9 @@ const style = StyleSheet.create((theme) => ({
         height: 240,
         borderRadius: 12,
         backgroundColor: theme.colors.surfaceHighest,
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'hidden',
     },
     imageCaption: {
         ...Typography.default(),
