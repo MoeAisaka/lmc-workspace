@@ -205,6 +205,10 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         width: '100%',
         position: 'relative',
     },
+    composerGutter: {
+        // The card, queue and autocomplete panel share the same column edges.
+        paddingHorizontal: Platform.OS === 'web' ? 16 : 0,
+    },
     unifiedPanel: {
         backgroundColor: theme.colors.input.background,
         borderRadius: Platform.select({ default: 16, android: 20 }),
@@ -1768,7 +1772,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                 {suggestions.length > 0 && (
                     <View style={[
                         styles.autocompleteOverlay,
-                        { paddingHorizontal: screenWidth > 700 ? 0 : 8 }
+                        styles.composerGutter,
                     ]}>
                         <AgentInputAutocomplete
                             suggestions={suggestions.map(s => {
@@ -1815,7 +1819,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
 
                 {/* Waiting prompts, above the card and outside the working glow. */}
                 {props.queue && (
-                    <View style={Platform.OS === 'web' ? { paddingHorizontal: 16 } : undefined}>
+                    <View style={styles.composerGutter}>
                         <QueueStrip {...props.queue} />
                     </View>
                 )}
@@ -1840,7 +1844,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                     <View style={[
                         // Messages inset 16pt inside the chat column; the composer
                         // matches so both edges line up down the page.
-                        Platform.OS === 'web' && { paddingHorizontal: 16 },
+                        styles.composerGutter,
                         compactMobileComposer && styles.unifiedPanelShadow,
                         compactMobileComposer && styles.mobileUnifiedPanelShadow,
                     ]}>
