@@ -961,8 +961,10 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     // updated via startTransition from the keystroke handler so a busy reducer
     // never blocks the next character from landing in the textarea.
     const [hasText, setHasText] = React.useState(() => props.initialValue.trim().length > 0);
-    const hasImages = (props.selectedImages?.length ?? 0) > 0;
-    const hasComposerContent = hasText || hasImages;
+    // The picker includes images and documents. Either is a complete draft:
+    // sending an attachment must not require a filler caption.
+    const hasAttachments = (props.selectedImages?.length ?? 0) > 0;
+    const hasComposerContent = hasText || hasAttachments;
 
     // Check if this is a Codex, Gemini, or OpenClaw session
     // Use metadata.flavor for existing sessions, agentType prop for new sessions
@@ -1315,10 +1317,10 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     }, [props.onAbort]);
 
     const handleBlockedSendAttempt = React.useCallback(() => {
-        if (!isSendBlocked || !hasText || props.isSending) return;
+        if (!isSendBlocked || !hasComposerContent || props.isSending) return;
         hapticsError();
         sendBlockShakerRef.current?.shake();
-    }, [hasText, isSendBlocked, props.isSending]);
+    }, [hasComposerContent, isSendBlocked, props.isSending]);
 
     const handleSendPress = React.useCallback(() => {
         if (isSendBlocked) {
@@ -1330,13 +1332,13 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         hapticsLight();
         // Live read avoids stalling behind the transitioned `hasText`.
         const liveHasText = (inputRef.current?.getText() ?? '').trim().length > 0;
-        if (liveHasText || hasImages) {
+        if (liveHasText || hasAttachments) {
             setStopRequested(false);
             props.onSend();
         } else if (!compactMobileComposer) {
             props.onMicPress?.();
         }
-    }, [compactMobileComposer, handleBlockedSendAttempt, hasImages, isSendBlocked, props.isSendDisabled, props.isSending, props.onMicPress, props.onSend]);
+    }, [compactMobileComposer, handleBlockedSendAttempt, hasAttachments, isSendBlocked, props.isSendDisabled, props.isSending, props.onMicPress, props.onSend]);
 
     const handleMicrophonePress = React.useCallback(() => {
         if (!props.onMicPress || props.isSendDisabled) return;
@@ -1349,7 +1351,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     // lags a fast type-then-tap. Without the live read that tap would abort the
     // agent or open dictation instead of sending what was just typed.
     const handleMobilePrimaryPress = React.useCallback(() => {
-        const liveHasContent = (inputRef.current?.getText() ?? '').trim().length > 0 || hasImages;
+        const liveHasContent = (inputRef.current?.getText() ?? '').trim().length > 0 || hasAttachments;
         if (!liveHasContent && shouldShowStopButton) {
             handleAbortPress();
             return;
@@ -1363,7 +1365,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         handleAbortPress,
         handleMicrophonePress,
         handleSendPress,
-        hasImages,
+        hasAttachments,
         shouldShowStopButton,
         shouldShowVoiceButton,
     ]);
@@ -1531,10 +1533,10 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                 // Read live text from the textarea — `hasText` is debounced via
                 // startTransition and would lag behind a quick type-then-Enter.
                 const liveText = inputRef.current?.getText() ?? '';
-                if (liveText.trim()) {
+                if (liveText.trim() || hasAttachments) {
                     if (isSendBlocked) {
                         handleBlockedSendAttempt();
-                    } else if (!props.isSendDisabled) {
+                    } else if (!props.isSendDisabled && !props.isSending) {
                         props.onSend();
                     }
                     return true; // Key was handled
@@ -1551,7 +1553,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
 
         }
         return false; // Key was not handled
-    }, [suggestions, moveUp, moveDown, selected, handleSuggestionSelect, props.showAbortButton, props.onAbort, isAborting, handleAbortPress, agentInputEnterToSend, props.onSend, props.onPermissionModeChange, availableModes, permissionModeKey, isSendBlocked, handleBlockedSendAttempt, props.isSendDisabled]);
+    }, [suggestions, moveUp, moveDown, selected, handleSuggestionSelect, props.showAbortButton, props.onAbort, isAborting, handleAbortPress, agentInputEnterToSend, props.onSend, props.onPermissionModeChange, availableModes, permissionModeKey, isSendBlocked, handleBlockedSendAttempt, props.isSendDisabled, props.isSending, hasAttachments]);
 
     const desktopActionControls = (
         <View style={styles.actionButtonsContainer}>
@@ -1639,7 +1641,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                             styles.sendButton,
                             isSendBlocked
                                 ? styles.sendButtonLocked
-                                : (hasText || props.isSending || (props.onMicPress && !props.isMicActive))
+                                : (hasComposerContent || props.isSending || (props.onMicPress && !props.isMicActive))
                                     ? styles.sendButtonActive
                                     : styles.sendButtonInactive,
                         ]}
@@ -1655,12 +1657,14 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                             hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
                             onPress={handleSendPress}
                             disabled={!desktopCanPressSendButton}
+                            accessibilityRole="button"
+                            accessibilityLabel={!hasComposerContent && props.onMicPress && !props.isMicActive ? 'Voice' : 'Send'}
                         >
                             {props.isSending ? (
                                 <ActivityIndicator size="small" color={theme.colors.button.primary.tint} />
                             ) : isSendBlocked ? (
                                 <Ionicons name="lock-closed" size={15} color={theme.colors.textSecondary} />
-                            ) : hasText ? (
+                            ) : hasComposerContent ? (
                                 <Octicons
                                     name="arrow-up"
                                     size={16}
