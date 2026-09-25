@@ -5,6 +5,7 @@ import { logger } from "@/ui/logger";
 import type { JsRuntime } from "./runClaude";
 import type { SandboxConfig } from "@/persistence";
 import type { ArmedHandoffPort } from '@/utils/handoffPort';
+import type { ClaudeGoalMessage } from './claudeAutomaticGoal';
 
 export class Session {
     readonly path: string;
@@ -25,6 +26,8 @@ export class Session {
     readonly jsRuntime: JsRuntime;
 
     getRefreshSettings: () => { model?: string; effort?: string; permissionMode?: string } = () => ({});
+    /** Runs only for a consumed user turn, never for a steer or a queued preview. */
+    prepareGoalMessage?: (input: ClaudeGoalMessage, commands: string[]) => Promise<ClaudeGoalMessage>;
     /** Set by the runner. The launcher arms it when a switch is requested. */
     handoff: ArmedHandoffPort | null = null;
     /** Set by the runner: told when a turn fails, with the engine's words, so a quota refusal can be reported to a hub. */

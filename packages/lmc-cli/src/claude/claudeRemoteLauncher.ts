@@ -539,12 +539,14 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                                 logger.debug(`[remote] Combined ${contentBlocks.length - 1} image(s) with text message; ${saved.length} file(s) saved to inbox`);
                                 return {
                                     message: contentBlocks,
+                                    goalText: msg.message,
                                     mode: msg.mode,
                                 };
                             }
 
                             return {
                                 message: msg.message,
+                                goalText: msg.message,
                                 mode: msg.mode
                             }
                         }
@@ -557,6 +559,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                         sdkToLogConverter.updateSessionId(sessionId);
                         session.onSessionFound(sessionId);
                     },
+                    prepareGoalMessage: session.prepareGoalMessage,
                     onSDKMetadata: (metadata) => {
                         logger.debug('[remote] SDK metadata received, updating session:', metadata);
                         session.client.updateMetadata((currentMetadata) => ({

@@ -14,6 +14,7 @@ import { PermissionResult } from "./sdk/types";
 import type { JsRuntime } from "./runClaude";
 import { fromRateLimitEvent, windowsFromGetUsage, type UnboundRateLimit, type UsageLimitsPatch, type RateLimitEventInfo } from "./utils/usageLimits";
 import type { UsageLimitWindow } from "@/api/types";
+import type { ClaudeGoalMessage } from './claudeAutomaticGoal';
 
 export async function claudeRemote(opts: {
 
@@ -36,7 +37,8 @@ export async function claudeRemote(opts: {
     jsRuntime?: JsRuntime,
 
     // Dynamic parameters
-    nextMessage: () => Promise<{ message: MessageParam['content'], mode: EnhancedMode } | null>,
+    nextMessage: () => Promise<{ message: MessageParam['content'], mode: EnhancedMode, goalText?: string } | null>,
+    prepareGoalMessage?: (input: ClaudeGoalMessage, commands: string[]) => Promise<ClaudeGoalMessage>,
     onReady: () => void | Promise<void>,
     isAborted: (toolCallId: string) => boolean,
 
@@ -160,20 +162,32 @@ export async function claudeRemote(opts: {
 
     // Push initial message
     let messages = new PushableAsyncIterable<SDKUserMessage>();
-    messages.push({
-        type: 'user',
-        parent_tool_use_id: null,
-        message: {
-            role: 'user',
-            content: initial.message,
-        },
-    });
 
     // Start the loop
     const response = query({
         prompt: messages,
         options: sdkOptions,
     });
+
+    let goalCommands: string[] = [];
+    if (opts.prepareGoalMessage && typeof response.initializationResult === 'function') {
+        try {
+            const initialized = await response.initializationResult();
+            goalCommands = initialized.commands.map(command => command.name);
+        } catch {
+            logger.debug('[claudeRemote] Native goal capability unavailable; continuing normally');
+        }
+    }
+    const prepare = async (input: ClaudeGoalMessage) => {
+        try {
+            return await opts.prepareGoalMessage?.(input, goalCommands) ?? input;
+        } catch {
+            logger.debug('[claudeRemote] Automatic goal unavailable; preserving the user turn');
+            return input;
+        }
+    };
+    const preparedInitial = await prepare(initial);
+    messages.push({ type: 'user', parent_tool_use_id: null, message: { role: 'user', content: preparedInitial.message } });
 
     // Expose query control methods to permission handler
     if (opts.onQueryReady) {
@@ -353,13 +367,14 @@ export async function claudeRemote(opts: {
                 // Wait for next user message without blocking the message loop.
                 // Background task messages (task_started, task_progress, task_notification)
                 // continue flowing through while we wait for user input.
-                opts.nextMessage().then((next) => {
+                opts.nextMessage().then(async (next) => {
                     if (!next) {
                         messages.end();
                     } else {
                         mode = next.mode;
                         updateThinking(true);
-                        messages.push({ type: 'user', parent_tool_use_id: null, message: { role: 'user', content: next.message } });
+                        const prepared = await prepare(next);
+                        messages.push({ type: 'user', parent_tool_use_id: null, message: { role: 'user', content: prepared.message } });
                     }
                 }).catch(() => {
                     messages.end();

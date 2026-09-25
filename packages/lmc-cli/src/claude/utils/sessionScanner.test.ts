@@ -201,6 +201,26 @@ describe('sessionScanner', () => {
     expect(collectedTranscriptEvents).toHaveLength(1)
   })
 
+  it('hydrates only the latest native goal when requested, without replaying chat', async () => {
+    const active = await readFile(join(__dirname, '..', '__fixtures__', 'goal-status', 'active.jsonl'), 'utf-8')
+    const cleared = await readFile(join(__dirname, '..', '__fixtures__', 'goal-status', 'cleared.jsonl'), 'utf-8')
+    const sessionId = 'ff668493-8325-49cc-976f-689b779b85a2'
+    await writeFile(join(projectDir, `${sessionId}.jsonl`), active.trim() + '\n' + cleared.trim() + '\n')
+    scanner = await createSessionScanner({ sessionId, workingDirectory: testDir, hydrateGoalStatus: true,
+      onMessage: msg => collectedMessages.push(msg), onTranscriptEvent: event => collectedTranscriptEvents.push(event) })
+    expect(collectedMessages).toHaveLength(0)
+    expect(collectedTranscriptEvents).toHaveLength(1)
+    expect(collectedTranscriptEvents[0].attachment).toMatchObject({ met: true, sentinel: true })
+    await scanner.cleanup()
+    collectedTranscriptEvents.length = 0
+    scanner = await createSessionScanner({ sessionId: null, workingDirectory: testDir, hydrateGoalStatus: true,
+      onMessage: msg => collectedMessages.push(msg), onTranscriptEvent: event => collectedTranscriptEvents.push(event) })
+    await scanner.onNewSession(sessionId, { treatExistingAsProcessed: true })
+    expect(collectedTranscriptEvents).toHaveLength(1)
+    expect(collectedTranscriptEvents[0].attachment.met).toBe(true)
+    expect(collectedMessages).toHaveLength(0)
+  })
+
   it('pre-marks existing goal status events from the initial session id', async () => {
     const activeGoalStatus = await readFile(join(__dirname, '..', '__fixtures__', 'goal-status', 'active.jsonl'), 'utf-8')
     const editedGoalStatus = await readFile(join(__dirname, '..', '__fixtures__', 'goal-status', 'edit-active.jsonl'), 'utf-8')

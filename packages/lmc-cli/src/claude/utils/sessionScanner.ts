@@ -29,6 +29,8 @@ export async function createSessionScanner(opts: {
     workingDirectory: string
     onMessage: (message: RawJSONLines) => void
     onTranscriptEvent?: (event: ScannerTranscriptEvent) => void
+    /** Restore only the latest native goal, without replaying old chat messages. */
+    hydrateGoalStatus?: boolean
     /**
      * How long a session transcript may stay absent before its watcher gives
      * up and the session is dropped. Defaults to the startFileWatcher default
@@ -52,6 +54,16 @@ export async function createSessionScanner(opts: {
     // never written) keeps itself alive forever via the watchers map below
     // and spins the CPU / floods the log (the "dead Happy instance" bug).
     let deadSessions = new Set<string>();
+    const hydrateGoalStatus = (entries: SessionLogEntry[], sessionId: string) => {
+        if (!opts.hydrateGoalStatus) return;
+        for (let index = entries.length - 1; index >= 0; index--) {
+            const entry = entries[index];
+            if (entry.kind === 'transcript-event' && entry.event.sourceSessionId === sessionId) {
+                opts.onTranscriptEvent?.(entry.event);
+                break;
+            }
+        }
+    };
 
     // Mark existing entries as processed and start watching the initial session
     if (opts.sessionId) {
@@ -60,6 +72,7 @@ export async function createSessionScanner(opts: {
         for (let entry of entries) {
             processedEntryKeys.add(entry.key);
         }
+        hydrateGoalStatus(entries, opts.sessionId);
         // IMPORTANT: Also start watching the initial session file because Claude Code
         // may continue writing to it even after creating a new session with --resume
         // (agent tasks and other updates can still write to the original session file)
@@ -195,6 +208,7 @@ export async function createSessionScanner(opts: {
                 for (const entry of existing) {
                     processedEntryKeys.add(entry.key);
                 }
+                hydrateGoalStatus(existing, sessionId);
             }
             if (currentSessionId) {
                 pendingSessions.add(currentSessionId);

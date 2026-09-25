@@ -36,6 +36,7 @@ import type {
     InjectItemsParams,
     InjectItemsResponse,
     ThreadGoalSetParams,
+    ThreadGoal,
     ThreadGoalSetResponse,
     ThreadGoalClearParams,
     ThreadGoalClearResponse,
@@ -1048,6 +1049,10 @@ export class CodexAppServerClient {
         return await this.request('thread/inject_items', params) as InjectItemsResponse;
     }
 
+    async getGoal(opts: { threadId: string }): Promise<{ goal: ThreadGoal | null }> {
+        return await this.request('thread/goal/get', opts, 5_000) as { goal: ThreadGoal | null };
+    }
+
     async setGoal(opts: {
         threadId: string;
         objective: string;
@@ -1303,6 +1308,8 @@ export class CodexAppServerClient {
         effort?: ReasoningEffort;
         extraInputItems?: InputItem[];
         turnTimeoutMs?: number;
+        /** Best-effort side effect after native acceptance; failures do not discard the user turn. */
+        onStarted?: () => Promise<void>;
     }): Promise<{ aborted: boolean }> {
         // Includes the entire interrupt + shutdown + resume operation, not
         // just the interrupt RPC acknowledgement.
@@ -1350,6 +1357,11 @@ export class CodexAppServerClient {
             if (timer) clearTimeout(timer);
             this.pendingTurnCompletion = null;
             throw err;
+        }
+
+        if (opts?.onStarted && this.pendingTurnCompletion) {
+            try { await opts.onStarted(); }
+            catch { logger.debug('[CodexAppServer] Turn start side effect failed; keeping the active turn'); }
         }
 
         const aborted = await completion;

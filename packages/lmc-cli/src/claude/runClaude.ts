@@ -20,6 +20,8 @@ import { hashObject } from '@/utils/deterministicJson';
 import { parseSpecialCommand } from '@/parsers/specialCommands';
 import { getEnvironmentInfo } from '@/ui/doctor';
 import { configuration } from '@/configuration';
+import { AutomaticGoalPolicy, automaticGoalStatePath } from '@/utils/automaticGoal';
+import { claudeGoalAvailable, prepareClaudeAutomaticGoal, normalizeClaudeGoalEcho } from './claudeAutomaticGoal';
 import { notifyDaemonSessionStarted } from '@/daemon/controlClient';
 import { initialMachineMetadata } from '@/daemon/run';
 import { startHappyServer } from '@/claude/utils/startHappyServer';
@@ -384,6 +386,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     // without this dedupe. Match by content within a short time window;
     // entries older than 5 minutes roll off so unrelated future prompts
     // with identical text still get through from the terminal side.
+    const automaticGoals = new AutomaticGoalPolicy(automaticGoalStatePath(configuration.lmcHomeDir, session.sessionId));
     const recentAppPromptsMaxAgeMs = 5 * 60 * 1000;
     const recentAppPrompts: Array<{ text: string; addedAt: number }> = [];
     const recordAppPrompt = (text: string) => {
@@ -399,7 +402,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         for (let i = 0; i < recentAppPrompts.length; i++) {
             const entry = recentAppPrompts[i];
             if (entry.addedAt < cutoff) continue;
-            if (entry.text === text) {
+            if (entry.text === normalizeClaudeGoalEcho(text)) {
                 recentAppPrompts.splice(i, 1);
                 return true;
             }
@@ -477,6 +480,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     const remoteScanner = await createSessionScanner({
         sessionId: initialScannerSessionId,
         workingDirectory,
+        hydrateGoalStatus: true,
         onMessage: (raw) => {
             if (currentRunMode !== 'remote') return;
             // Only user-typed prompts. SDK pipeline owns assistant and
@@ -1079,6 +1083,12 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         onSessionReady: (sessionInstance) => {
             // Store reference for hook server callback
             currentSession = sessionInstance;
+            sessionInstance.prepareGoalMessage = (input, commands) => prepareClaudeAutomaticGoal(input, {
+                commands,
+                policy: automaticGoals,
+                available: async () => !pendingClaudeGoalAction && await claudeGoalAvailable(getProjectPath(workingDirectory), sessionInstance.sessionId),
+                onCommand: recordAppPrompt,
+            });
             sessionInstance.getRefreshSettings = () => ({ model: currentModel, effort: currentEffort, permissionMode: currentPermissionMode });
             sessionInstance.handoff = handoffPort;
             sessionInstance.onTurnFailure = (detail) => { void quota.onFailure(detail); };

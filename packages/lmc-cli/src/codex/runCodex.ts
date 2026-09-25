@@ -27,6 +27,9 @@ import { logger } from '@/ui/logger';
 import { Credentials, readSettings } from '@/persistence';
 import { initialMachineMetadata } from '@/daemon/run';
 import { configuration } from '@/configuration';
+import { AutomaticGoalPolicy, automaticGoalStatePath } from '@/utils/automaticGoal';
+import { AsyncLock } from '@/utils/lock';
+import { createCodexAutomaticGoal } from './codexAutomaticGoal';
 import packageJson from '../../package.json';
 import { MessageQueue2, type PendingAttachment } from '@/utils/MessageQueue2';
 import { attachQueuePublisher } from '@/utils/sessionQueueControl';
@@ -812,6 +815,8 @@ export async function runCodex(opts: {
             agentGoalStatus: goalStatus,
         }));
     };
+    const goalLock = new AsyncLock();
+    const automaticGoals = new AutomaticGoalPolicy(automaticGoalStatePath(configuration.lmcHomeDir, session.sessionId));
     const handleCodexGoalCommand = async (
         command: CodexGoalCommand,
         threadId: string,
@@ -856,7 +861,7 @@ export async function runCodex(opts: {
             throw new Error('No active Codex thread');
         }
 
-        const handled = await handleCodexGoalCommand(command, threadId);
+        const handled = await goalLock.inLock(() => handleCodexGoalCommand(command, threadId));
         if (!handled) {
             throw new Error('Codex goal actions are not supported by this runtime');
         }
@@ -1443,10 +1448,12 @@ export async function runCodex(opts: {
                 }
 
                 const goalCommand = parseCodexGoalCommand(message.message);
-                if (goalCommand && await handleCodexGoalCommand(goalCommand, activeThreadId)) {
+                if (goalCommand && await goalLock.inLock(() => handleCodexGoalCommand(goalCommand, activeThreadId))) {
                     continue;
                 }
 
+                const automaticGoalText = message.message;
+                const automaticGoalPermissionMode = message.mode.permissionMode;
                 const includeAppendSystemPrompt = Boolean(
                     message.mode.appendSystemPrompt && !appendSystemPromptInjected,
                 );
@@ -1483,6 +1490,17 @@ export async function runCodex(opts: {
                     sandbox: executionPolicy.sandbox,
                     effort: message.mode.effort,
                     extraInputItems: imageInputs.inputItems,
+                    onStarted: () => goalLock.inLock(() => createCodexAutomaticGoal(automaticGoalText, {
+                        policy: automaticGoals,
+                        supported: client.supportsGoalActions(),
+                        permissionMode: automaticGoalPermissionMode,
+                        isTurnActive: () => client.threadId === activeThreadId && client.hasPendingTurnCompletion(),
+                        getGoal: () => client.getGoal({ threadId: activeThreadId }),
+                        setGoal: async (objective) => {
+                            const result = await client.setGoal({ threadId: activeThreadId, objective, status: 'active' });
+                            updateCodexGoalState({ type: 'thread_goal_updated', threadId: activeThreadId, goal: result.goal });
+                        },
+                    })),
                 });
                 first = false;
                 if (includeAppendSystemPrompt) {

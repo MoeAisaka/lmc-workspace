@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { claudeRemote } from './claudeRemote';
 import { query } from '@/claude/sdk';
 import type { EnhancedMode } from './loop';
+import type { ClaudeGoalMessage } from './claudeAutomaticGoal';
 
 vi.mock('@/claude/sdk', () => ({
     query: vi.fn(),
@@ -15,6 +16,33 @@ const mode: EnhancedMode = {
 describe('claudeRemote', () => {
     beforeEach(() => {
         vi.mocked(query).mockReset();
+    });
+
+    it('prepares each consumed turn after discovering native commands and preserves input on failure', async () => {
+        const delivered: string[] = [];
+        let calls = 0;
+        const prepareGoalMessage = vi.fn(async (input: ClaudeGoalMessage, _commands: string[]) => {
+            if (input.message === 'second') throw new Error('goal state unavailable');
+            return { ...input, message: '/goal ' + input.message };
+        });
+        vi.mocked(query).mockImplementation(({ prompt }: any) => ({
+            initializationResult: async () => ({ commands: [{ name: 'goal' }] }),
+            async *[Symbol.asyncIterator]() {
+                const inputs = prompt[Symbol.asyncIterator]();
+                for (let i = 0; i < 2; i++) {
+                    delivered.push((await inputs.next()).value.message.content);
+                    yield { type: 'result', subtype: 'success' };
+                }
+            },
+        }) as any);
+        await claudeRemote({
+            sessionId: null, path: process.cwd(), allowedTools: [], hookSettingsPath: '/tmp/happy-test-settings.json',
+            nextMessage: async () => ++calls <= 2 ? { message: calls === 1 ? 'first' : 'second', mode } : null,
+            prepareGoalMessage, onReady: vi.fn(), canCallTool: async () => ({ behavior: 'deny', message: 'test' }),
+            isAborted: () => false, onSessionFound: vi.fn(), onMessage: vi.fn(),
+        });
+        expect(delivered).toEqual(['/goal first', 'second']);
+        expect(prepareGoalMessage.mock.calls[0][1]).toEqual(['goal']);
     });
 
     it('restores working state on a second turn and keeps it while tools await approval', async () => {

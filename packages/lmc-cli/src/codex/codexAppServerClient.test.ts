@@ -1323,13 +1323,40 @@ describe('CodexAppServerClient sandbox integration', () => {
         await client.disconnect();
     });
 
-    it('sends goal set and clear requests through app-server', async () => {
+    it('runs automatic goal work after turn acceptance without losing the turn on failure', async () => {
+        const order: string[] = [];
+        const proc = createMockProcess({ onRequest: (msg, stdout) => {
+            if (msg.method === 'thread/start') pushJsonLine(stdout, { id: msg.id, result: { thread: { id: 'automatic-goal-thread' }, model: 'gpt-test' } });
+            if (msg.method === 'turn/start') {
+                order.push('accepted');
+                pushJsonLine(stdout, { id: msg.id, result: { turn: { id: 'goal-turn' } } });
+                setTimeout(() => pushJsonLine(stdout, { method: 'turn/completed', params: { threadId: 'automatic-goal-thread', turn: { id: 'goal-turn', status: 'completed', items: [], error: null } } }), 20);
+            }
+        } });
+        mockSpawn.mockImplementation(() => proc);
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        await client.connect();
+        await client.startThread({ model: 'gpt-test', cwd: '/tmp/test' });
+        await expect(client.sendTurnAndWait('fix and test', { onStarted: async () => {
+            expect(client.hasPendingTurnCompletion()).toBe(true);
+            order.push('goal');
+            throw new Error('goal unavailable');
+        } })).resolves.toEqual({ aborted: false });
+        expect(order).toEqual(['accepted', 'goal']);
+        await client.disconnect();
+    });
+
+    it('sends goal get, set and clear requests through app-server', async () => {
         const requests: MockRpcMessage[] = [];
         const proc = createMockProcess({
             pid: 3004,
             onRequest: (msg, stdout) => {
                 requests.push(msg);
 
+                if (msg.method === 'thread/goal/get' && msg.id != null) {
+                    pushJsonLine(stdout, { id: msg.id, result: { goal: null } });
+                }
                 if (msg.method === 'thread/goal/set' && msg.id != null) {
                     setTimeout(() => {
                         pushJsonLine(stdout, {
@@ -1367,6 +1394,7 @@ describe('CodexAppServerClient sandbox integration', () => {
         const client = new CodexAppServerClient();
 
         await client.connect();
+        await expect(client.getGoal({ threadId: 'thread-goal-1' })).resolves.toEqual({ goal: null });
         await expect(client.setGoal({
             threadId: 'thread-goal-1',
             objective: 'finish the task',
