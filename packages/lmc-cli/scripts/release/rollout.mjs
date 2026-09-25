@@ -1,6 +1,8 @@
 import fs from 'node:fs';import os from 'node:os';import {createRequire} from 'node:module';import{createDecipheriv,createCipheriv,randomBytes}from'node:crypto';import{execFileSync}from'node:child_process';
-const home=os.homedir(),dir=home+'/.lmc/agent',root=home+'/.lmc/agent-releases/upgrades-20260907',require=createRequire(root+'/package.json'),{io}=require('socket.io-client');
-const read=p=>JSON.parse(fs.readFileSync(p,'utf8')),auth=read(dir+'/access.key'),settings=read(dir+'/settings.json'),records=read(dir+'/sessions.json').sessions,url=settings.serverUrl;
+const home=os.homedir(),dir=home+'/.lmc/agent',read=p=>JSON.parse(fs.readFileSync(p,'utf8'));
+const selection=fs.existsSync(dir+'/runtime-selection.json')?read(dir+'/runtime-selection.json'):{};
+const root=selection.agent?.directory||home+'/.lmc/agent-releases/upgrades-20260907',require=createRequire(root+'/package.json'),{io}=require('socket.io-client');
+const auth=read(dir+'/access.key'),settings=read(dir+'/settings.json'),records=read(dir+'/sessions.json').sessions,url=process.env.LMC_SERVER_URL||settings.serverUrl;
 const decode=(value,key,variant='dataKey')=>{if(!value)return null;if(variant!=='dataKey')throw Error('Unsupported credential format');const b=Buffer.from(value,'base64'),c=createDecipheriv('aes-256-gcm',key,b.subarray(1,13));c.setAuthTag(b.subarray(-16));return JSON.parse(Buffer.concat([c.update(b.subarray(13,-16)),c.final()]).toString());};
 const encode=(data,key)=>{const n=randomBytes(12),c=createCipheriv('aes-256-gcm',key,n);return Buffer.concat([Buffer.from([0]),n,c.update(JSON.stringify(data)),c.final(),c.getAuthTag()]).toString('base64');};
 const get=async route=>{const r=await fetch(url+route,{headers:{Authorization:'Bearer '+auth.token},signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('HTTP '+r.status);return r.json();};
