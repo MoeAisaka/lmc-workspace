@@ -1380,7 +1380,6 @@ export function SessionViewLoaded({
                 showStatusDetails={showBottomDockDetails}
                 sessionStatusGitBranch={statusBarGitBranch ?? 'main'}
                 sessionStatusGitChanges={statusBarGitChanges}
-                sessionStatusUsageLimits={session.agentState?.usageLimits ?? null}
                 agentWorking={sessionStatus.state === 'thinking'}
                 onActionAreaOffsetChange={usesFloatingMobileDock ? handleComposerCardOffsetChange : undefined}
                 onBottomSpacingChange={!embedded && usesFloatingMobileDock ? setComposerBottomSpacing : undefined}

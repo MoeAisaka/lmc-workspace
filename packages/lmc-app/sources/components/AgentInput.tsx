@@ -33,7 +33,6 @@ import { getPermissionModeMenuLabel, getPermissionModeShortLabel } from '@/utils
 import { lmcElevation } from '@/components/lmc/elevation';
 import { QueueStrip, type QueueStripProps } from '@/components/lmc/QueueStrip';
 import { installLmcRainbow } from '@/utils/lmcRainbow';
-import { getUsageLimitDisplayPercentage, getUsageLimitRows, formatUsageLimitResetTime, type UsageLimitsLike } from '@/utils/sessionStatusBar';
 import { compactCount } from '@/utils/rigGitLineChanges';
 import { Theme } from '@/theme';
 import { t } from '@/text';
@@ -127,7 +126,6 @@ interface AgentInputProps {
     /** Unstaged line changes for the checkout, matching the session list. */
     sessionStatusGitChanges?: { insertions: number; deletions: number; approximate: boolean } | null;
     /** Plan quota windows from agent state, for the week stat and its popup. */
-    sessionStatusUsageLimits?: UsageLimitsLike | null;
     turnElapsed?: TurnElapsed | null;
     onFileViewerPress?: () => void;
     agentType?: 'claude' | 'codex' | 'gemini' | 'openclaw' | 'agy';
@@ -770,21 +768,18 @@ function ContextGaugeIcon(props: { percent: number }) {
 type UsageRowProps = {
     turnElapsed?: TurnElapsed | null;
     contextStatus: { percent: number; detailText: string; color: string } | null;
-    weekPercent: number | null;
-    /** Prebuilt "Session — 32% · resets 6 PM" rows for the week popup. */
-    usageMenuOptions: NativeSettingsMenuOption[];
 };
 
-// Sits under the composer card, right-aligned with the effort label: week
-// quota (tap for the session/week detail popup) and the context gauge (tap
-// to swap the percent for exact token counts).
+// Sits under the composer card, right-aligned with the effort label: the
+// context gauge (tap to swap the percent for exact token counts). The week
+// quota used to sit here too; the account card already shows it.
 export const AgentInputUsageRow = React.memo(function AgentInputUsageRow(p: UsageRowProps) {
     const { theme } = useUnistyles();
     const compact = useWindowDimensions().width < 500 && !!p.turnElapsed;
     const [showPreciseContext, setShowPreciseContext] = React.useState(false);
-    const hasFigures = !!p.contextStatus || p.weekPercent != null || !!p.turnElapsed;
-    // Compaction leaves the session with no context figure for a moment, and
-    // the week figure is gated on the context one. Unmounting the row for those
+    const hasFigures = !!p.contextStatus || !!p.turnElapsed;
+    // Compaction leaves the session with no context figure for a moment.
+    // Unmounting the row for those
     // frames shortens the bottom-anchored dock, so the whole composer drops by
     // this row's height and jumps back — for a number that was only missing.
     // Once the row has had something to say it keeps its place.
@@ -793,11 +788,6 @@ export const AgentInputUsageRow = React.memo(function AgentInputUsageRow(p: Usag
     if (resolveUsageRowPresence({ hasFigures, hasEverShown: everShown.current }) === 'absent') {
         return null;
     }
-    const weekText = p.weekPercent != null ? (
-        <Text numberOfLines={1} style={{ fontSize: 11, color: theme.colors.textSecondary, ...Typography.default() }}>
-            {t('agentInput.context.percentWeek', { percent: Math.round(p.weekPercent) })}
-        </Text>
-    ) : null;
     return (
         <View testID="agent-input-usage" style={{
             flexDirection: 'row',
@@ -814,27 +804,6 @@ export const AgentInputUsageRow = React.memo(function AgentInputUsageRow(p: Usag
                 <TurnElapsedLabel timing={p.turnElapsed} compact={compact} />
             </View>}
             <View testID="agent-input-usage-figures" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: compact ? 8 : 10, flexShrink: 1, maxWidth: compact ? '72%' : undefined }}>
-                {weekText && (
-                    p.usageMenuOptions.length > 0 ? (
-                        <NativeSettingsMenu
-                            anchor="bottom"
-                            groups={[{
-                                key: 'usage',
-                                label: '',
-                                title: '',
-                                options: p.usageMenuOptions,
-                                selectedKey: null,
-                                onSelect: () => { },
-                            }]}
-                        >
-                            {/* Native menu triggers hit only their own bounds, so
-                                pad the target out and pull the layout back in. */}
-                            <View style={{ padding: 10, margin: -10 }}>
-                                {weekText}
-                            </View>
-                        </NativeSettingsMenu>
-                    ) : weekText
-                )}
                 {p.contextStatus && (
                     <Pressable
                         testID="agent-input-context"
@@ -1023,37 +992,10 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         return label;
     }, [isSandboxEnabled]);
 
-    // Usage row under the card: week quota + context gauge
-    const usageLimitShowRemaining = useSetting('usageLimitShowRemaining');
+    // Usage row under the card: context gauge
     const contextStatus = props.usageData?.contextSize
         ? getContextStatus(props.usageData.contextSize, props.alwaysShowContextSize ?? false, theme, props.usageData.contextWindow)
         : null;
-    // Only Session and Week are user-meaningful; provider-internal windows
-    // (nimbus_quill and friends) stay out of the popup.
-    const usageRows = React.useMemo(() => {
-        const rows = getUsageLimitRows(props.sessionStatusUsageLimits ?? null);
-        const session = rows.find((row) => row.id === 'five_hour') ?? null;
-        const week = rows.find((row) => row.id === 'seven_day') ?? null;
-        return { session, week };
-    }, [props.sessionStatusUsageLimits]);
-    const weekPercent = usageRows.week?.utilization != null
-        ? getUsageLimitDisplayPercentage(usageRows.week.utilization, usageLimitShowRemaining)
-        : null;
-    const usageMenuOptions = React.useMemo<NativeSettingsMenuOption[]>(() => {
-        const options: NativeSettingsMenuOption[] = [];
-        const push = (key: string, label: string, row: { utilization: number | null; resetsAt: number | null } | null) => {
-            if (!row || row.utilization == null) return;
-            const percent = getUsageLimitDisplayPercentage(row.utilization, usageLimitShowRemaining);
-            // The newline renders as a second line inside the native menu row.
-            const reset = row.resetsAt != null
-                ? `\n${t('agentInput.usagePopup.resets', { time: formatUsageLimitResetTime(row.resetsAt) })}`
-                : '';
-            options.push({ key, label: `${label} · ${Math.round(percent)}%${reset}` });
-        };
-        push('session', t('agentInput.usagePopup.session'), usageRows.session);
-        push('week', t('agentInput.usagePopup.week'), usageRows.week);
-        return options;
-    }, [usageRows, usageLimitShowRemaining]);
 
     const agentInputEnterToSend = useSetting('agentInputEnterToSend');
 
@@ -2117,8 +2059,6 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                         <AgentInputUsageRow
                             turnElapsed={props.turnElapsed}
                             contextStatus={contextStatus}
-                            weekPercent={weekPercent}
-                            usageMenuOptions={usageMenuOptions}
                         />
                     </AnimatedFade>
                 </View>

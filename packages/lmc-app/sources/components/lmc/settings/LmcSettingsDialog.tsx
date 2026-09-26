@@ -64,7 +64,7 @@ export function LmcSettingsDialog({ section: initial = 'general', onClose }: { s
     const terms: Record<LmcSettingsSection, string[]> = {
         general: [
             t('settings.appearance'), t('settingsLanguage.currentLanguage'),
-            t('settingsAppearance.usageLimitShowRemaining'), t('settingsAppearance.userMessageBubbleColor'),
+            t('settingsAppearance.userMessageBubbleColor'),
             t('settingsAppearance.alwaysShowContextSize'), t('settingsFeatures.enterToSend'),
             t('settingsFeatures.commandPalette'), t('settingsAppearance.groupSessionsByEngine'),
             t('settingsAppearance.compactToolCalls'), t('settingsFeatures.fileDiffsSidebar'),

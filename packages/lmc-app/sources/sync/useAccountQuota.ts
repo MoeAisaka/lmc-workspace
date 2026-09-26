@@ -1,13 +1,15 @@
 import * as React from 'react';
 import { AppState, Platform } from 'react-native';
 import { AccountQuotaSnapshotSchema, type AccountQuotaSnapshot } from 'lmc-wire';
-import { useAllMachines } from './storage';
+import { useAllMachines, useAllSessions } from './storage';
+import { overlaySessionUsage } from './accountQuotaOverlay';
 import { apiSocket } from './apiSocket';
 
 // Memory only, keyed by the encrypted source device (never summed across devices).
 const cache = new Map<string, AccountQuotaSnapshot>();
 export function useAccountQuota() {
     const machines = useAllMachines({ includeOffline: true });
+    const sessions = useAllSessions();
     const source = machines.filter(m => m.metadata?.accountQuota === true)
         .sort((a, b) => Number(b.active) - Number(a.active) || a.id.localeCompare(b.id))[0];
     const id = source?.id;
@@ -47,6 +49,8 @@ export function useAccountQuota() {
             if (Platform.OS === 'web') document.removeEventListener('visibilitychange', visible);
         };
     }, [id, online]);
-    return { snapshot: result.id === id ? result.snapshot : null, failed: result.failed,
+    const snapshot = result.id === id ? result.snapshot : null;
+    const fresh = React.useMemo(() => overlaySessionUsage(snapshot, sessions), [snapshot, sessions]);
+    return { snapshot: fresh, failed: result.failed,
         loading, available: online, now, refresh: () => refreshRef.current() };
 }
