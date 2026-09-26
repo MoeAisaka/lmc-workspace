@@ -24,6 +24,25 @@ export function readSwitchEngine(request: unknown): SwitchableEngine | null {
 }
 
 /**
+ * What the engine taking over starts on, as far as the request says.
+ *
+ * The permission mode arrives already mapped. The model and effort are the ones
+ * picked from the destination's own list together with the switch, so they are
+ * already in its vocabulary; carrying them to the launch is what makes the pick
+ * the model that answers, on every device, rather than a note one app keeps in
+ * memory and applies only if it is still open when the relaunch lands.
+ */
+export function readSwitchSettings(request: unknown): { permissionMode?: string; model?: string; effort?: string } {
+    if (!request || typeof request !== 'object') return {};
+    const settings: { permissionMode?: string; model?: string; effort?: string } = {};
+    for (const key of ['permissionMode', 'model', 'effort'] as const) {
+        const value = (request as Record<string, unknown>)[key];
+        if (typeof value === 'string' && value.trim()) settings[key] = value;
+    }
+    return settings;
+}
+
+/**
  * The briefing to hand over if the engine does not write one of its own.
  *
  * It arrives with the request rather than being assembled at the last moment,

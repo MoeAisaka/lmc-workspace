@@ -2,7 +2,7 @@ import { claudeTurnFailure } from '@/modules/orchestration/quota';
 import { claudeTurnTotal, claudeTurnUsage } from '@/modules/orchestration/meter';
 import { engineCapabilities } from '@/runtime/managedRuntime';
 import { SafeSessionRefresh } from '@/utils/safeSessionRefresh';
-import { readFallbackBriefing, readSwitchEngine } from '@/utils/engineSwitchRequest';
+import { readFallbackBriefing, readSwitchEngine, readSwitchSettings } from '@/utils/engineSwitchRequest';
 import { applyQueueModeRequest, registerQueueControlHandlers } from '@/utils/sessionQueueControl';
 import { checkEngineAuth, isEngineAuthError } from '@/utils/engineAuth';
 import { EngineAuthPreflightError } from '@/utils/refreshErrors';
@@ -153,7 +153,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
 
     // Held between the request and the relaunch, which are separated by however
     // long the current turn takes to finish.
-    let switchPermissionMode: string | undefined;
+    let switchSettings: ReturnType<typeof readSwitchSettings> = {};
     const refresh = new SafeSessionRefresh({
         isIdle: () => safeIdle && !pending && !exitReason && session.queue.size() === 0
             && !permissionHandler.hasPendingRequests() && backgroundTasks.size === 0,
@@ -191,11 +191,12 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
             await messageQueue.flush();
         },
         prepare: async (receiveSeq, target) => {
-            // A switch starts the other engine on its own defaults: model and
-            // effort are named per engine, so the ones held here mean nothing
-            // there. Only the permission mode travels, already mapped by the app.
+            // A switch never carries the model and effort held here: they are
+            // named for this engine and mean nothing to the next one. What
+            // travels is what the request named for the destination — the
+            // mapped permission mode and the model picked from its own list.
             const settings = target && target !== 'claude'
-                ? { engine: target, permissionMode: switchPermissionMode }
+                ? { engine: target, ...switchSettings }
                 : session.getRefreshSettings();
             const result = await prepareDaemonSessionRefresh(session.client.sessionId, process.pid, { receiveSeq, ...settings });
             if (result.error) throw new Error(result.error);
@@ -225,7 +226,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
         if (applyQueueModeRequest(request, session.queue, session.client)) return { status: 'applied' };
         const engine = readSwitchEngine(request);
         if (engine) {
-            switchPermissionMode = typeof (request as any).permissionMode === 'string' ? (request as any).permissionMode : undefined;
+            switchSettings = readSwitchSettings(request);
             // Armed with the fallback before the engine is asked for anything,
             // so a refusal or a crash still hands something over.
             session.handoff?.arm(readFallbackBriefing(request), engine);
@@ -242,7 +243,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
     session.client.rpcHandlerManager.registerHandler('cancel-session-refresh', async () => {
         const target = await refresh.cancel();
         if (target === undefined) return { status: refresh.pending ? 'too-late' : 'nothing-pending' };
-        switchPermissionMode = undefined;
+        switchSettings = {};
         if (target) session.client.sendSessionEvent({ type: 'engine-switch-cancelled', target });
         return { status: 'cancelled' };
     });

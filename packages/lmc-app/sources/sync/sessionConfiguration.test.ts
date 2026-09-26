@@ -163,10 +163,24 @@ it('applies it the moment the session is on the engine it was chosen for', async
     expect(setModes).not.toHaveBeenCalled();
 });
 
+// The in-memory copy above only lands while the app that asked stays open.
+// Switching several sessions and reloading, or picking on one device and
+// reading on another, left each one on the new engine's default.
+it('sends the chosen model with the switch so the runner launches on it', async()=>{
+    metadata.sessionCapabilities={refresh:true,authentication:true,runtimeConfiguration:true};
+    rpc.mockResolvedValue({status:'queued'});
+    await switchSessionEngine('s','claude','claude-opus-5-5[1m]');
+    expect(rpc.mock.calls[0][2]).toMatchObject({engine:'claude',model:'claude-opus-5-5[1m]'});
+    // The in-memory copy stays as the fallback for runners that drop the field.
+    applyPendingEngineModel('s','claude');
+    expect(setModes).toHaveBeenCalledWith('s',{modelMode:'claude-opus-5-5[1m]',effortLevel:null});
+});
+
 it('leaves the model alone when the switch named none', async()=>{
     metadata.sessionCapabilities={refresh:true,authentication:true,runtimeConfiguration:true};
     rpc.mockResolvedValue({status:'queued'});
     await switchSessionEngine('s','claude');
+    expect(rpc.mock.calls[0][2]).not.toHaveProperty('model');
     applyPendingEngineModel('s','claude');
     expect(setModes).not.toHaveBeenCalled();
 });

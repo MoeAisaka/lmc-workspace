@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readFallbackBriefing, readSwitchEngine } from './engineSwitchRequest';
+import { readFallbackBriefing, readSwitchEngine, readSwitchSettings } from './engineSwitchRequest';
 
 describe('readSwitchEngine', () => {
     it('reads a request that names an engine', () => {
@@ -35,5 +35,19 @@ describe('readFallbackBriefing', () => {
         expect(readFallbackBriefing({ engine: 'codex' })).toBeNull();
         expect(readFallbackBriefing({ engine: 'codex', fallbackBriefing: '   ' })).toBeNull();
         expect(readFallbackBriefing(null)).toBeNull();
+    });
+});
+
+describe('readSwitchSettings', () => {
+    it('carries the mapped mode and the model picked for the destination', () => {
+        expect(readSwitchSettings({ engine: 'claude', permissionMode: 'bypassPermissions', model: 'claude-opus-5-5[1m]', fallbackBriefing: 'x' }))
+            .toEqual({ permissionMode: 'bypassPermissions', model: 'claude-opus-5-5[1m]' });
+        expect(readSwitchSettings({ engine: 'codex', model: 'gpt-6-astra', effort: 'high' })).toEqual({ model: 'gpt-6-astra', effort: 'high' });
+    });
+
+    it('leaves the destination on its own defaults when nothing was picked', () => {
+        expect(readSwitchSettings({ engine: 'claude' })).toEqual({});
+        expect(readSwitchSettings({ engine: 'claude', model: '  ' })).toEqual({});
+        expect(readSwitchSettings(null)).toEqual({});
     });
 });

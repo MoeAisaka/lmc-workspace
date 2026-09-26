@@ -9,7 +9,7 @@ import { checkEngineAuth } from '@/utils/engineAuth';
 import { EngineAuthPreflightError, refreshErrorKind, tagRefreshError } from '@/utils/refreshErrors';
 import { isPendingState } from '@/utils/refreshState';
 import { prepareDaemonSessionRefresh } from '@/daemon/controlClient';
-import { readFallbackBriefing, readSwitchEngine } from '@/utils/engineSwitchRequest';
+import { readFallbackBriefing, readSwitchEngine, readSwitchSettings } from '@/utils/engineSwitchRequest';
 import { applyQueueModeRequest, registerQueueControlHandlers } from '@/utils/sessionQueueControl';
 import { validateCodexServiceTier, type CodexServiceTier } from '@/codex/serviceTier';
 import { validateCodexContextLimits, type CodexContextLimits } from './contextLimits';
@@ -558,7 +558,7 @@ export async function runCodex(opts: {
     let refreshHandoff = false;
     // Held between the request and the boundary the relaunch waits for.
     let switchTarget: 'claude' | 'codex' | undefined;
-    let switchPermissionMode: string | undefined;
+    let switchSettings: ReturnType<typeof readSwitchSettings> = {};
     // What a queued refresh is waiting on, as this runner sees it. Published
     // into the metadata so the daemon can tell a busy session from a wedged
     // one — a queued refresh with no stated reason is counted against the
@@ -581,7 +581,7 @@ export async function runCodex(opts: {
         const switchEngine = readSwitchEngine(params);
         if (switchEngine && switchEngine !== 'codex') {
             switchTarget = switchEngine;
-            switchPermissionMode = typeof params?.permissionMode === 'string' ? params.permissionMode : undefined;
+            switchSettings = readSwitchSettings(params);
             // Armed with the fallback up front, so a refusal or a crash still
             // hands something over and no timer has to decide when to give up.
             handoffPort.arm(readFallbackBriefing(params), switchEngine);
@@ -1115,7 +1115,7 @@ export async function runCodex(opts: {
         configurationQueue.clear();
         const target = switchTarget;
         switchTarget = undefined;
-        switchPermissionMode = undefined;
+        switchSettings = {};
         handoffPort.disarm();
         if (heldReceiveSeq !== undefined) { session.resumeIncomingMessagesFrom(heldReceiveSeq); heldReceiveSeq = undefined; }
         session.updateMetadata(m => ({ ...m, sessionConfigState: 'applied', sessionConfigError: undefined, sessionConfigErrorKind: undefined, sessionConfigStage: undefined, sessionConfigUpdatedAt: Date.now() }));
@@ -1297,10 +1297,11 @@ export async function runCodex(opts: {
                                 session.updateMetadata(m => ({ ...m, sessionConfigStage: undefined }));
                             }
                             prepared = switchTarget
-                                // Model, effort and the Codex-only settings stay behind: they are
-                                // named for this engine and mean nothing to the next one.
+                                // This engine's model, effort and Codex-only settings stay behind:
+                                // they mean nothing to the next one. What travels is what the
+                                // request named for the destination, including the picked model.
                                 ? await prepareDaemonSessionRefresh(session.sessionId, process.pid, {
-                                    receiveSeq, engine: switchTarget, permissionMode: switchPermissionMode,
+                                    receiveSeq, engine: switchTarget, ...switchSettings,
                                 })
                                 : await prepareDaemonSessionRefresh(session.sessionId, process.pid, {
                                     receiveSeq, model: remoteModeState.currentModel, effort: remoteModeState.currentEffort,

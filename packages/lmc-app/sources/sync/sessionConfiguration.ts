@@ -62,8 +62,11 @@ export async function refreshSessionCli(sessionId: string) {
  * armed here from the transcript and then replaced by the engine's own if it
  * writes one before the relaunch.
  *
- * Only the permission mode travels, mapped here because this is where a mode is
- * chosen; model and effort are named per engine and mean nothing across.
+ * The permission mode travels mapped here, because this is where a mode is
+ * chosen. The current model and effort stay behind — they are named per engine
+ * and mean nothing across — but a model picked from the destination's own list
+ * travels with the request, so the runner launches the new engine on it and
+ * records it for every device.
  */
 export async function switchSessionEngine(sessionId: string, engine: SwitchableEngine, modelKey?: string | null, permissionMode?: string | null) {
     const session = storage.getState().sessions[sessionId];
@@ -98,6 +101,7 @@ export async function switchSessionEngine(sessionId: string, engine: SwitchableE
             // The mode the composer shows is the one the person believes is in
             // force; metadata alone holds it only once it has been picked here.
             permissionMode: mapPermissionMode(current, engine, permissionMode ?? session.permissionMode ?? session.metadata.permissionMode),
+            ...(modelKey ? { model: modelKey } : {}),
             fallbackBriefing,
         });
         if (result.status !== 'queued') throw new Error(t('localFeatures.configRefreshing'));
@@ -107,7 +111,9 @@ export async function switchSessionEngine(sessionId: string, engine: SwitchableE
         // current turn takes — and the model rides every message's metadata.
         // Setting it now would hand the outgoing engine a model belonging to the
         // other one, starting with the handoff request above — the one turn
-        // that must not fail.
+        // that must not fail. The request above already carries the pick to a
+        // current runner; this copy covers runners that predate that and drop
+        // it, and it only lasts while this app stays open.
         if (modelKey) pendingEngineModel.set(sessionId, { engine, modelKey });
 
         return result;
