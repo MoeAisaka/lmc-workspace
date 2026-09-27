@@ -46,7 +46,12 @@ export const InlineQuestionForm = React.memo<InlineQuestionFormProps>((props) =>
         setIsSubmitting(false);
     }, [questionKey]);
 
-    const submittedAnswers = props.submittedAnswers ?? locallySubmittedAnswers;
+    // A completed call whose answers could not be read back still shows what
+    // was picked here, rather than a row of dashes.
+    const reported = props.submittedAnswers;
+    const submittedAnswers = reported && Object.keys(reported).length > 0
+        ? reported
+        : locallySubmittedAnswers ?? reported ?? null;
     const canInteract = props.canInteract && submittedAnswers === null;
     const allQuestionsAnswered = questions.every((question) => {
         if (question.required === false) return true;
