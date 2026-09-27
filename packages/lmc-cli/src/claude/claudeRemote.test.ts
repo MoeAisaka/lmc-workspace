@@ -4,6 +4,17 @@ import { query } from '@/claude/sdk';
 import type { EnhancedMode } from './loop';
 import type { ClaudeGoalMessage } from './claudeAutomaticGoal';
 
+// The shared per-account reading is tested on its own; here it is always
+// stale, so every flush reaches the SDK and nothing touches the real LMC home.
+vi.mock('./utils/sharedUsageCache', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('./utils/sharedUsageCache')>()),
+    readSharedUsage: vi.fn(async ({ fetchUsage }: { fetchUsage: () => Promise<{ available: boolean; rateLimits: any }> }) => {
+        try {
+            const result = await fetchUsage();
+            return result.available && result.rateLimits ? { rateLimits: result.rateLimits, capturedAt: Date.now() } : null;
+        } catch { return null; }
+    }),
+}));
 vi.mock('@/claude/sdk', () => ({
     query: vi.fn(),
     AbortError: class AbortError extends Error {},

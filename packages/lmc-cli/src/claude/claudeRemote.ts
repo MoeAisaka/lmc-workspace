@@ -15,6 +15,8 @@ import type { JsRuntime } from "./runClaude";
 import { fromRateLimitEvent, windowsFromGetUsage, type UnboundRateLimit, type UsageLimitsPatch, type RateLimitEventInfo } from "./utils/usageLimits";
 import type { UsageLimitWindow } from "@/api/types";
 import type { ClaudeGoalMessage } from './claudeAutomaticGoal';
+import { readSharedUsage, usageAccountKey } from "./utils/sharedUsageCache";
+import { configuration } from "@/configuration";
 
 export async function claudeRemote(opts: {
 
@@ -201,6 +203,17 @@ export async function claudeRemote(opts: {
     const pendingUsageWindows = new Map<string, UsageLimitWindow>();
     let pendingUnbound: UnboundRateLimit | null = null;
     let lastUsagePull = -Infinity;
+    // The account behind this query, as a hash: the shared reading is keyed by
+    // it so sessions signed in to different accounts never share numbers.
+    let usageAccount: Promise<string> | null = null;
+    const accountKey = () => usageAccount ??= (async () => {
+        try {
+            const info = await (response as any).accountInfo?.();
+            if (info && (info.email || info.organization)) return usageAccountKey([info.apiProvider, info.email, info.organization]);
+        } catch { /* fall through to the config directory */ }
+        return usageAccountKey(['config', process.env.CLAUDE_CONFIG_DIR ?? join(process.env.HOME ?? '', '.claude')]);
+    })();
+    let seededCapturedAt: number | null = null;
     let lastUsageSignature: string | null = null;
     let lastUsageEmittedAt = 0;
     // Identical data still gets re-written occasionally so the snapshot's
@@ -215,9 +228,19 @@ export async function claudeRemote(opts: {
             const usageFn = (response as any).usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
             if (typeof usageFn === 'function') {
                 try {
-                    const usage = await usageFn.call(response, { skipBehaviors: true });
-                    if (usage?.rate_limits_available && usage.rate_limits) {
-                        for (const w of windowsFromGetUsage(usage.rate_limits)) {
+                    // One real call per account per device every few minutes,
+                    // whichever session gets there first; the rest read its result.
+                    const usage = await readSharedUsage({
+                        dir: join(configuration.lmcHomeDir, 'claude-usage'),
+                        accountKey: await accountKey(),
+                        fetchUsage: async () => {
+                            const result = await usageFn.call(response, { skipBehaviors: true });
+                            return { available: !!result?.rate_limits_available, rateLimits: result?.rate_limits ?? null };
+                        },
+                    });
+                    if (usage) {
+                        seededCapturedAt = usage.capturedAt;
+                        for (const w of windowsFromGetUsage(usage.rateLimits)) {
                             // Events are fresher than the seed for the same
                             // window, but allowed events carry no utilization —
                             // backfill the snapshot's percentage so it isn't
@@ -241,8 +264,11 @@ export async function claudeRemote(opts: {
             }
         }
         if (pendingUsageWindows.size === 0 && !pendingUnbound) return;
+        // A reading taken from the shared cache is as old as the cache, not
+        // this flush; events are always new.
+        const capturedAt = seededThisFlush && !pendingUnbound && seededCapturedAt !== null ? seededCapturedAt : Date.now();
         const patch: UsageLimitsPatch = {
-            capturedAt: Date.now(),
+            capturedAt,
             windows: [...pendingUsageWindows.values()],
             unbound: pendingUnbound ?? undefined,
             // A full snapshot replaces persisted windows so ones the backend
