@@ -6,7 +6,7 @@ import type { AccountQuotaSnapshot } from 'lmc-wire';
 import { Text } from '@/components/StyledText';
 import { ProviderIcon } from '@/components/ProviderIcon';
 import { Typography } from '@/constants/Typography';
-import { bindingRemaining, quotaTone, quotaToneColor } from '@/sync/quotaDisplay';
+import { weeklyRemaining, quotaTone, quotaToneColor } from '@/sync/quotaDisplay';
 import { t } from '@/text';
 
 const SIZE = 22;
@@ -30,7 +30,7 @@ function Ring({ remaining, color, track }: { remaining: number | null; color: st
 
 /**
  * Claude and Codex at a glance in the avatar row (Figma D23): each ring is
- * the tighter of the 5-hour and weekly windows, coloured by urgency; grey
+ * the weekly window, coloured by urgency; grey
  * with a dash when there is no fresh reading. Tapping belongs to the row.
  */
 export const QuotaRings = React.memo(function QuotaRings({ snapshot, now, showPercent }: {
@@ -42,7 +42,7 @@ export const QuotaRings = React.memo(function QuotaRings({ snapshot, now, showPe
     return (
         <View testID="avatar-quota-rings" style={{ flexDirection: 'row', alignItems: 'center', gap: showPercent ? 10 : 6 }}>
             {(['claude', 'codex'] as const).map((engine) => {
-                const remaining = bindingRemaining(snapshot.providers.find((p) => p.engine === engine), now);
+                const remaining = weeklyRemaining(snapshot.providers.find((p) => p.engine === engine), now);
                 const tone = quotaTone(remaining);
                 const color = quotaToneColor(tone, theme.dark);
                 const value = remaining == null ? '—' : `${Math.round(remaining)}%`;

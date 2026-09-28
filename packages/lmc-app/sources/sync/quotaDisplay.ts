@@ -37,16 +37,14 @@ function usableRemaining(window: AccountQuotaWindow | undefined, now: number): n
 }
 
 /**
- * The ring's number: whichever of the 5-hour and weekly windows has less
- * left, because that one decides whether the engine can work right now. The
- * Fable pool is separate and never drives it. Unknown when stale.
+ * The ring's number: the weekly window. Owner decided (2026-09-28) the avatar
+ * row tracks the week, the budget that actually runs out; the 5-hour window
+ * refills within hours and stays on the card. The Fable pool never drives it.
+ * Unknown when stale or past its reset.
  */
-export function bindingRemaining(provider: AccountQuotaProvider | undefined, now: number): number | null {
+export function weeklyRemaining(provider: AccountQuotaProvider | undefined, now: number): number | null {
     if (!provider || quotaProviderStale(provider, now)) return null;
-    const values = (['five_hour', 'seven_day'] as const)
-        .map((id) => usableRemaining(provider.windows.find((w) => w.id === id), now))
-        .filter((v): v is number => v !== null);
-    return values.length ? Math.min(...values) : null;
+    return usableRemaining(provider.windows.find((w) => w.id === 'seven_day'), now);
 }
 
 /**
