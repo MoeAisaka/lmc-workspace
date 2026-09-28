@@ -118,6 +118,8 @@ export function rebuildDerivedMessageWindow(
     hasReadyEvent: boolean;
 } {
     const reducerState = createReducer();
+    // Only ever called after older messages were evicted or compacted away.
+    reducerState.windowTruncated = true;
     const reducerResult = reducer(reducerState, [...sourceMessages].sort(compareChronologically), agentState);
     const messagesMap: Record<string, Message> = {};
     for (const message of reducerResult.messages) {

@@ -158,6 +158,14 @@ export type ReducerState = {
     messages: Map<string, ReducerMessage>;
     sidechains: Map<string, ReducerMessage[]>;
     tracerState: TracerState; // Tracer state for sidechain processing
+    /**
+     * The earliest message this state has seen. The web keeps only a window
+     * of the transcript, so a completed request older than this belongs to a
+     * tool call that scrolled out of the window, not one that never arrived.
+     */
+    oldestMessageAt?: number;
+    /** Set when older transcript was evicted from this window. */
+    windowTruncated?: boolean;
     latestTodos?: {
         todos: TodoItem[];
         timestamp: number;
@@ -280,6 +288,12 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
     let newMessages: Message[] = [];
     let changed: Set<string> = new Set();
     let hasReadyEvent = false;
+
+    for (const msg of messages) {
+        if (Number.isFinite(msg.createdAt) && (state.oldestMessageAt === undefined || msg.createdAt < state.oldestMessageAt)) {
+            state.oldestMessageAt = msg.createdAt;
+        }
+    }
 
     // First, trace all messages to identify sidechains
     const tracedMessages = traceMessages(state.tracerState, messages);
@@ -613,6 +627,14 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
 
                     // Skip if already processed as pending
                     if (agentState.requests && agentState.requests[permId]) {
+                        continue;
+                    }
+
+                    // A request older than the loaded window had its tool call
+                    // evicted with the rest of the old transcript. Synthesising
+                    // a card for it put every old answered question back at the
+                    // bottom of the chat after each window rebuild.
+                    if (state.windowTruncated && state.oldestMessageAt !== undefined && (completed.createdAt ?? 0) < state.oldestMessageAt) {
                         continue;
                     }
 
