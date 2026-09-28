@@ -11,6 +11,8 @@ import { getAvatarUrl, getDisplayName } from '@/sync/profile';
 import { lmcColors } from './lmcColors';
 import { machineAgentVersion } from '@/utils/lmc/deviceEngineGroups';
 import { t } from '@/text';
+import { useAccountQuota } from '@/sync/useAccountQuota';
+import { QuotaRings } from './QuotaRings';
 
 const styles = StyleSheet.create((theme) => ({
     row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 8, paddingRight: 6, paddingVertical: 8, borderRadius: 12 },
@@ -38,14 +40,21 @@ export const AccountSettingsRow = React.memo(({ onNavigate, menuCardRef, menuPan
     const profile = useProfile();
     const machines = useAllMachines({ includeOffline: true });
     const isDataReady = useIsDataReady();
+    const quota = useAccountQuota();
+    const [rowWidth, setRowWidth] = React.useState(0);
     const online = machines.filter((m) => m.active);
     const displayName = getDisplayName(profile) || 'Link my Cli';
     const avatarUrl = getAvatarUrl(profile);
     const versions = new Set(online.map(machineAgentVersion).filter(Boolean) as string[]);
     const versionText = versions.size === 1 ? `Agent ${[...versions][0]}` : versions.size > 1 ? `Agent 版本不一致` : null;
     // "0 devices online" during hydration reads as a failure; say nothing yet.
+    // With the quota rings in the row there is room only for what cannot be
+    // read elsewhere: the device count, and a version mismatch if there is one.
+    const withRings = !!quota.snapshot;
     const subtitle = isDataReady
-        ? [t('lmc.menu.settings'), versionText, `${online.length} 台设备在线`].filter(Boolean).join(' · ')
+        ? (withRings
+            ? [versions.size > 1 ? versionText : null, `${online.length} 台设备在线`]
+            : [t('lmc.menu.settings'), versionText, `${online.length} 台设备在线`]).filter(Boolean).join(' · ')
         : t('lmc.menu.settings');
 
     return (
@@ -71,6 +80,7 @@ export const AccountSettingsRow = React.memo(({ onNavigate, menuCardRef, menuPan
                 }
                 onNavigate?.(); router.push('/settings');
             }}
+            onLayout={(e) => setRowWidth(e.nativeEvent.layout.width)}
             style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
         >
             <View style={[styles.avatar, { backgroundColor: colors.brand }]}>
@@ -82,6 +92,8 @@ export const AccountSettingsRow = React.memo(({ onNavigate, menuCardRef, menuPan
                 <Text numberOfLines={1} style={styles.name}>{displayName}</Text>
                 <Text numberOfLines={1} style={styles.sub}>{subtitle}</Text>
             </View>
+            {/* Narrow rows keep the rings and drop the figures (D23). */}
+            <QuotaRings snapshot={quota.snapshot} now={quota.now} showPercent={rowWidth >= 300} />
             <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />
         </Pressable>
     );

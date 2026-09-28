@@ -15,7 +15,7 @@ it('renders new agent and rename UI in Simplified Chinese', () => {
 it('covers every added key in both Chinese variants', () => {
     expect(Object.keys(localFeatureZhHans)).toEqual(Object.keys(localFeatureEnglish));
     expect(Object.keys(localFeatureZhHant)).toEqual(Object.keys(localFeatureEnglish));
-    const sample = { floor: '50', date: '9/30 09:25', day: 1, days: 7, points: '9', count: 1 };
+    const sample = { floor: '50', date: '9/30 09:25', day: 1, days: 7, points: '9', count: 1, hours: 2, minutes: 23, engine: 'Claude', value: '35%' };
     for (const locale of [localFeatureZhHans, localFeatureZhHant]) {
         for (const value of Object.values(locale)) {
             const rendered = typeof value === 'function' ? value(sample) : value;

@@ -6,7 +6,8 @@ import { fableWeeklyShare, quotaDailyPace, type AccountQuotaSnapshot, type Accou
 import { Text } from '@/components/StyledText';
 import { ProviderIcon } from '@/components/ProviderIcon';
 import { Typography } from '@/constants/Typography';
-import { t } from '@/text';
+import { t, getCurrentLanguage } from '@/text';
+import { exhaustedWindow, quotaTone, quotaToneColor, resetCountdown, weeklyResetLabel } from '@/sync/quotaDisplay';
 import { lmcColors } from './lmcColors';
 
 const styles = StyleSheet.create(theme => ({
@@ -44,7 +45,10 @@ export function AccountQuotaCards({ snapshot, loading, failed, available, now, o
     const colors = lmcColors(theme);
     const purple = theme.dark ? '#AC98E9' : '#9981CF';
     const warn = theme.dark ? '#E6AE66' : '#A16C24';
-    const renderWindow = (w: AccountQuotaWindow | undefined, label: string, weekly = false, overlay?: { left: number; width: number; color: string }[]) => {
+    const chinese = getCurrentLanguage().startsWith('zh');
+    // D23: the bar says how urgent the window is; a window the other one has
+    // used up is greyed with the reason, since its headroom cannot be spent.
+    const renderWindow = (w: AccountQuotaWindow | undefined, label: string, weekly = false, overlay?: { left: number; width: number; color: string }[], blocked?: string) => {
         const expired = !!w?.resetsAt && w.resetsAt <= now && !w.pending;
         const remaining = w?.remaining ?? null;
         const pace = w ? quotaDailyPace(w, now) : null;
@@ -52,15 +56,17 @@ export function AccountQuotaCards({ snapshot, loading, failed, available, now, o
         return <View style={[styles.window, weekly && styles.weekly]}>
             <View>
                 <Text style={styles.label}>{label}</Text>
-                <Text style={styles.value}>{remaining === null ? '—' : `${Math.round(remaining)}%`}</Text>
+                <Text style={[styles.value, blocked && { color: theme.colors.textSecondary }]}>{remaining === null ? '—' : `${Math.round(remaining)}%`}</Text>
             </View>
             <View accessibilityRole="progressbar" accessibilityLabel={label}
                 accessibilityValue={remaining === null ? { text: t('localFeatures.quotaUnknown') } : { min: 0, max: 100, now: remaining }} style={styles.track}>
-                <View style={{ position: 'absolute', height: 5, borderRadius: 3, width: `${remaining ?? 0}%`, backgroundColor: colors.brand, opacity: expired ? 0.4 : 1 }} />
+                <View style={{ position: 'absolute', height: 5, borderRadius: 3, width: `${remaining ?? 0}%`, backgroundColor: blocked ? quotaToneColor('unknown', theme.dark) : quotaToneColor(quotaTone(remaining), theme.dark), opacity: expired ? 0.4 : 1 }} />
                 {remaining !== null && !expired && overlay?.filter(s => s.width > 0).map((s, i) => <View key={i} style={{ position: 'absolute', height: 5, left: `${s.left}%`, width: `${s.width}%`, backgroundColor: s.color, borderRadius: 2 }} />)}
                 {pace && <View accessibilityLabel={t('localFeatures.quotaPaceMarker', { floor: n(pace.floor) })} style={{ position: 'absolute', width: 2, height: 11, top: -3, left: `${pace.floor}%`, backgroundColor: diff !== null && diff < 0 ? warn : theme.colors.textSecondary }} />}
             </View>
-            <Text style={styles.note}>{w?.pending ? t('localFeatures.quotaPending') : expired ? t('localFeatures.quotaAwaitReset') : w?.resetsAt ? t('localFeatures.quotaReset', { date: date(w.resetsAt, now) }) : t('localFeatures.quotaUnknown')}</Text>
+            <Text style={[styles.note, blocked && { color: quotaToneColor('low', theme.dark) }]}>{blocked ? blocked : w?.pending ? t('localFeatures.quotaPending') : expired ? t('localFeatures.quotaAwaitReset') : w?.resetsAt
+                ? (weekly ? t('localFeatures.quotaResetOn', { date: weeklyResetLabel(w.resetsAt, chinese) }) : t('localFeatures.quotaResetIn', resetCountdown(w.resetsAt, now)))
+                : t('localFeatures.quotaUnknown')}</Text>
         </View>;
     };
     return <View style={styles.section} testID="account-quota-cards">
@@ -81,6 +87,7 @@ export function AccountQuotaCards({ snapshot, loading, failed, available, now, o
             const pace = weekly ? quotaDailyPace(weekly, now) : null;
             const today = weekly?.remaining != null && pace ? weekly.remaining - pace.floor : null;
             const showStatus = !p?.capturedAt || failed || p.refreshFailed || stale;
+            const exhausted = exhaustedWindow(p, now);
             return <View key={engine} style={styles.card} testID={`quota-${engine}`}>
                 <View style={styles.provider}>
                     <ProviderIcon kind={engine} size={18} /><Text style={styles.name}>{engine === 'codex' ? 'Codex' : 'Claude'}</Text>
@@ -95,8 +102,8 @@ export function AccountQuotaCards({ snapshot, loading, failed, available, now, o
                     </View>
                 </View>
                 <View style={styles.columns}>
-                    {renderWindow(p?.windows.find(w => w.id === 'five_hour'), t('localFeatures.quotaFiveHour'))}
-                    {renderWindow(weekly, t('localFeatures.quotaWeekly'), true, share ? [{ left: 0, width: share.covered, color: purple }, { left: weekly!.remaining!, width: share.overflow, color: warn }] : undefined)}
+                    {renderWindow(p?.windows.find(w => w.id === 'five_hour'), t('localFeatures.quotaFiveHour'), false, undefined, exhausted === 'seven_day' ? t('localFeatures.quotaBlockedByWeekly') : undefined)}
+                    {renderWindow(weekly, t('localFeatures.quotaWeekly'), true, share ? [{ left: 0, width: share.covered, color: purple }, { left: weekly!.remaining!, width: share.overflow, color: warn }] : undefined, exhausted === 'five_hour' ? t('localFeatures.quotaBlockedByFiveHour') : undefined)}
                 </View>
                 {(today !== null || engine === 'claude' || p?.resetCredits) && <View style={styles.details}>
                 {today !== null && <View style={styles.detailRow}>
