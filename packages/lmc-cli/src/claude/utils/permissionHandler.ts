@@ -153,6 +153,9 @@ export class PermissionHandler {
             return { ...current, requests, completedRequests: { ...current.completedRequests, [id]: {
                 ...request, completedAt: Date.now(), status: error ? 'canceled' : response.approved ? 'approved' : 'denied',
                 reason: response.reason, mode: response.mode, allowTools: response.allowTools, allowedTools: response.allowTools,
+                // The session protocol's tool-call-end carries no result, so an
+                // answered question would otherwise show no answers anywhere.
+                ...(response.approved ? questionAnswers(response.updatedInput) : {}),
             } } };
         });
     }
@@ -503,4 +506,15 @@ export class PermissionHandler {
             has: (toolCallId: string) => this.getResponseForToolUseId(toolCallId) !== undefined,
         };
     }
+}
+
+/** The chosen answers of an approved AskUserQuestion, as `{ question: answer }`. */
+export function questionAnswers(updatedInput: Record<string, unknown> | undefined): { answers?: Record<string, string> } {
+    const raw = updatedInput?.answers;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    const answers: Record<string, string> = {};
+    for (const [question, answer] of Object.entries(raw as Record<string, unknown>)) {
+        if (typeof answer === 'string' && question.length <= 2000 && answer.length <= 4000) answers[question] = answer;
+    }
+    return Object.keys(answers).length ? { answers } : {};
 }

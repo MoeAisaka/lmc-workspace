@@ -1,6 +1,7 @@
 import * as React from 'react';
 
 import { sessionAllow } from '@/sync/ops';
+import { useSession } from '@/sync/storage';
 import { ToolViewProps } from './_all';
 import {
     InlineQuestionForm,
@@ -96,13 +97,22 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId 
         );
     }, [input?.questions, questions, sessionId, tool.permission?.id]);
 
+    // Agents from 1.2.60 record the answers with the approval; the tool result
+    // covers older transcripts that still carried one.
+    const session = useSession(sessionId ?? '');
+    const recorded = tool.permission?.id ? session?.agentState?.completedRequests?.[tool.permission.id]?.answers : undefined;
+    const completedAnswers = React.useMemo(() => {
+        const fromRecord = recorded ? parseAskUserQuestionAnswers({ answers: recorded }, questions) : {};
+        return Object.keys(fromRecord).length ? fromRecord : parseAskUserQuestionAnswers(tool.result, questions);
+    }, [recorded, questions, tool.result]);
+
     if (questions.length === 0) return null;
 
     return (
         <InlineQuestionForm
             questions={questions}
             canInteract={tool.state === 'running'}
-            submittedAnswers={tool.state === 'completed' ? parseAskUserQuestionAnswers(tool.result, questions) : undefined}
+            submittedAnswers={tool.state === 'completed' ? completedAnswers : undefined}
             onSubmit={handleSubmit}
         />
     );

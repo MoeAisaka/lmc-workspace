@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/sync/ops', () => ({ sessionAllow: vi.fn() }));
+vi.mock('@/sync/storage', () => ({ useSession: () => null }));
 vi.mock('./InlineQuestionForm', () => ({ InlineQuestionForm: () => null }));
 import { parseAskUserQuestionAnswers } from './AskUserQuestionView';
 

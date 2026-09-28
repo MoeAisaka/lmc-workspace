@@ -602,7 +602,9 @@ export type AgentState = {
       // old key.
       allowTools?: string[],
       allowedTools?: string[],
-      toolUseId?: string
+      toolUseId?: string,
+      /** AskUserQuestion: the chosen answer per question text. */
+      answers?: Record<string, string>
     }
   }
   agentGoalStatus?: AgentGoalStatus

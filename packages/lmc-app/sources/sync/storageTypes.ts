@@ -455,7 +455,9 @@ export const AgentStateSchema = z.object({
         // reducer folds it into `allowedTools` when reading.
         allowTools: z.array(z.string()).nullish(),
         decision: z.enum(['approved', 'approved_for_session', 'denied', 'abort']).nullish(),
-        toolUseId: z.string().nullish()
+        toolUseId: z.string().nullish(),
+        // AskUserQuestion answers, keyed by question text (Agent 1.2.60+).
+        answers: z.record(z.string(), z.string()).nullish()
     })).nullish(),
     agentGoalStatus: AgentGoalStatusSchema.optional(),
     // Prompts waiting for the engine, in order, published by the CLI. Keys
