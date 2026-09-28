@@ -20,12 +20,25 @@ interface AskUserQuestionInput {
 /**
  * The answers as Claude Code reports them back in the tool result:
  * `Your questions have been answered: "Q1"="A1", "Q2"="A2". You can now …`
+ * — or, as the app mostly receives it, the structured `answers` map beside it.
  * (older builds: `User has answered your questions: …`). The permission reply
  * that carried them is not kept, so this text is the only record left once
  * the call completes. Each value runs up to the next question's key, so
  * quotes and commas inside an answer survive.
  */
 export function parseAskUserQuestionAnswers(result: unknown, questions: Array<{ id: string; question: string }>): Record<string, string[]> {
+    // The app usually holds Claude Code's structured toolUseResult
+    // (`{ questions, answers: { [question]: answer } }`) rather than the text.
+    const structured = result && typeof result === 'object' && !Array.isArray(result) ? (result as { answers?: unknown }).answers : undefined;
+    if (structured && typeof structured === 'object') {
+        const answers: Record<string, string[]> = {};
+        for (const question of questions) {
+            const value = (structured as Record<string, unknown>)[question.question];
+            if (typeof value === 'string' && value) answers[question.id] = [value];
+            else if (Array.isArray(value) && value.length) answers[question.id] = value.map(String);
+        }
+        if (Object.keys(answers).length) return answers;
+    }
     const text = typeof result === 'string'
         ? result
         : Array.isArray(result)

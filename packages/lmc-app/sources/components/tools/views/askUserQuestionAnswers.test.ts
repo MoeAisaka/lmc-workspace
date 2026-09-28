@@ -22,6 +22,11 @@ describe('parseAskUserQuestionAnswers', () => {
         expect(parseAskUserQuestionAnswers(result, questions)).toEqual({ 'question-0': ['按批次'] });
     });
 
+    it('reads the structured toolUseResult the app actually receives', () => {
+        const result = { questions: [], answers: { '粒度定到哪一层？': '按素材', 'Access, "quoted" and all?': ['a', 'b'] } };
+        expect(parseAskUserQuestionAnswers(result, questions)).toEqual({ 'question-0': ['按素材'], 'question-1': ['a', 'b'] });
+    });
+
     it('returns nothing it cannot read', () => {
         expect(parseAskUserQuestionAnswers(undefined, questions)).toEqual({});
         expect(parseAskUserQuestionAnswers('User declined to answer', questions)).toEqual({});
