@@ -1343,7 +1343,7 @@ export function SessionViewLoaded({
     ) : null;
 
     const composer = (
-        <View onLayout={usesFloatingMobileDock ? handleComposerLayout : undefined}>
+        <View onLayout={usesFloatingMobileDock ? handleComposerLayout : undefined} {...({ dataSet: { lmcComposer: 'true' } } as object)}>
             <ChatComposer
                 composerHandleRef={composerHandleRef}
                 placeholder={t('session.inputPlaceholder')}

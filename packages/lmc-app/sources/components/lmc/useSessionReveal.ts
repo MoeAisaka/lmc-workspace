@@ -11,6 +11,13 @@ import { Platform } from 'react-native';
  * Web only (clip-path and a transform-scaled ring, Web Animations); other
  * platforms and reduced motion keep the plain fade in SessionContentEnter.
  */
+/**
+ * Which switch the web plays. 'rise' (option C): the old body lifts away and
+ * the new rows spring in newest first. 'circle' (option D): the circular
+ * reveal with rows springing in inside it. Owner is trying C (2026-09-29).
+ */
+export const SESSION_SWITCH_STYLE: 'rise' | 'circle' = 'rise';
+
 export const SESSION_REVEAL = {
     // Owner kept finding it fast; the radius is 1000+ px, so length matters more than the curve.
     // 850 ms felt right in pace; then asked for 20% faster (850 / 1.2).
@@ -33,6 +40,9 @@ export const SESSION_REVEAL = {
     rowDelayMs: 60,
     rowMax: 8,
     rowRisePx: 18,
+    /** Option C: how the old body leaves. */
+    liftPx: 14,
+    liftMs: 170,
     blurFrom: 0.212,
     blurFull: 0.437,
     /** The spreading edge: a very light grey (Owner found the brand blue too loud). */
@@ -159,6 +169,10 @@ export function useSessionReveal(ref: React.RefObject<unknown>, sessionId: strin
         const element = ref.current as HTMLElement | null;
         if (!element || typeof element.animate !== 'function') return;
         if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+        if (SESSION_SWITCH_STYLE === 'rise') {
+            playRise(element, press);
+            return;
+        }
         const rect = element.getBoundingClientRect();
         // The press is in the list, often hundreds of pixels left of this
         // pane; centred there the circle is so large its edge sweeps across
@@ -354,4 +368,84 @@ export function useSessionReveal(ref: React.RefObject<unknown>, sessionId: strin
         // Never leave the pane hidden or the snapshots behind.
         setTimeout(clear, SESSION_REVEAL.maxWaitMs + SESSION_REVEAL.durationMs + 1200);
     }, [ref, sessionId]);
+}
+
+const RISE_PENDING = 'data-lmc-rise-pending';
+let riseStyleInstalled = false;
+/** Rows of a pane waiting to rise stay invisible until their animation holds them. */
+function installRiseStyle() {
+    if (riseStyleInstalled) return;
+    riseStyleInstalled = true;
+    const style = document.createElement('style');
+    style.textContent = `[${RISE_PENDING}] [data-lmc-chat-row] { opacity: 0; }`;
+    document.head.appendChild(style);
+}
+
+/**
+ * Option C. The old body, kept as a snapshot over the new pane, lifts a few
+ * pixels and fades; the new pane's own rows then spring in newest first.
+ * The real rows are animated directly (transform and opacity only), so there
+ * is no copy to line up with the live list afterwards.
+ */
+function playRise(element: HTMLElement, press: NonNullable<typeof origin>): void {
+    lastRevealAt = Date.now();
+    installRiseStyle();
+    element.setAttribute(RISE_PENDING, '');
+    let released = false;
+    const release = () => {
+        if (released) return;
+        released = true;
+        element.removeAttribute(RISE_PENDING);
+    };
+    const under = press.snapshot;
+    if (under && element.parentElement) {
+        Object.assign(under.style, {
+            position: 'absolute', left: `${element.offsetLeft}px`, top: `${element.offsetTop}px`,
+            width: `${element.offsetWidth}px`, height: `${element.offsetHeight}px`,
+            margin: '0', pointerEvents: 'none', overflow: 'hidden', zIndex: '2',
+            willChange: 'transform, opacity',
+        });
+        under.setAttribute('aria-hidden', 'true');
+        // Only the transcript leaves; the composer stays where it is, so the
+        // copy's composer is hidden rather than drifting up as a ghost. The
+        // snapshot is see-through: the new rows are held invisible until
+        // their turn, so only the new pane's ground and composer show below.
+        under.querySelectorAll<HTMLElement>('[data-lmc-composer]').forEach((node) => { node.style.visibility = 'hidden'; });
+        element.parentElement.insertBefore(under, element.nextSibling);
+        applyScroll(under, press.snapshotScroll);
+        const leave = under.animate([
+            { opacity: 1, transform: 'none' },
+            { opacity: 0, transform: `translateY(-${SESSION_REVEAL.liftPx}px)` },
+        ], { duration: SESSION_REVEAL.liftMs, easing: 'cubic-bezier(0.4, 0, 1, 1)', fill: 'forwards' });
+        leave.finished.then(() => under.remove(), () => under.remove());
+        setTimeout(() => under.remove(), SESSION_REVEAL.liftMs + 400);
+    }
+    rowSpring ??= springEasing(260, 19);
+    const startedAt = performance.now();
+    const rise = () => {
+        const rect = element.getBoundingClientRect();
+        let order = 0;
+        element.querySelectorAll<HTMLElement>('[data-lmc-chat-row]').forEach((row) => {
+            if (order >= SESSION_REVEAL.rowMax) return;
+            const box = row.getBoundingClientRect();
+            if (box.bottom < rect.top || box.top > rect.bottom || box.height === 0) return;
+            row.animate([
+                { opacity: 0, transform: `translateY(${SESSION_REVEAL.rowRisePx}px) scale(0.98)` },
+                { opacity: 1, transform: 'none' },
+            ], { duration: rowSpring!.duration, easing: rowSpring!.easing, delay: order * SESSION_REVEAL.rowStaggerMs, fill: 'backwards' });
+            order += 1;
+        });
+        release();
+    };
+    // Rows mount a frame or two after the pane; start once they are there
+    // (at most maxWaitMs), so none pops in ahead of its turn.
+    const wait = () => {
+        const rows = element.querySelector('[data-lmc-chat-row]');
+        const elapsed = performance.now() - startedAt;
+        // Let the old body mostly leave first, so old and new text never overlap.
+        if ((rows && elapsed >= SESSION_REVEAL.liftMs * 0.6) || elapsed > SESSION_REVEAL.maxWaitMs) rise();
+        else requestAnimationFrame(wait);
+    };
+    requestAnimationFrame(wait);
+    setTimeout(release, SESSION_REVEAL.maxWaitMs + 200);
 }
