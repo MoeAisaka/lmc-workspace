@@ -429,6 +429,10 @@ function playRise(element: HTMLElement, press: NonNullable<typeof origin>): () =
         });
         under.setAttribute('aria-hidden', 'true');
         under.setAttribute(RISE_LAYER, '');
+        // The old composer (and its status line) stays out of the cover: the
+        // new one is already on screen below, and two composers at once read
+        // as two sessions stacked on top of each other.
+        under.querySelectorAll<HTMLElement>('[data-lmc-composer]').forEach((node) => { node.style.visibility = 'hidden'; });
         document.body.appendChild(under);
         applyScroll(under, press.snapshotScroll);
         setTimeout(() => under.remove(), SESSION_REVEAL.riseWaitMs + SESSION_REVEAL.liftMs + 600);
