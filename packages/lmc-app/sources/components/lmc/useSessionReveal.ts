@@ -12,7 +12,8 @@ import { Platform } from 'react-native';
  */
 export const SESSION_REVEAL = {
     // Owner kept finding it fast; the radius is 1000+ px, so length matters more than the curve.
-    durationMs: 850,
+    // 850 ms felt right in pace; then asked for 20% faster (850 / 1.2).
+    durationMs: 710,
     // Fast out of the row, long gentle settle (Owner: 先快后慢; initial speed halved, then cut by another 25%).
     easing: 'cubic-bezier(0.16, 0.375, 0.3, 1)',
     freshMs: 1200,
