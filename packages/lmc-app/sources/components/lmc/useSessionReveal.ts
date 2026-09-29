@@ -3,11 +3,21 @@ import { Platform } from 'react-native';
 
 /**
  * Opening a session from the list grows it out of the row that was pressed:
- * the session pane is clipped to a circle centred on the press, which widens
- * until it covers the pane. Web only (clip-path + Web Animations); other
- * platforms and reduced motion keep the plain fade in SessionContentEnter.
+ * a soft-edged circle, centred on the pane's edge at that row's height, widens
+ * to half the pane while everything outside it fades in, then the mask goes.
+ * Web only (mask-image over registered custom properties, Web Animations);
+ * other platforms, older browsers and reduced motion keep the plain fade in
+ * SessionContentEnter.
  */
-export const SESSION_REVEAL = { durationMs: 420, easing: 'cubic-bezier(0.2, 0, 0, 1)', freshMs: 1200 } as const;
+export const SESSION_REVEAL = {
+    durationMs: 450,
+    easing: 'cubic-bezier(0.2, 0, 0, 1)',
+    freshMs: 1200,
+    /** Share of the full covering radius the circle reaches. Owner: stop halfway. */
+    radiusShare: 0.5,
+    /** Width of the circle's soft edge. */
+    featherPx: 160,
+} as const;
 
 let origin: { x: number; y: number; at: number } | null = null;
 let lastRevealAt = 0;
@@ -27,6 +37,19 @@ function listen() {
 // Installed on import so the very first press, before any session pane
 // exists, is already recorded.
 listen();
+
+let registered: boolean | null = null;
+/** The mask animates through two typed custom properties; without them gradients cannot interpolate. */
+function registerRevealProperties(): boolean {
+    if (registered !== null) return registered;
+    const css = (globalThis as { CSS?: { registerProperty?: (definition: object) => void } }).CSS;
+    if (!css?.registerProperty) return (registered = false);
+    try {
+        css.registerProperty({ name: '--lmc-reveal-r', syntax: '<length>', inherits: false, initialValue: '0px' });
+        css.registerProperty({ name: '--lmc-reveal-a', syntax: '<number>', inherits: false, initialValue: '0' });
+    } catch { /* already registered by an earlier bundle on this page */ }
+    return (registered = true);
+}
 
 /** True while a reveal is playing, so the inner fade does not stack on it. */
 export function revealJustPlayed(): boolean {
@@ -52,10 +75,20 @@ export function useSessionReveal(ref: React.RefObject<unknown>, sessionId: strin
             Math.hypot(x, y), Math.hypot(rect.width - x, y),
             Math.hypot(x, rect.height - y), Math.hypot(rect.width - x, rect.height - y),
         );
+        if (!registerRevealProperties()) return;
         lastRevealAt = Date.now();
-        element.animate([
-            { clipPath: `circle(0px at ${x}px ${y}px)` },
-            { clipPath: `circle(${Math.ceil(radius)}px at ${x}px ${y}px)` },
-        ], { duration: SESSION_REVEAL.durationMs, easing: SESSION_REVEAL.easing });
+        const mask = `radial-gradient(circle at ${x}px ${y}px, #000 var(--lmc-reveal-r), rgba(0,0,0,var(--lmc-reveal-a)) calc(var(--lmc-reveal-r) + ${SESSION_REVEAL.featherPx}px))`;
+        const style = element.style as CSSStyleDeclaration & { webkitMaskImage: string };
+        style.maskImage = mask;
+        style.webkitMaskImage = mask;
+        const clear = () => { style.maskImage = ''; style.webkitMaskImage = ''; };
+        const animation = element.animate([
+            { '--lmc-reveal-r': '0px', '--lmc-reveal-a': 0 },
+            { '--lmc-reveal-r': `${Math.ceil(radius * SESSION_REVEAL.radiusShare)}px`, '--lmc-reveal-a': 1 },
+        ] as Keyframe[], { duration: SESSION_REVEAL.durationMs, easing: SESSION_REVEAL.easing, fill: 'forwards' });
+        animation.onfinish = clear;
+        animation.oncancel = clear;
+        // Never leave the pane masked, whatever happens to the animation.
+        setTimeout(clear, SESSION_REVEAL.durationMs + 250);
     }, [ref, sessionId]);
 }
