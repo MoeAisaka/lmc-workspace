@@ -42,8 +42,12 @@ export function useSessionReveal(ref: React.RefObject<unknown>, sessionId: strin
         if (!element || typeof element.animate !== 'function') return;
         if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
         const rect = element.getBoundingClientRect();
-        const x = press.x - rect.left;
-        const y = press.y - rect.top;
+        // The press is in the list, often hundreds of pixels left of this
+        // pane; centred there the circle is so large its edge sweeps across
+        // as a near-straight line. Pin the centre to the pane's own edge at
+        // the pressed row's height so the curve reads as a circle.
+        const x = Math.min(Math.max(press.x - rect.left, 0), rect.width);
+        const y = Math.min(Math.max(press.y - rect.top, 0), rect.height);
         const radius = Math.max(
             Math.hypot(x, y), Math.hypot(rect.width - x, y),
             Math.hypot(x, rect.height - y), Math.hypot(rect.width - x, rect.height - y),
