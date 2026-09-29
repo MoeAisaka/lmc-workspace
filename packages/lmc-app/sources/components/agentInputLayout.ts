@@ -268,11 +268,15 @@ export const MOBILE_COMPOSER_LAYOUT = resolveAgentInputLayout({
  * for a moment, and dropping the row for those frames moves the whole composer
  * down and back up again — a jump caused by a missing number rather than by
  * anything the user did. So a row that has spoken once keeps its place.
+ * A session's composer always keeps it: a session that has not loaded yet
+ * (or has no figures) would otherwise sit a row lower than the others, and
+ * switching between them moved the composer up and down.
  */
-export function resolveUsageRowPresence({ hasFigures, hasEverShown }: {
+export function resolveUsageRowPresence({ hasFigures, hasEverShown, alwaysReserve = false }: {
     hasFigures: boolean;
     hasEverShown: boolean;
+    alwaysReserve?: boolean;
 }): 'absent' | 'reserved' | 'visible' {
     if (hasFigures) return 'visible';
-    return hasEverShown ? 'reserved' : 'absent';
+    return hasEverShown || alwaysReserve ? 'reserved' : 'absent';
 }

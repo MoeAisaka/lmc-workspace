@@ -1383,6 +1383,7 @@ export function SessionViewLoaded({
                 autocompleteSuggestions={handleAutocompleteSuggestions}
                 usageData={usageData}
                 turnElapsed={turnElapsed}
+                reserveUsageRow
                 alwaysShowContextSize={alwaysShowContextSize}
                 zenMode={zenMode}
                 showStatusDetails={showBottomDockDetails}

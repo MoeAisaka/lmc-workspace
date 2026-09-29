@@ -148,6 +148,10 @@ describe('usage row presence', () => {
         expect(presence(false, true)).toBe('reserved');
     });
 
+    it('keeps its place in a session composer before anything is reported', () => {
+        expect(agentInputLayout.resolveUsageRowPresence({ hasFigures: false, hasEverShown: false, alwaysReserve: true })).toBe('reserved');
+    });
+
     it('shows whenever there is something to report', () => {
         expect(presence(true, false)).toBe('visible');
         expect(presence(true, true)).toBe('visible');

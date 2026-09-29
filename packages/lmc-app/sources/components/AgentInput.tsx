@@ -127,6 +127,8 @@ interface AgentInputProps {
     sessionStatusGitChanges?: { insertions: number; deletions: number; approximate: boolean } | null;
     /** Plan quota windows from agent state, for the week stat and its popup. */
     turnElapsed?: TurnElapsed | null;
+    /** A session's composer: the usage row keeps its place even when empty. */
+    reserveUsageRow?: boolean;
     onFileViewerPress?: () => void;
     agentType?: 'claude' | 'codex' | 'gemini' | 'openclaw' | 'agy';
     onAgentClick?: () => void;
@@ -768,6 +770,8 @@ function ContextGaugeIcon(props: { percent: number }) {
 type UsageRowProps = {
     turnElapsed?: TurnElapsed | null;
     contextStatus: { percent: number; detailText: string; color: string } | null;
+    /** Keep the row's height even before it has anything to show. */
+    alwaysReserve?: boolean;
 };
 
 // Sits under the composer card, right-aligned with the effort label: the
@@ -785,7 +789,7 @@ export const AgentInputUsageRow = React.memo(function AgentInputUsageRow(p: Usag
     // Once the row has had something to say it keeps its place.
     const everShown = React.useRef(false);
     if (hasFigures) everShown.current = true;
-    if (resolveUsageRowPresence({ hasFigures, hasEverShown: everShown.current }) === 'absent') {
+    if (resolveUsageRowPresence({ hasFigures, hasEverShown: everShown.current, alwaysReserve: p.alwaysReserve }) === 'absent') {
         return null;
     }
     return (
@@ -798,7 +802,9 @@ export const AgentInputUsageRow = React.memo(function AgentInputUsageRow(p: Usag
             // with the effort label's right edge.
             paddingHorizontal: 18,
             paddingTop: 6,
-            minHeight: 18,
+            // Border-box: 6 of padding plus an 18-high line, so an empty
+            // reserved row is exactly as tall as one with figures.
+            minHeight: 24,
         }}>
             {p.turnElapsed && <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0 }}>
                 <TurnElapsedLabel timing={p.turnElapsed} compact={compact} />
@@ -2059,6 +2065,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                         <AgentInputUsageRow
                             turnElapsed={props.turnElapsed}
                             contextStatus={contextStatus}
+                            alwaysReserve={props.reserveUsageRow}
                         />
                     </AnimatedFade>
                 </View>
