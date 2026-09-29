@@ -5,7 +5,8 @@ import { Platform } from 'react-native';
  * Opening a session from the list grows it out of the row that was pressed:
  * the previous session's body is kept underneath as a snapshot, and the new
  * one spreads over it as a circle centred on the pane's edge at that row's
- * height, until it covers the pane; the old body dims, blurs from halfway, and
+ * height, until it covers the pane, its rows springing in newest first; the
+ * old body dims, blurs from halfway, and
  * the spreading edge is traced as a thin, very light grey line.
  * Web only (clip-path and a transform-scaled ring, Web Animations); other
  * platforms and reduced motion keep the plain fade in SessionContentEnter.
@@ -27,6 +28,11 @@ export const SESSION_REVEAL = {
      * of the duration where the easing reaches those radii.
      */
     blurPx: 5,
+    /** Rows rise into the circle newest first, on a spring (Owner chose option D). */
+    rowStaggerMs: 40,
+    rowDelayMs: 60,
+    rowMax: 8,
+    rowRisePx: 18,
     blurFrom: 0.212,
     blurFull: 0.437,
     /** The spreading edge: a very light grey (Owner found the brand blue too loud). */
@@ -105,6 +111,28 @@ function isDark(colour: string): boolean {
     return 0.2126 * r + 0.7152 * g + 0.0722 * b < 128;
 }
 
+/**
+ * A damped spring sampled into a CSS linear() easing, so the compositor can
+ * run a spring (a little overshoot, then settle) like any other curve.
+ */
+function springEasing(stiffness: number, damping: number): { easing: string; duration: number } {
+    let x = 0;
+    let v = 0;
+    let t = 0;
+    const dt = 1 / 240;
+    const points = [0];
+    while (t < 3) {
+        v += (-stiffness * (x - 1) - damping * v) * dt;
+        x += v * dt;
+        t += dt;
+        if (Math.round(t * 240) % 4 === 0) points.push(x);
+        if (t > 0.1 && Math.abs(x - 1) < 0.0008 && Math.abs(v) < 0.02) break;
+    }
+    points.push(1);
+    return { easing: `linear(${points.map((p) => +p.toFixed(4)).join(', ')})`, duration: Math.round(t * 1000) };
+}
+let rowSpring: { easing: string; duration: number } | null = null;
+
 /** The reveal's easing at time t (0..1): the cubic-bezier in SESSION_REVEAL.easing. */
 function easeAt(t: number): number {
     const [x1, y1, x2, y2] = SESSION_REVEAL.easing;
@@ -120,7 +148,7 @@ function easeAt(t: number): number {
 
 /** True while a reveal is playing, so the inner fade does not stack on it. */
 export function revealJustPlayed(): boolean {
-    return Date.now() - lastRevealAt < SESSION_REVEAL.durationMs + SESSION_REVEAL.maxWaitMs;
+    return Date.now() - lastRevealAt < SESSION_REVEAL.durationMs + SESSION_REVEAL.maxWaitMs + 600;
 }
 
 export function useSessionReveal(ref: React.RefObject<unknown>, sessionId: string): void {
@@ -269,10 +297,33 @@ export function useSessionReveal(ref: React.RefObject<unknown>, sessionId: strin
                 { opacity: SESSION_REVEAL.dimTo, offset: SESSION_REVEAL.blurFull },
                 { opacity: SESSION_REVEAL.dimTo, offset: 1 },
             ], timing);
-            const done = windowCircle.getAnimations()[0];
-            done.onfinish = clear;
-            done.oncancel = clear;
-            setTimeout(clear, SESSION_REVEAL.durationMs + 250);
+            // Rows spring in one by one, newest (visual bottom) first; only the
+            // ones on screen, so a long session does not queue dozens.
+            rowSpring ??= springEasing(260, 19);
+            const paneTop = rect.top;
+            const paneBottom = rect.bottom;
+            const realRows = [...element.querySelectorAll<HTMLElement>('[data-lmc-chat-row]')];
+            const copyRows = [...copy.querySelectorAll<HTMLElement>('[data-lmc-chat-row]')];
+            const risers: Animation[] = [];
+            let order = 0;
+            realRows.forEach((row, index) => {
+                if (order >= SESSION_REVEAL.rowMax) return;
+                const box = row.getBoundingClientRect();
+                if (box.bottom < paneTop || box.top > paneBottom || box.height === 0) return;
+                const target = copyRows[index];
+                if (!target) return;
+                target.style.willChange = 'transform, opacity';
+                risers.push(target.animate([
+                    { opacity: 0, transform: `translateY(${SESSION_REVEAL.rowRisePx}px) scale(0.98)` },
+                    { opacity: 1, transform: 'none' },
+                ], { duration: rowSpring!.duration, easing: rowSpring!.easing, delay: SESSION_REVEAL.rowDelayMs + order * SESSION_REVEAL.rowStaggerMs, fill: 'backwards' }));
+                order += 1;
+            });
+            // Hand back to the real pane only when the circle and every row have landed.
+            const all = [windowCircle.getAnimations()[0], ...risers];
+            Promise.all(all.map((animation) => animation.finished)).then(clear, clear);
+            const longest = Math.max(SESSION_REVEAL.durationMs, SESSION_REVEAL.rowDelayMs + (order - 1) * SESSION_REVEAL.rowStaggerMs + rowSpring.duration);
+            setTimeout(clear, longest + 250);
         };
         // Copy only once the transcript has settled: right after mounting, the
         // list still scrolls itself to the bottom and measures rows, and a copy
@@ -301,6 +352,6 @@ export function useSessionReveal(ref: React.RefObject<unknown>, sessionId: strin
         };
         requestAnimationFrame(waitForContent);
         // Never leave the pane hidden or the snapshots behind.
-        setTimeout(clear, SESSION_REVEAL.maxWaitMs + SESSION_REVEAL.durationMs + 400);
+        setTimeout(clear, SESSION_REVEAL.maxWaitMs + SESSION_REVEAL.durationMs + 1200);
     }, [ref, sessionId]);
 }

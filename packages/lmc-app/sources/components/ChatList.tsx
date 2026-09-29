@@ -357,7 +357,7 @@ const ChatListInternal = React.memo((props: {
     // Separate explicit timeline choices from legacy auto-collapse behavior.
     const [timelineChoices, setTimelineChoices] = React.useState<Record<string, boolean>>({});
 
-    const renderItem = useCallback(({ item }: { item: DisplayItem }) => {
+    const renderRow = useCallback((item: DisplayItem) => {
         if (item.type === 'tool-group') {
             return (
                 <ToolGroupView
@@ -394,6 +394,12 @@ const ChatListInternal = React.memo((props: {
             />
         );
     }, [agentCopyTextByMessageId, props.metadata, props.sessionId, collapsedGroups, timelineChoices, handleToggleGroup, preserveToolGroupAnchor]);
+
+    // Each row carries a marker so the session reveal can bring rows in one
+    // by one on its copy of the list (useSessionReveal). No style, no layout.
+    const renderItem = useCallback(({ item }: { item: DisplayItem }) => (
+        <View {...({ dataSet: { lmcChatRow: 'true' } } as object)}>{renderRow(item)}</View>
+    ), [renderRow]);
 
     // In inverted FlatList, offset 0 = latest messages (visual bottom).
     // Offset increases as user scrolls up to see older messages.
