@@ -43,6 +43,8 @@ export const SESSION_REVEAL = {
     /** Option C: how the old body leaves. */
     liftPx: 14,
     liftMs: 170,
+    /** Option C: longest the old body holds while the new list settles. */
+    riseWaitMs: 250,
     blurFrom: 0.212,
     blurFull: 0.437,
     /** The spreading edge: a very light grey (Owner found the brand blue too loud). */
@@ -64,7 +66,11 @@ function listen() {
     document.addEventListener('pointerdown', (event) => {
         const target = event.target as Element | null;
         if (target?.closest?.('.happy-sort-row, [data-hub-sort-id]')) {
-            const pane = document.querySelector<HTMLElement>('[data-lmc-session-pane]');
+            // Screens pushed earlier stay mounted, hidden; snapshot the one on screen.
+            const pane = [...document.querySelectorAll<HTMLElement>('[data-lmc-session-pane]')].find((node) => {
+                const box = node.getBoundingClientRect();
+                return box.width > 0 && box.height > 0 && !node.closest('[aria-hidden="true"]');
+            }) ?? null;
             const snapshot = pane ? pane.cloneNode(true) as HTMLElement : null;
             const snapshotScroll = pane ? readScroll(pane) : [];
             snapshot?.removeAttribute('data-lmc-session-pane');
@@ -397,32 +403,35 @@ function playRise(element: HTMLElement, press: NonNullable<typeof origin>): void
         released = true;
         element.removeAttribute(RISE_PENDING);
     };
+    // The old transcript covers the new one, still and opaque, while the new
+    // list builds: a live list can be rebuilt several times as its messages
+    // arrive, and every rebuild shown on screen read as a flash. The composer
+    // is left out of the cover so it never blinks.
     const under = press.snapshot;
+    const composer = element.querySelector<HTMLElement>('[data-lmc-composer]');
+    const paneBox = element.getBoundingClientRect();
+    const coverHeight = composer ? Math.max(0, composer.getBoundingClientRect().top - paneBox.top) : element.offsetHeight;
     if (under && element.parentElement) {
         Object.assign(under.style, {
             position: 'absolute', left: `${element.offsetLeft}px`, top: `${element.offsetTop}px`,
-            width: `${element.offsetWidth}px`, height: `${element.offsetHeight}px`,
+            width: `${element.offsetWidth}px`, height: `${coverHeight}px`,
             margin: '0', pointerEvents: 'none', overflow: 'hidden', zIndex: '2',
-            willChange: 'transform, opacity',
+            background: opaqueBackground(element.parentElement), willChange: 'transform, opacity',
         });
         under.setAttribute('aria-hidden', 'true');
-        // Only the transcript leaves; the composer stays where it is, so the
-        // copy's composer is hidden rather than drifting up as a ghost. The
-        // snapshot is see-through: the new rows are held invisible until
-        // their turn, so only the new pane's ground and composer show below.
-        under.querySelectorAll<HTMLElement>('[data-lmc-composer]').forEach((node) => { node.style.visibility = 'hidden'; });
         element.parentElement.insertBefore(under, element.nextSibling);
         applyScroll(under, press.snapshotScroll);
-        const leave = under.animate([
-            { opacity: 1, transform: 'none' },
-            { opacity: 0, transform: `translateY(-${SESSION_REVEAL.liftPx}px)` },
-        ], { duration: SESSION_REVEAL.liftMs, easing: 'cubic-bezier(0.4, 0, 1, 1)', fill: 'forwards' });
-        leave.finished.then(() => under.remove(), () => under.remove());
-        setTimeout(() => under.remove(), SESSION_REVEAL.liftMs + 400);
+        setTimeout(() => under.remove(), SESSION_REVEAL.riseWaitMs + SESSION_REVEAL.liftMs + 600);
     }
     rowSpring ??= springEasing(260, 19);
-    const startedAt = performance.now();
-    const rise = () => {
+    const go = () => {
+        if (under) {
+            const leave = under.animate([
+                { opacity: 1, transform: 'none' },
+                { opacity: 0, transform: `translateY(-${SESSION_REVEAL.liftPx}px)` },
+            ], { duration: SESSION_REVEAL.liftMs, easing: 'cubic-bezier(0.4, 0, 1, 1)', fill: 'forwards' });
+            leave.finished.then(() => under.remove(), () => under.remove());
+        }
         const rect = element.getBoundingClientRect();
         let order = 0;
         element.querySelectorAll<HTMLElement>('[data-lmc-chat-row]').forEach((row) => {
@@ -432,20 +441,31 @@ function playRise(element: HTMLElement, press: NonNullable<typeof origin>): void
             row.animate([
                 { opacity: 0, transform: `translateY(${SESSION_REVEAL.rowRisePx}px) scale(0.98)` },
                 { opacity: 1, transform: 'none' },
-            ], { duration: rowSpring!.duration, easing: rowSpring!.easing, delay: order * SESSION_REVEAL.rowStaggerMs, fill: 'backwards' });
+            ], {
+                duration: rowSpring!.duration, easing: rowSpring!.easing, fill: 'backwards',
+                // Rows follow the old body out rather than crossing it.
+                delay: SESSION_REVEAL.liftMs * 0.4 + order * SESSION_REVEAL.rowStaggerMs,
+            });
             order += 1;
         });
         release();
     };
-    // Rows mount a frame or two after the pane; start once they are there
-    // (at most maxWaitMs), so none pops in ahead of its turn.
+    // Start once the new list has settled (rows present, scroll offsets and
+    // heights unchanged for two frames), at most riseWaitMs after the press.
+    const startedAt = performance.now();
+    let last = '';
+    let stable = 0;
     const wait = () => {
-        const rows = element.querySelector('[data-lmc-chat-row]');
-        const elapsed = performance.now() - startedAt;
-        // Let the old body mostly leave first, so old and new text never overlap.
-        if ((rows && elapsed >= SESSION_REVEAL.liftMs * 0.6) || elapsed > SESSION_REVEAL.maxWaitMs) rise();
+        let signature = '';
+        const rows = element.querySelectorAll('[data-lmc-chat-row]').length;
+        element.querySelectorAll<HTMLElement>('*').forEach((node) => {
+            if (node.scrollHeight > node.clientHeight + 1) signature += `${node.scrollTop}:${node.scrollHeight};`;
+        });
+        stable = signature === last ? stable + 1 : 0;
+        last = signature;
+        if ((rows > 0 && stable >= 2) || performance.now() - startedAt > SESSION_REVEAL.riseWaitMs) go();
         else requestAnimationFrame(wait);
     };
     requestAnimationFrame(wait);
-    setTimeout(release, SESSION_REVEAL.maxWaitMs + 200);
+    setTimeout(release, SESSION_REVEAL.riseWaitMs + 200);
 }
