@@ -176,8 +176,8 @@ export function useSessionReveal(ref: React.RefObject<unknown>, sessionId: strin
         if (!element || typeof element.animate !== 'function') return;
         if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
         if (SESSION_SWITCH_STYLE === 'rise') {
-            playRise(element, press);
-            return;
+            clearRiseLeftovers();
+            return playRise(element, press);
         }
         const rect = element.getBoundingClientRect();
         // The press is in the list, often hundreds of pixels left of this
@@ -377,6 +377,12 @@ export function useSessionReveal(ref: React.RefObject<unknown>, sessionId: strin
 }
 
 const RISE_PENDING = 'data-lmc-rise-pending';
+const RISE_LAYER = 'data-lmc-rise-layer';
+/** Whatever a switch left behind goes the moment another switch or unmount begins. */
+function clearRiseLeftovers(): void {
+    document.querySelectorAll(`[${RISE_LAYER}]`).forEach((node) => node.remove());
+    document.querySelectorAll(`[${RISE_PENDING}]`).forEach((node) => node.removeAttribute(RISE_PENDING));
+}
 let riseStyleInstalled = false;
 /** Rows of a pane waiting to rise stay invisible until their animation holds them. */
 function installRiseStyle() {
@@ -393,7 +399,7 @@ function installRiseStyle() {
  * The real rows are animated directly (transform and opacity only), so there
  * is no copy to line up with the live list afterwards.
  */
-function playRise(element: HTMLElement, press: NonNullable<typeof origin>): void {
+function playRise(element: HTMLElement, press: NonNullable<typeof origin>): () => void {
     lastRevealAt = Date.now();
     installRiseStyle();
     element.setAttribute(RISE_PENDING, '');
@@ -411,15 +417,19 @@ function playRise(element: HTMLElement, press: NonNullable<typeof origin>): void
     const composer = element.querySelector<HTMLElement>('[data-lmc-composer]');
     const paneBox = element.getBoundingClientRect();
     const coverHeight = composer ? Math.max(0, composer.getBoundingClientRect().top - paneBox.top) : element.offsetHeight;
-    if (under && element.parentElement) {
+    if (under) {
+        // Fixed to the viewport and parented to <body>: inserted beside the
+        // pane, a layout that ignored its absolute position let it take space
+        // and push the new pane down under the old one.
         Object.assign(under.style, {
-            position: 'absolute', left: `${element.offsetLeft}px`, top: `${element.offsetTop}px`,
-            width: `${element.offsetWidth}px`, height: `${coverHeight}px`,
-            margin: '0', pointerEvents: 'none', overflow: 'hidden', zIndex: '2',
+            position: 'fixed', left: `${paneBox.left}px`, top: `${paneBox.top}px`,
+            width: `${paneBox.width}px`, height: `${coverHeight}px`,
+            margin: '0', pointerEvents: 'none', overflow: 'hidden', zIndex: '40',
             background: opaqueBackground(element.parentElement), willChange: 'transform, opacity',
         });
         under.setAttribute('aria-hidden', 'true');
-        element.parentElement.insertBefore(under, element.nextSibling);
+        under.setAttribute(RISE_LAYER, '');
+        document.body.appendChild(under);
         applyScroll(under, press.snapshotScroll);
         setTimeout(() => under.remove(), SESSION_REVEAL.riseWaitMs + SESSION_REVEAL.liftMs + 600);
     }
@@ -468,4 +478,9 @@ function playRise(element: HTMLElement, press: NonNullable<typeof origin>): void
     };
     requestAnimationFrame(wait);
     setTimeout(release, SESSION_REVEAL.riseWaitMs + 200);
+    // Unmounting or switching again removes only what this switch put up.
+    return () => {
+        release();
+        under?.remove();
+    };
 }
