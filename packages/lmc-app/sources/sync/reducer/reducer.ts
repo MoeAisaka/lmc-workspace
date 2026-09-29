@@ -630,11 +630,15 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
                         continue;
                     }
 
-                    // A request older than the loaded window had its tool call
-                    // evicted with the rest of the old transcript. Synthesising
-                    // a card for it put every old answered question back at the
-                    // bottom of the chat after each window rebuild.
-                    if (state.windowTruncated && state.oldestMessageAt !== undefined && (completed.createdAt ?? 0) < state.oldestMessageAt) {
+                    // Only a request inside the loaded transcript can be missing
+                    // its tool call. One older than every loaded message belongs
+                    // to history that is not loaded (evicted from the web window,
+                    // or never fetched), and before any message has arrived there
+                    // is nothing to place it against: agent state reaches a
+                    // session opened fresh before its messages do, and every old
+                    // answered question came back as an empty card. Later
+                    // batches re-run this with the loaded range known.
+                    if (state.oldestMessageAt === undefined || (completed.createdAt ?? 0) < state.oldestMessageAt) {
                         continue;
                     }
 

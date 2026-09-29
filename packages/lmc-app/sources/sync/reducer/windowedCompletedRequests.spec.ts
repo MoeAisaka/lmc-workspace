@@ -28,11 +28,19 @@ describe('completed requests outside the loaded window', () => {
         expect(result.messages.filter((m) => m.kind === 'tool-call')).toHaveLength(1);
     });
 
-    it('keeps the old behaviour on a full, untruncated load', () => {
-        expect(reducer(createReducer(), [], completed('toolu_old', 1_000)).messages.filter((m) => m.kind === 'tool-call')).toHaveLength(1);
+    it('does not bring back old questions when agent state arrives before any message', () => {
         const state = createReducer();
-        reducer(state, window);
-        expect(reducer(state, [], completed('toolu_old', 1_000)).messages.filter((m) => m.kind === 'tool-call')).toHaveLength(1);
+        expect(reducer(state, [], completed('toolu_old', 1_000)).messages.filter((m) => m.kind === 'tool-call')).toHaveLength(0);
+        // The first page of a fresh load is not marked truncated either.
+        const result = reducer(state, window, completed('toolu_old', 1_000));
+        expect(result.messages.some((m) => m.kind === 'tool-call')).toBe(false);
+    });
+
+    it('still shows a request from the loaded range once messages are known', () => {
+        const state = createReducer();
+        reducer(state, [], completed('toolu_new', 6_000));
+        const result = reducer(state, window, completed('toolu_new', 6_000));
+        expect(result.messages.filter((m) => m.kind === 'tool-call')).toHaveLength(1);
     });
 });
 

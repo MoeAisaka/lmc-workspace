@@ -4,6 +4,17 @@ import { createReducer } from './reducer';
 import { reducer } from './reducer';
 import { AgentState } from '../storageTypes';
 
+/**
+ * A reducer for a session already under way: its transcript has the prompt
+ * that started the turn. Completed requests are only drawn against a known
+ * transcript, so tests of the live permission flow start from one.
+ */
+function liveReducer() {
+    const state = createReducer();
+    reducer(state, [{ id: 'prompt', localId: null, createdAt: 0, role: 'user', content: { type: 'text', text: 'go' }, isSidechain: false } as NormalizedMessage]);
+    return state;
+}
+
 describe('reducer', () => {
     // it('should process golden cases', () => {
     //     for (let i = 0; i <= 3; i++) {
@@ -543,7 +554,7 @@ describe('reducer', () => {
         });
 
         it('should match incoming tool calls to approved permission messages', () => {
-            const state = createReducer();
+            const state = liveReducer();
             
             // First create an approved permission
             const agentState: AgentState = {
@@ -744,7 +755,7 @@ describe('reducer', () => {
         });
 
         it('should not create new message when tool can be matched to existing permission (priority to newest)', () => {
-            const state = createReducer();
+            const state = liveReducer();
             
             // Create multiple approved permissions with same tool but different times
             const agentState: AgentState = {
@@ -817,7 +828,7 @@ describe('reducer', () => {
         });
 
         it('should not create duplicate messages when called twice with same AgentState', () => {
-            const state = createReducer();
+            const state = liveReducer();
             
             // AgentState with both pending and completed permissions
             const agentState: AgentState = {
@@ -1014,7 +1025,7 @@ describe('reducer', () => {
         });
 
         it('should create separate messages for same tool name with different arguments', () => {
-            const state = createReducer();
+            const state = liveReducer();
             
             // AgentState with two approved permissions for same tool but different arguments
             const agentState: AgentState = {
@@ -1475,7 +1486,7 @@ describe('reducer', () => {
         });
 
         it('should handle interleaved messages from multiple sources correctly', () => {
-            const state = createReducer();
+            const state = liveReducer();
             
             // Mix of user messages, permissions, and tool calls
             const agentState: AgentState = {
