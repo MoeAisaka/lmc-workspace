@@ -12,8 +12,8 @@ import { Platform } from 'react-native';
  */
 export const SESSION_REVEAL = {
     durationMs: 560,
-    // Fast out of the row, long gentle settle (Owner: 先快后慢).
-    easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
+    // Fast out of the row, long gentle settle (Owner: 先快后慢; initial speed then halved).
+    easing: 'cubic-bezier(0.16, 0.5, 0.3, 1)',
     freshMs: 1200,
     /** How far the covered body dims by the end. */
     dimTo: 0.6,
