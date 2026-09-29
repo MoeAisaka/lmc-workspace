@@ -3,23 +3,26 @@ import { Platform } from 'react-native';
 
 /**
  * Opening a session from the list grows it out of the row that was pressed:
- * a soft-edged circle, centred on the pane's edge at that row's height, widens
- * to half the pane while everything outside it fades in, then the mask goes.
+ * the previous session's body is kept underneath as a snapshot, and the new
+ * one spreads over it as a circle centred on the pane's edge at that row's
+ * height, until it covers the pane; the old body dims as it is covered.
  * Web only (mask-image over registered custom properties, Web Animations);
  * other platforms, older browsers and reduced motion keep the plain fade in
  * SessionContentEnter.
  */
 export const SESSION_REVEAL = {
-    durationMs: 450,
-    easing: 'cubic-bezier(0.2, 0, 0, 1)',
+    durationMs: 560,
+    easing: 'cubic-bezier(0.3, 0, 0.2, 1)',
     freshMs: 1200,
-    /** Share of the full covering radius the circle reaches. Owner: stop halfway. */
-    radiusShare: 0.5,
-    /** Width of the circle's soft edge. */
-    featherPx: 160,
+    /** Width of the circle's edge; narrow so the circle reads clearly. */
+    featherPx: 28,
+    /** How far the covered body dims by the end. */
+    dimTo: 0.55,
 } as const;
 
-let origin: { x: number; y: number; at: number } | null = null;
+let origin: { x: number; y: number; at: number; snapshot: HTMLElement | null } | null = null;
+/** The pane carries this marker so a press can snapshot what it is about to cover. */
+export const SESSION_PANE_DATASET = { lmcSessionPane: 'true' } as const;
 let lastRevealAt = 0;
 let listening = false;
 
@@ -29,7 +32,10 @@ function listen() {
     document.addEventListener('pointerdown', (event) => {
         const target = event.target as Element | null;
         if (target?.closest?.('.happy-sort-row, [data-hub-sort-id]')) {
-            origin = { x: event.clientX, y: event.clientY, at: Date.now() };
+            const pane = document.querySelector<HTMLElement>('[data-lmc-session-pane]');
+            const snapshot = pane ? pane.cloneNode(true) as HTMLElement : null;
+            snapshot?.removeAttribute('data-lmc-session-pane');
+            origin = { x: event.clientX, y: event.clientY, at: Date.now(), snapshot };
         }
     }, { capture: true, passive: true });
 }
@@ -38,15 +44,23 @@ function listen() {
 // exists, is already recorded.
 listen();
 
+/** The first opaque background up the tree — what the pane is drawn on. */
+function opaqueBackground(from: HTMLElement | null): string {
+    for (let node = from; node; node = node.parentElement) {
+        const colour = getComputedStyle(node).backgroundColor;
+        if (colour && colour !== 'transparent' && !/rgba\([^)]*,\s*0\)$/.test(colour)) return colour;
+    }
+    return getComputedStyle(document.body).backgroundColor || '#fff';
+}
+
 let registered: boolean | null = null;
-/** The mask animates through two typed custom properties; without them gradients cannot interpolate. */
+/** The mask animates through a typed custom property; without them gradients cannot interpolate. */
 function registerRevealProperties(): boolean {
     if (registered !== null) return registered;
     const css = (globalThis as { CSS?: { registerProperty?: (definition: object) => void } }).CSS;
     if (!css?.registerProperty) return (registered = false);
     try {
         css.registerProperty({ name: '--lmc-reveal-r', syntax: '<length>', inherits: false, initialValue: '0px' });
-        css.registerProperty({ name: '--lmc-reveal-a', syntax: '<number>', inherits: false, initialValue: '0' });
     } catch { /* already registered by an earlier bundle on this page */ }
     return (registered = true);
 }
@@ -74,21 +88,47 @@ export function useSessionReveal(ref: React.RefObject<unknown>, sessionId: strin
         const radius = Math.max(
             Math.hypot(x, y), Math.hypot(rect.width - x, y),
             Math.hypot(x, rect.height - y), Math.hypot(rect.width - x, rect.height - y),
-        );
+        ) + SESSION_REVEAL.featherPx;
         if (!registerRevealProperties()) return;
         lastRevealAt = Date.now();
-        const mask = `radial-gradient(circle at ${x}px ${y}px, #000 var(--lmc-reveal-r), rgba(0,0,0,var(--lmc-reveal-a)) calc(var(--lmc-reveal-r) + ${SESSION_REVEAL.featherPx}px))`;
+        // The old body stays underneath, exactly where it was, so the circle
+        // visibly covers it rather than opening onto an empty background.
+        const under = press.snapshot;
+        if (under && element.parentElement) {
+            Object.assign(under.style, {
+                position: 'absolute', left: `${element.offsetLeft}px`, top: `${element.offsetTop}px`,
+                width: `${element.offsetWidth}px`, height: `${element.offsetHeight}px`,
+                margin: '0', pointerEvents: 'none', overflow: 'hidden',
+            });
+            under.setAttribute('aria-hidden', 'true');
+            element.parentElement.insertBefore(under, element);
+            under.animate([{ opacity: 1 }, { opacity: SESSION_REVEAL.dimTo }],
+                { duration: SESSION_REVEAL.durationMs, easing: SESSION_REVEAL.easing, fill: 'forwards' });
+        }
+        // The pane is transparent over the screen colour; inside the circle it
+        // must hide the snapshot, so it borrows that colour while revealing.
+        const previousBackground = element.style.backgroundColor;
+        if (under) element.style.backgroundColor = opaqueBackground(element.parentElement);
+        const mask = `radial-gradient(circle at ${x}px ${y}px, #000 var(--lmc-reveal-r), transparent calc(var(--lmc-reveal-r) + ${SESSION_REVEAL.featherPx}px))`;
         const style = element.style as CSSStyleDeclaration & { webkitMaskImage: string };
         style.maskImage = mask;
         style.webkitMaskImage = mask;
-        const clear = () => { style.maskImage = ''; style.webkitMaskImage = ''; };
+        let cleared = false;
+        const clear = () => {
+            if (cleared) return;
+            cleared = true;
+            style.maskImage = '';
+            style.webkitMaskImage = '';
+            element.style.backgroundColor = previousBackground;
+            under?.remove();
+        };
         const animation = element.animate([
-            { '--lmc-reveal-r': '0px', '--lmc-reveal-a': 0 },
-            { '--lmc-reveal-r': `${Math.ceil(radius * SESSION_REVEAL.radiusShare)}px`, '--lmc-reveal-a': 1 },
+            { '--lmc-reveal-r': '0px' },
+            { '--lmc-reveal-r': `${Math.ceil(radius)}px` },
         ] as Keyframe[], { duration: SESSION_REVEAL.durationMs, easing: SESSION_REVEAL.easing, fill: 'forwards' });
         animation.onfinish = clear;
         animation.oncancel = clear;
-        // Never leave the pane masked, whatever happens to the animation.
+        // Never leave the pane masked or the snapshot behind.
         setTimeout(clear, SESSION_REVEAL.durationMs + 250);
     }, [ref, sessionId]);
 }

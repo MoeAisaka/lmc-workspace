@@ -36,7 +36,7 @@ import { getSuggestions } from '@/components/autocomplete/suggestions';
 import { ChatHeaderView } from '@/components/ChatHeaderView';
 import { ChatList } from '@/components/ChatList';
 import { SessionContentEnter, SessionContentSkeleton } from '@/components/lmc/SessionContentEnter';
-import { useSessionReveal } from '@/components/lmc/useSessionReveal';
+import { SESSION_PANE_DATASET, useSessionReveal } from '@/components/lmc/useSessionReveal';
 import { Deferred } from '@/components/Deferred';
 import { EmptyMessages } from '@/components/EmptyMessages';
 import { Avatar } from '@/components/Avatar';
@@ -1483,7 +1483,7 @@ export function SessionViewLoaded({
             )}
 
             {/* Main content area - no padding since header is overlay */}
-            <View ref={revealRef} style={{
+            <View ref={revealRef} {...({ dataSet: SESSION_PANE_DATASET } as object)} style={{
                 flexBasis: 0,
                 flexGrow: 1,
                 // The floating chat content reaches the physical bottom of
