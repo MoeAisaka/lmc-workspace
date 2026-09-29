@@ -147,3 +147,25 @@ describe('pending prompt transcript visibility', () => {
         expect(visibleTranscriptMessages(messages)).toBe(messages);
     });
 });
+
+describe('a stale queued prompt whose release never reached this tab', () => {
+    const queued: UserTextMessage = { kind: 'user-text', id: 'q', localId: 'q', text: 'GPT有5小时额度', createdAt: 10, serverSeq: 10, meta: { queueKey: 'q', sentFrom: 'web' } } as UserTextMessage;
+    const idleSend = (seq: number, meta: Record<string, unknown>): UserTextMessage => ({ kind: 'user-text', id: `u${seq}`, localId: `u${seq}`, text: 'later', createdAt: seq, serverSeq: seq, meta } as UserTextMessage);
+
+    it('stops spinning once a person sent a later prompt without queueing it', () => {
+        expect(pendingQueuePrompts([queued, idleSend(20, { sentFrom: 'web' })], null)).toEqual([]);
+    });
+
+    it('keeps waiting when nothing says the engine went idle', () => {
+        // Agent mail carries no sentFrom and can arrive mid-turn; a later queued
+        // prompt means the engine was still busy; an earlier idle send says nothing.
+        expect(pendingQueuePrompts([queued, idleSend(20, {})], null)).toHaveLength(1);
+        expect(pendingQueuePrompts([queued, idleSend(20, { sentFrom: 'web', queueKey: 'later' })], null).map(p => p.key)).toEqual(['q', 'later']);
+        expect(pendingQueuePrompts([idleSend(5, { sentFrom: 'web' }), queued], null)).toHaveLength(1);
+    });
+
+    it('still shows the agent\'s own queue entry for the same prompt', () => {
+        const items = pendingQueuePrompts([queued, idleSend(20, { sentFrom: 'web' })], [{ key: 'q', preview: 'GPT有5小时额度', createdAt: 10 }]);
+        expect(items.map(p => [p.key, p.awaitingAgent])).toEqual([['q', undefined]]);
+    });
+});

@@ -57,12 +57,27 @@ export function pendingQueuePrompts(messages: Message[], queue?: readonly Queued
         .map(item => [item.key, { ...item, copyText: fullText.get(item.key) }]));
     const awaiting = messages.filter(message => message.kind === 'user-text' && message.meta?.queueKey)
         .sort((a, b) => a.createdAt - b.createdAt);
+    // A composer only marks a prompt `queue` while it sees the engine working,
+    // so a later prompt a person sent without that mark means the engine was
+    // idle by then — and an idle engine has drained its queue. Without this, a
+    // prompt whose release receipt never reached this tab kept spinning in the
+    // strip for good. The agent's own queue above still shows anything real.
+    const lastIdleSend = messages.reduce<Message | null>((latest, message) => (
+        message.kind === 'user-text' && !message.meta?.queueKey && message.meta?.sentFrom
+            && (!latest || isLater(message, latest)) ? message : latest
+    ), null);
     for (const message of awaiting) {
         if (message.kind !== 'user-text') continue;
         const key = message.meta!.queueKey!;
         if (items.has(key) || released.has(key) || withdrawn.has(key)) continue;
+        if (lastIdleSend && isLater(lastIdleSend, message)) continue;
         const preview = (message.displayText ?? message.text).replace(/\s+/g, ' ').trim();
         items.set(key, { key, preview: preview.length > 120 ? preview.slice(0, 119) + '…' : preview, createdAt: message.createdAt, awaitingAgent: true, copyText: fullText.get(key) });
     }
     return [...items.values()];
+}
+
+function isLater(a: Message, b: Message): boolean {
+    if (a.serverSeq !== undefined && b.serverSeq !== undefined) return a.serverSeq > b.serverSeq;
+    return a.createdAt > b.createdAt;
 }
