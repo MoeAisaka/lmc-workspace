@@ -417,34 +417,51 @@ function playRise(element: HTMLElement, press: NonNullable<typeof origin>): () =
     const composer = element.querySelector<HTMLElement>('[data-lmc-composer]');
     const paneBox = element.getBoundingClientRect();
     const coverHeight = composer ? Math.max(0, composer.getBoundingClientRect().top - paneBox.top) : element.offsetHeight;
+    // The snapshot keeps the pane's full size, so it lays out exactly as it
+    // did (its list is positioned from the pane's bottom; shortened, the old
+    // messages rose and left a blank band). A frame of the transcript's
+    // height shows it and leaves the composer area to the new composer.
+    let cover: HTMLElement | null = null;
     if (under) {
-        // Fixed to the viewport and parented to <body>: inserted beside the
-        // pane, a layout that ignored its absolute position let it take space
-        // and push the new pane down under the old one.
-        Object.assign(under.style, {
+        cover = document.createElement('div');
+        cover.setAttribute('aria-hidden', 'true');
+        cover.setAttribute(RISE_LAYER, '');
+        // Fixed to the viewport and parented to <body>, so no layout around
+        // the pane can give it space or move it.
+        Object.assign(cover.style, {
             position: 'fixed', left: `${paneBox.left}px`, top: `${paneBox.top}px`,
             width: `${paneBox.width}px`, height: `${coverHeight}px`,
-            margin: '0', pointerEvents: 'none', overflow: 'hidden', zIndex: '40',
+            overflow: 'hidden', pointerEvents: 'none', zIndex: '40',
             background: opaqueBackground(element.parentElement), willChange: 'transform, opacity',
         });
-        under.setAttribute('aria-hidden', 'true');
-        under.setAttribute(RISE_LAYER, '');
-        // The old composer (and its status line) stays out of the cover: the
-        // new one is already on screen below, and two composers at once read
-        // as two sessions stacked on top of each other.
+        Object.assign(under.style, {
+            position: 'absolute', left: '0px', top: '0px', margin: '0',
+            width: `${paneBox.width}px`, height: `${paneBox.height}px`, overflow: 'hidden',
+        });
         under.querySelectorAll<HTMLElement>('[data-lmc-composer]').forEach((node) => { node.style.visibility = 'hidden'; });
-        document.body.appendChild(under);
+        cover.appendChild(under);
+        document.body.appendChild(cover);
         applyScroll(under, press.snapshotScroll);
-        setTimeout(() => under.remove(), SESSION_REVEAL.riseWaitMs + SESSION_REVEAL.liftMs + 600);
+        // The old composer may be taller or shorter than the new one (a queue
+        // strip, attachments); shift the snapshot so the old transcript ends
+        // exactly where the new composer begins.
+        const oldComposer = under.querySelector<HTMLElement>('[data-lmc-composer]');
+        if (oldComposer) {
+            const shift = coverHeight - (oldComposer.getBoundingClientRect().top - paneBox.top);
+            if (Math.abs(shift) > 0.5) under.style.top = `${shift}px`;
+        }
+        const coverNode = cover;
+        setTimeout(() => coverNode.remove(), SESSION_REVEAL.riseWaitMs + SESSION_REVEAL.liftMs + 600);
     }
     rowSpring ??= springEasing(260, 19);
     const go = () => {
-        if (under) {
-            const leave = under.animate([
+        if (cover) {
+            const coverNode = cover;
+            const leave = coverNode.animate([
                 { opacity: 1, transform: 'none' },
                 { opacity: 0, transform: `translateY(-${SESSION_REVEAL.liftPx}px)` },
             ], { duration: SESSION_REVEAL.liftMs, easing: 'cubic-bezier(0.4, 0, 1, 1)', fill: 'forwards' });
-            leave.finished.then(() => under.remove(), () => under.remove());
+            leave.finished.then(() => coverNode.remove(), () => coverNode.remove());
         }
         const rect = element.getBoundingClientRect();
         let order = 0;
@@ -485,6 +502,6 @@ function playRise(element: HTMLElement, press: NonNullable<typeof origin>): () =
     // Unmounting or switching again removes only what this switch put up.
     return () => {
         release();
-        under?.remove();
+        cover?.remove();
     };
 }
