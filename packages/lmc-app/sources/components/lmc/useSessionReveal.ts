@@ -15,8 +15,10 @@ export const SESSION_REVEAL = {
     // 850 ms felt right in pace; then asked for 20% faster (850 / 1.2).
     durationMs: 710,
     // Fast out of the row, long gentle settle (Owner: 先快后慢; initial speed halved, then cut by another 25%).
-    easing: 'cubic-bezier(0.16, 0.375, 0.3, 1)',
+    easing: [0.16, 0.375, 0.3, 1] as const,
     freshMs: 1200,
+    /** Longest the reveal waits for the new body to mount before copying it. */
+    maxWaitMs: 250,
     /** How far the covered body dims by the end. */
     dimTo: 0.6,
     /**
@@ -80,9 +82,22 @@ function isDark(colour: string): boolean {
     return 0.2126 * r + 0.7152 * g + 0.0722 * b < 128;
 }
 
+/** The reveal's easing at time t (0..1): the cubic-bezier in SESSION_REVEAL.easing. */
+function easeAt(t: number): number {
+    const [x1, y1, x2, y2] = SESSION_REVEAL.easing;
+    const bez = (a: number, b: number, s: number) => 3 * (1 - s) * (1 - s) * s * a + 3 * (1 - s) * s * s * b + s * s * s;
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 30; i++) {
+        const mid = (lo + hi) / 2;
+        if (bez(x1, x2, mid) < t) lo = mid; else hi = mid;
+    }
+    return bez(y1, y2, (lo + hi) / 2);
+}
+
 /** True while a reveal is playing, so the inner fade does not stack on it. */
 export function revealJustPlayed(): boolean {
-    return Date.now() - lastRevealAt < SESSION_REVEAL.durationMs;
+    return Date.now() - lastRevealAt < SESSION_REVEAL.durationMs + SESSION_REVEAL.maxWaitMs;
 }
 
 export function useSessionReveal(ref: React.RefObject<unknown>, sessionId: string): void {
@@ -119,75 +134,128 @@ export function useSessionReveal(ref: React.RefObject<unknown>, sessionId: strin
             under.setAttribute('aria-hidden', 'true');
             element.parentElement.insertBefore(under, element);
         }
-        // The pane is transparent over the screen colour; inside the circle it
-        // must hide the snapshot, so it borrows that colour while revealing.
-        const previousBackground = element.style.backgroundColor;
-        if (under) element.style.backgroundColor = opaqueBackground(element.parentElement);
-        // Clip-path, not a gradient mask: a mask re-rasterises the whole pane
-        // (and the snapshot under it) every frame, which dropped frames.
+        // Everything below animates only transform and opacity, which the
+        // compositor runs without repainting: clip-path and a changing blur
+        // radius repainted the whole pane every frame and stuttered.
+        //
+        // The new body is shown through a circular window: an outer circle
+        // scaled up from nothing, holding a copy of the new pane scaled by the
+        // inverse, so the content stays put while the circle grows.
+        const r = Math.ceil(radius);
+        const background = opaqueBackground(element.parentElement);
+        const edge = isDark(background) ? SESSION_REVEAL.edgeColor.dark : SESSION_REVEAL.edgeColor.light;
+        const layer = (extra: Partial<CSSStyleDeclaration>) => {
+            const node = document.createElement('div');
+            node.setAttribute('aria-hidden', 'true');
+            Object.assign(node.style, {
+                position: 'absolute', left: `${element.offsetLeft}px`, top: `${element.offsetTop}px`,
+                width: `${element.offsetWidth}px`, height: `${element.offsetHeight}px`,
+                overflow: 'hidden', pointerEvents: 'none', ...extra,
+            });
+            return node;
+        };
+        // Pre-blurred copy of the old body, faded in once half is covered:
+        // fading a finished blur is cheap, animating the blur radius is not.
+        let blurred: HTMLElement | null = null;
+        if (under && element.parentElement) {
+            blurred = under.cloneNode(true) as HTMLElement;
+            Object.assign(blurred.style, { filter: `blur(${SESSION_REVEAL.blurPx}px)`, opacity: '0', willChange: 'opacity' });
+            element.parentElement.insertBefore(blurred, element);
+        }
+        const stage = layer({ zIndex: '2' });
+        const windowCircle = document.createElement('div');
+        Object.assign(windowCircle.style, {
+            position: 'absolute', left: `${x - r}px`, top: `${y - r}px`, width: `${r * 2}px`, height: `${r * 2}px`,
+            borderRadius: '50%', overflow: 'hidden', background, willChange: 'transform', transform: 'scale(0)',
+        });
+        const ring = document.createElement('div');
+        Object.assign(ring.style, {
+            position: 'absolute', left: `${x - r}px`, top: `${y - r}px`, width: `${r * 2}px`, height: `${r * 2}px`,
+            borderRadius: '50%', boxSizing: 'border-box', border: `${SESSION_REVEAL.edgeLinePx}px solid ${edge}`,
+            willChange: 'transform, opacity', transform: 'scale(0)',
+        });
+        stage.appendChild(windowCircle);
+        stage.appendChild(ring);
+        element.parentElement?.insertBefore(stage, element.nextSibling);
+        // The real pane waits hidden under the snapshot until the reveal ends.
         const style = element.style;
-        const previousWillChange = style.willChange;
-        style.willChange = 'clip-path';
+        const previousVisibility = style.visibility;
+        style.visibility = 'hidden';
         let cleared = false;
         const clear = () => {
             if (cleared) return;
             cleared = true;
-            style.clipPath = '';
-            style.willChange = previousWillChange;
-            element.style.backgroundColor = previousBackground;
+            style.visibility = previousVisibility;
             under?.remove();
-            ring.remove();
+            blurred?.remove();
+            stage.remove();
         };
-        // The edge is a real ring element grown by transform, which the
-        // compositor animates without repainting anything.
-        const ring = document.createElement('div');
-        const c = isDark(element.style.backgroundColor || opaqueBackground(element.parentElement))
-            ? SESSION_REVEAL.edgeColor.dark : SESSION_REVEAL.edgeColor.light;
-        const r = Math.ceil(radius);
-        Object.assign(ring.style, {
-            position: 'absolute', left: `${x - r}px`, top: `${y - r}px`,
-            width: `${r * 2}px`, height: `${r * 2}px`, borderRadius: '50%', boxSizing: 'border-box',
-            border: `${SESSION_REVEAL.edgeLinePx}px solid ${c}`,
-            pointerEvents: 'none', zIndex: '2', willChange: 'transform, opacity', transform: 'scale(0)',
-        });
-        ring.setAttribute('aria-hidden', 'true');
-        // The ring's box can reach far outside the pane; keep it to the pane.
-        const ringClip = document.createElement('div');
-        Object.assign(ringClip.style, {
-            position: 'absolute', left: `${element.offsetLeft}px`, top: `${element.offsetTop}px`,
-            width: `${element.offsetWidth}px`, height: `${element.offsetHeight}px`,
-            overflow: 'hidden', pointerEvents: 'none', zIndex: '2',
-        });
-        ringClip.setAttribute('aria-hidden', 'true');
-        ringClip.appendChild(ring);
-        element.parentElement?.insertBefore(ringClip, element.nextSibling);
-        const removeRing = ring.remove.bind(ring);
-        ring.remove = () => { removeRing(); ringClip.remove(); };
         const start = () => {
             if (cleared) return;
-            if (under) {
-                under.style.willChange = 'filter';
-                under.animate([
-                    { filter: 'blur(0px)', offset: 0 },
-                    { filter: 'blur(0px)', offset: SESSION_REVEAL.blurFrom },
-                    { filter: `blur(${SESSION_REVEAL.blurPx}px)`, offset: SESSION_REVEAL.blurFull },
-                    { filter: `blur(${SESSION_REVEAL.blurPx}px)`, offset: 1 },
-                ], { duration: SESSION_REVEAL.durationMs, fill: 'forwards' });
+            // Copy the new body once it has mounted; the copy is what the
+            // circle shows, so building the list never lands mid-animation.
+            const copy = element.cloneNode(true) as HTMLElement;
+            copy.removeAttribute('data-lmc-session-pane');
+            // Form values are not attributes and do not clone; carry the draft.
+            const sources = element.querySelectorAll<HTMLTextAreaElement | HTMLInputElement>('textarea, input');
+            copy.querySelectorAll<HTMLTextAreaElement | HTMLInputElement>('textarea, input').forEach((field, index) => {
+                const source = sources[index];
+                if (source) field.value = source.value;
+            });
+            copy.querySelectorAll<HTMLElement>('[data-testid="session-content-enter"]').forEach((node) => {
+                node.style.opacity = '1';
+                node.style.transform = 'none';
+            });
+            Object.assign(copy.style, {
+                position: 'absolute', left: `${r - x}px`, top: `${r - y}px`, margin: '0',
+                width: `${element.offsetWidth}px`, height: `${element.offsetHeight}px`,
+                visibility: 'visible', transformOrigin: `${x}px ${y}px`, willChange: 'transform',
+            });
+            windowCircle.appendChild(copy);
+            // Sample the easing so the circle and its counter-scaled content
+            // stay exact inverses at every frame, not just at the ends.
+            const steps = 24;
+            const min = 1 / r;
+            const outer: Keyframe[] = [];
+            const inner: Keyframe[] = [];
+            const edgeFrames: Keyframe[] = [];
+            for (let i = 0; i <= steps; i++) {
+                const t = i / steps;
+                const scale = Math.max(min, easeAt(t));
+                outer.push({ transform: `scale(${scale})`, offset: t });
+                inner.push({ transform: `scale(${1 / scale})`, offset: t });
+                edgeFrames.push({ transform: `scale(${scale})`, opacity: t < 0.7 ? 1 : 1 - (t - 0.7) / 0.3, offset: t });
             }
-            ring.animate([
-                { transform: 'scale(0)', opacity: 1, offset: 0 },
-                { opacity: 1, offset: 0.7 },
-                { transform: 'scale(1)', opacity: 0, offset: 1 },
-            ], { duration: SESSION_REVEAL.durationMs, easing: SESSION_REVEAL.easing, fill: 'forwards' });
-            const animation = element.animate([
-                { clipPath: `circle(0px at ${x}px ${y}px)` },
-                { clipPath: `circle(${r}px at ${x}px ${y}px)` },
-            ], { duration: SESSION_REVEAL.durationMs, easing: SESSION_REVEAL.easing, fill: 'forwards' });
-            animation.onfinish = clear;
-            animation.oncancel = clear;
-            // Never leave the pane masked or the snapshot behind.
+            const timing: KeyframeAnimationOptions = { duration: SESSION_REVEAL.durationMs, easing: 'linear', fill: 'forwards' };
+            windowCircle.animate(outer, timing);
+            copy.animate(inner, timing);
+            ring.animate(edgeFrames, timing);
+            under?.animate([
+                { opacity: SESSION_REVEAL.dimTo, offset: 0 },
+                { opacity: SESSION_REVEAL.dimTo, offset: SESSION_REVEAL.blurFrom },
+                { opacity: 0, offset: SESSION_REVEAL.blurFull },
+                { opacity: 0, offset: 1 },
+            ], timing);
+            blurred?.animate([
+                { opacity: 0, offset: 0 },
+                { opacity: 0, offset: SESSION_REVEAL.blurFrom },
+                { opacity: SESSION_REVEAL.dimTo, offset: SESSION_REVEAL.blurFull },
+                { opacity: SESSION_REVEAL.dimTo, offset: 1 },
+            ], timing);
+            const done = windowCircle.getAnimations()[0];
+            done.onfinish = clear;
+            done.oncancel = clear;
             setTimeout(clear, SESSION_REVEAL.durationMs + 250);
         };
-        start();
+        const startedAt = performance.now();
+        const waitForContent = () => {
+            if (cleared) return;
+            const ready = element.querySelector('[data-testid="session-content-enter"], [data-testid="session-content-skeleton"]');
+            if (ready || performance.now() - startedAt > SESSION_REVEAL.maxWaitMs) requestAnimationFrame(start);
+            else requestAnimationFrame(waitForContent);
+        };
+        requestAnimationFrame(waitForContent);
+        // Never leave the pane hidden or the snapshots behind.
+        setTimeout(clear, SESSION_REVEAL.maxWaitMs + SESSION_REVEAL.durationMs + 400);
     }, [ref, sessionId]);
 }
