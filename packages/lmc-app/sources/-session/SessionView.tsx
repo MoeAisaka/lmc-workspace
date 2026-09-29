@@ -35,6 +35,7 @@ import {
 import { getSuggestions } from '@/components/autocomplete/suggestions';
 import { ChatHeaderView } from '@/components/ChatHeaderView';
 import { ChatList } from '@/components/ChatList';
+import { SessionContentEnter, SessionContentSkeleton } from '@/components/lmc/SessionContentEnter';
 import { Deferred } from '@/components/Deferred';
 import { EmptyMessages } from '@/components/EmptyMessages';
 import { Avatar } from '@/components/Avatar';
@@ -1309,6 +1310,7 @@ export function SessionViewLoaded({
         <>
             <Deferred>
                 {messages.length > 0 && (
+                    <SessionContentEnter key={sessionId}>
                     <ChatList
                         session={session}
                         topContentInset={chatListTopContentInset}
@@ -1320,6 +1322,7 @@ export function SessionViewLoaded({
                             ? handleChatBottomVisibilityChange
                             : undefined}
                     />
+                    </SessionContentEnter>
                 )}
             </Deferred>
         </>
@@ -1329,7 +1332,7 @@ export function SessionViewLoaded({
             {isLoaded ? (
                 <EmptyMessages session={session} />
             ) : (
-                <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+                <SessionContentSkeleton />
             )}
         </>
     ) : null;
