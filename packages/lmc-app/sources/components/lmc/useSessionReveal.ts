@@ -5,7 +5,7 @@ import { Platform } from 'react-native';
  * Opening a session from the list grows it out of the row that was pressed:
  * the previous session's body is kept underneath as a snapshot, and the new
  * one spreads over it as a circle centred on the pane's edge at that row's
- * height, until it covers the pane; the old body dims as it is covered and
+ * height, until it covers the pane; the old body dims, blurs from halfway, and
  * the spreading edge is traced as a thin, very light grey line.
  * Web only (clip-path and a transform-scaled ring, Web Animations); other
  * platforms and reduced motion keep the plain fade in SessionContentEnter.
@@ -19,6 +19,14 @@ export const SESSION_REVEAL = {
     freshMs: 1200,
     /** How far the covered body dims by the end. */
     dimTo: 0.6,
+    /**
+     * The covered body blurs once the circle has covered half of it (Owner:
+     * 切换到 50% 时出现模糊), reaching full blur by 80%. Offsets are fractions
+     * of the duration where the easing reaches those radii.
+     */
+    blurPx: 5,
+    blurFrom: 0.212,
+    blurFull: 0.437,
     /** The spreading edge: a very light grey (Owner found the brand blue too loud). */
     edgeColor: { light: '#F1F1F3', dark: 'rgba(255,255,255,0.07)' },
     /** Line width of the edge; also the margin added to the covering radius. */
@@ -157,6 +165,15 @@ export function useSessionReveal(ref: React.RefObject<unknown>, sessionId: strin
         ring.remove = () => { removeRing(); ringClip.remove(); };
         const start = () => {
             if (cleared) return;
+            if (under) {
+                under.style.willChange = 'filter';
+                under.animate([
+                    { filter: 'blur(0px)', offset: 0 },
+                    { filter: 'blur(0px)', offset: SESSION_REVEAL.blurFrom },
+                    { filter: `blur(${SESSION_REVEAL.blurPx}px)`, offset: SESSION_REVEAL.blurFull },
+                    { filter: `blur(${SESSION_REVEAL.blurPx}px)`, offset: 1 },
+                ], { duration: SESSION_REVEAL.durationMs, fill: 'forwards' });
+            }
             ring.animate([
                 { transform: 'scale(0)', opacity: 1, offset: 0 },
                 { opacity: 1, offset: 0.7 },
