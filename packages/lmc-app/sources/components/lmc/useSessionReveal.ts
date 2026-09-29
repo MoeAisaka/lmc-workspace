@@ -125,6 +125,19 @@ function settleSignature(root: HTMLElement): string {
     return `${rows.length}:${scroller.scrollTop}:${scroller.scrollHeight}`;
 }
 
+/**
+ * The drawer's full-screen layer (the ancestor that sets its z-index), not
+ * the panel's immediate parent: that is a wrapper inside the layer, which
+ * unmounts with the drawer and would take a cover placed in it along.
+ */
+function drawerLayerOf(panel: HTMLElement | null): HTMLElement | null {
+    for (let node = panel?.parentElement ?? null; node && node !== document.body; node = node.parentElement) {
+        const z = getComputedStyle(node).zIndex;
+        if (z !== 'auto' && Number(z) > 0) return node;
+    }
+    return null;
+}
+
 /** The first opaque background up the tree — what the pane is drawn on. */
 function opaqueBackground(from: HTMLElement | null): string {
     for (let node = from; node; node = node.parentElement) {
@@ -434,10 +447,18 @@ function playRise(element: HTMLElement, press: NonNullable<typeof origin>): () =
         cover = document.createElement('div');
         cover.setAttribute('aria-hidden', 'true');
         cover.setAttribute(RISE_LAYER, '');
-        // Fixed to the viewport and parented to <body>, so no layout around
-        // the pane can give it space or move it.
+        // Out of the pane's layout, so nothing around the pane can give it
+        // space or move it. On a phone the session drawer is still sliding
+        // away when this goes up; parented to <body> the cover sat above the
+        // whole app and cut the drawer off, leaving only its bottom strip and
+        // shade over the composer. So with a drawer on the page it goes into
+        // the drawer's own layer, just beneath it.
+        const drawerLayer = drawerLayerOf(document.querySelector<HTMLElement>('[data-testid="floating-session-drawer"]'));
+        const host = drawerLayer?.parentElement ?? document.body;
+        const hostBox = host === document.body ? { left: 0, top: 0 } : host.getBoundingClientRect();
         Object.assign(cover.style, {
-            position: 'fixed', left: `${paneBox.left}px`, top: `${paneBox.top}px`,
+            position: host === document.body ? 'fixed' : 'absolute',
+            left: `${paneBox.left - hostBox.left}px`, top: `${paneBox.top - hostBox.top}px`,
             width: `${paneBox.width}px`, height: `${coverHeight}px`,
             overflow: 'hidden', pointerEvents: 'none', zIndex: '40',
             background: opaqueBackground(element.parentElement), willChange: 'transform, opacity',
@@ -448,7 +469,8 @@ function playRise(element: HTMLElement, press: NonNullable<typeof origin>): () =
         });
         under.querySelectorAll<HTMLElement>('[data-lmc-composer]').forEach((node) => { node.style.visibility = 'hidden'; });
         cover.appendChild(under);
-        document.body.appendChild(cover);
+        if (drawerLayer && host !== document.body) host.insertBefore(cover, drawerLayer);
+        else document.body.appendChild(cover);
         applyScroll(under, press.snapshotScroll);
         // The old composer may be taller or shorter than the new one (a queue
         // strip, attachments); shift the snapshot so the old transcript ends
