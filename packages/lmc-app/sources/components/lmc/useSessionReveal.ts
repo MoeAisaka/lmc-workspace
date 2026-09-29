@@ -5,7 +5,8 @@ import { Platform } from 'react-native';
  * Opening a session from the list grows it out of the row that was pressed:
  * the previous session's body is kept underneath as a snapshot, and the new
  * one spreads over it as a circle centred on the pane's edge at that row's
- * height, until it covers the pane; the old body dims as it is covered.
+ * height, until it covers the pane; the old body dims as it is covered and
+ * the spreading edge is traced in the brand blue with a soft glow.
  * Web only (mask-image over registered custom properties, Web Animations);
  * other platforms, older browsers and reduced motion keep the plain fade in
  * SessionContentEnter.
@@ -18,6 +19,11 @@ export const SESSION_REVEAL = {
     featherPx: 28,
     /** How far the covered body dims by the end. */
     dimTo: 0.55,
+    /** The spreading edge is drawn in the brand blue (lmcColors.brand) so it reads at a glance. */
+    edgeColor: '#0060F0',
+    /** Bright line width, then glow width, outside the edge. */
+    edgeLinePx: 3,
+    edgeGlowPx: 26,
 } as const;
 
 let origin: { x: number; y: number; at: number; snapshot: HTMLElement | null } | null = null;
@@ -35,6 +41,12 @@ function listen() {
             const pane = document.querySelector<HTMLElement>('[data-lmc-session-pane]');
             const snapshot = pane ? pane.cloneNode(true) as HTMLElement : null;
             snapshot?.removeAttribute('data-lmc-session-pane');
+            // A press right after the previous switch can catch that session's
+            // own fade-in part way; the snapshot shows it fully arrived.
+            snapshot?.querySelectorAll<HTMLElement>('[data-testid="session-content-enter"]').forEach((node) => {
+                node.style.opacity = '1';
+                node.style.transform = 'none';
+            });
             origin = { x: event.clientX, y: event.clientY, at: Date.now(), snapshot };
         }
     }, { capture: true, passive: true });
@@ -121,7 +133,27 @@ export function useSessionReveal(ref: React.RefObject<unknown>, sessionId: strin
             style.webkitMaskImage = '';
             element.style.backgroundColor = previousBackground;
             under?.remove();
+            ring.remove();
         };
+        // A coloured ring rides the edge: a bright line with a glow fading
+        // outwards, drawn over both panes and gone before the circle settles.
+        const ring = document.createElement('div');
+        const c = SESSION_REVEAL.edgeColor;
+        const line = SESSION_REVEAL.edgeLinePx;
+        const glow = SESSION_REVEAL.edgeGlowPx;
+        Object.assign(ring.style, {
+            position: 'absolute', left: `${element.offsetLeft}px`, top: `${element.offsetTop}px`,
+            width: `${element.offsetWidth}px`, height: `${element.offsetHeight}px`,
+            pointerEvents: 'none', zIndex: '2',
+            backgroundImage: `radial-gradient(circle at ${x}px ${y}px, transparent calc(var(--lmc-reveal-r) - ${line}px), ${c} var(--lmc-reveal-r), color-mix(in srgb, ${c} 35%, transparent) calc(var(--lmc-reveal-r) + ${line}px), transparent calc(var(--lmc-reveal-r) + ${glow}px))`,
+        });
+        ring.setAttribute('aria-hidden', 'true');
+        element.parentElement?.insertBefore(ring, element.nextSibling);
+        ring.animate([
+            { '--lmc-reveal-r': '0px', opacity: 1, offset: 0 },
+            { opacity: 1, offset: 0.7 },
+            { '--lmc-reveal-r': `${Math.ceil(radius)}px`, opacity: 0, offset: 1 },
+        ] as Keyframe[], { duration: SESSION_REVEAL.durationMs, easing: SESSION_REVEAL.easing, fill: 'forwards' });
         const animation = element.animate([
             { '--lmc-reveal-r': '0px' },
             { '--lmc-reveal-r': `${Math.ceil(radius)}px` },
