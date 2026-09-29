@@ -111,6 +111,20 @@ function applyScroll(root: HTMLElement, offsets: ScrollOffsets): void {
     }
 }
 
+/**
+ * What "the new list has settled" is judged by: the row count and the chat
+ * list's own scroll box (offset and content height). Reading only that box
+ * each frame, rather than every element in the pane, keeps the wait from
+ * forcing thousands of layout reads per switch.
+ */
+function settleSignature(root: HTMLElement): string {
+    const rows = root.querySelectorAll<HTMLElement>('[data-lmc-chat-row]');
+    let scroller: HTMLElement | null = rows[0]?.parentElement ?? null;
+    while (scroller && scroller !== root && scroller.scrollHeight <= scroller.clientHeight + 1) scroller = scroller.parentElement;
+    if (!scroller || scroller === root) return `${rows.length}`;
+    return `${rows.length}:${scroller.scrollTop}:${scroller.scrollHeight}`;
+}
+
 /** The first opaque background up the tree — what the pane is drawn on. */
 function opaqueBackground(from: HTMLElement | null): string {
     for (let node = from; node; node = node.parentElement) {
@@ -352,13 +366,7 @@ export function useSessionReveal(ref: React.RefObject<unknown>, sessionId: strin
         const startedAt = performance.now();
         let lastSignature = '';
         let stableFrames = 0;
-        const signature = () => {
-            let text = '';
-            element.querySelectorAll<HTMLElement>('*').forEach((node) => {
-                if (node.scrollHeight > node.clientHeight + 1) text += `${node.scrollTop}:${node.scrollHeight};`;
-            });
-            return text;
-        };
+        const signature = () => settleSignature(element);
         const waitForContent = () => {
             if (cleared) return;
             const ready = element.querySelector('[data-testid="session-content-enter"], [data-testid="session-content-skeleton"]');
@@ -487,11 +495,8 @@ function playRise(element: HTMLElement, press: NonNullable<typeof origin>): () =
     let last = '';
     let stable = 0;
     const wait = () => {
-        let signature = '';
-        const rows = element.querySelectorAll('[data-lmc-chat-row]').length;
-        element.querySelectorAll<HTMLElement>('*').forEach((node) => {
-            if (node.scrollHeight > node.clientHeight + 1) signature += `${node.scrollTop}:${node.scrollHeight};`;
-        });
+        const signature = settleSignature(element);
+        const rows = element.querySelector('[data-lmc-chat-row]') ? 1 : 0;
         stable = signature === last ? stable + 1 : 0;
         last = signature;
         if ((rows > 0 && stable >= 2) || performance.now() - startedAt > SESSION_REVEAL.riseWaitMs) go();
