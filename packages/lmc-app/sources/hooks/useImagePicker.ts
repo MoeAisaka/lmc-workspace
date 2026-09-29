@@ -73,8 +73,28 @@ export async function normalizePickedAssetForUpload(asset: ImagePicker.ImagePick
     };
 }
 
-export function useImagePicker(): UseImagePickerResult {
-    const [selectedImages, setSelectedImages] = useState<AttachmentPreview[]>([]);
+/**
+ * Unsent attachments, per session, for as long as this page lives. The
+ * composer unmounts when the person switches to another session; without this
+ * a picked file vanished on the way back while the typed text (a synced
+ * draft) survived. Previews are blob/file URIs that stay valid until the page
+ * unloads, so a reload still starts empty.
+ */
+const attachmentDrafts = new Map<string, AttachmentPreview[]>();
+
+export function useImagePicker(draftKey?: string): UseImagePickerResult {
+    const [selectedImages, setSelectedImages] = useState<AttachmentPreview[]>(() => (draftKey && attachmentDrafts.get(draftKey)) || []);
+    const shownKey = useRef(draftKey);
+    useEffect(() => {
+        if (shownKey.current === draftKey) return;
+        shownKey.current = draftKey;
+        setSelectedImages((draftKey && attachmentDrafts.get(draftKey)) || []);
+    }, [draftKey]);
+    useEffect(() => {
+        if (!draftKey || shownKey.current !== draftKey) return;
+        if (selectedImages.length) attachmentDrafts.set(draftKey, selectedImages);
+        else attachmentDrafts.delete(draftKey);
+    }, [draftKey, selectedImages]);
     // Ref tracks current count to avoid stale closures on rapid taps.
     const selectedCountRef = useRef(0);
     useEffect(() => {

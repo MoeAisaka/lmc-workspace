@@ -74,3 +74,35 @@ describe('normalizePickedAssetForUpload', () => {
         });
     });
 });
+
+describe('unsent attachments survive switching sessions', () => {
+    it('restores the picked files when the composer for the same session mounts again', async () => {
+        const React = await import('react');
+        // @ts-expect-error react-test-renderer ships without type declarations here
+        const TestRenderer: any = (await import('react-test-renderer')).default;
+        const { useImagePicker } = await import('./useImagePicker');
+        let api: ReturnType<typeof useImagePicker> | null = null;
+        const Composer = ({ id }: { id: string }) => { api = useImagePicker(id); return null; };
+        const file = { id: 'f1', uri: 'blob:x', width: 1, height: 1, mimeType: 'text/plain', size: 3, name: 'notes.txt' };
+
+        let renderer: any;
+        await TestRenderer.act(async () => { renderer = TestRenderer.create(React.createElement(Composer, { id: 'a' })); });
+        await TestRenderer.act(async () => { api!.addImages([file]); });
+        // Switching away unmounts this composer; another session starts empty.
+        await TestRenderer.act(async () => { renderer.unmount(); renderer = TestRenderer.create(React.createElement(Composer, { id: 'b' })); });
+        expect(api!.selectedImages).toEqual([]);
+        await TestRenderer.act(async () => { renderer.unmount(); renderer = TestRenderer.create(React.createElement(Composer, { id: 'a' })); });
+        expect(api!.selectedImages).toEqual([file]);
+        // Sending clears it, so it does not come back a second time.
+        await TestRenderer.act(async () => { api!.clearImages(); });
+        await TestRenderer.act(async () => { renderer.unmount(); renderer = TestRenderer.create(React.createElement(Composer, { id: 'a' })); });
+        expect(api!.selectedImages).toEqual([]);
+        // Same mounted composer moving to another session swaps drafts too.
+        await TestRenderer.act(async () => { api!.addImages([file]); });
+        await TestRenderer.act(async () => { renderer.update(React.createElement(Composer, { id: 'b' })); });
+        expect(api!.selectedImages).toEqual([]);
+        await TestRenderer.act(async () => { renderer.update(React.createElement(Composer, { id: 'a' })); });
+        expect(api!.selectedImages).toEqual([file]);
+        renderer.unmount();
+    });
+});

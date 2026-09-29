@@ -1009,7 +1009,7 @@ export function SessionViewLoaded({
     const resumeCommandBlock = getResumeCommandBlock(session);
 
     // Attachment availability is capability-driven by the active session.
-    const { selectedImages, pickImages, pickFiles, removeImage, clearImages, addImages } = useImagePicker();
+    const { selectedImages, pickImages, pickFiles, removeImage, clearImages, addImages } = useImagePicker(sessionId);
 
     const canUseAttachments = isRigMetadataV1(session.metadata)
         ? rigCanUseAttachments(session.metadata)
