@@ -2,6 +2,7 @@ import * as React from 'react';
 import { View } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
+import { revealJustPlayed } from './useSessionReveal';
 
 /** How a session's transcript arrives when you switch to it. Tuned in one place. */
 export const SESSION_ENTER = { durationMs: 180, offsetPx: 8 } as const;
@@ -14,10 +15,14 @@ export const SESSION_ENTER = { durationMs: 180, offsetPx: 8 } as const;
  */
 export const SessionContentEnter = React.memo(function SessionContentEnter({ children }: { children: React.ReactNode }) {
     const reduceMotion = useReducedMotion();
-    const progress = useSharedValue(0);
+    // The circular reveal already carries the pane in; fading underneath it
+    // would only blur the edge of the circle.
+    const [revealing] = React.useState(revealJustPlayed);
+    const progress = useSharedValue(revealing ? 1 : 0);
     React.useEffect(() => {
+        if (revealing) return;
         progress.value = withTiming(1, { duration: SESSION_ENTER.durationMs, easing: Easing.out(Easing.cubic) });
-    }, [progress]);
+    }, [progress, revealing]);
     const style = useAnimatedStyle(() => ({
         opacity: progress.value,
         transform: [{ translateY: reduceMotion ? 0 : (1 - progress.value) * SESSION_ENTER.offsetPx }],

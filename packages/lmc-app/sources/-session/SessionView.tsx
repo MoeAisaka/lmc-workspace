@@ -36,6 +36,7 @@ import { getSuggestions } from '@/components/autocomplete/suggestions';
 import { ChatHeaderView } from '@/components/ChatHeaderView';
 import { ChatList } from '@/components/ChatList';
 import { SessionContentEnter, SessionContentSkeleton } from '@/components/lmc/SessionContentEnter';
+import { useSessionReveal } from '@/components/lmc/useSessionReveal';
 import { Deferred } from '@/components/Deferred';
 import { EmptyMessages } from '@/components/EmptyMessages';
 import { Avatar } from '@/components/Avatar';
@@ -1306,6 +1307,10 @@ export function SessionViewLoaded({
         };
     }, [sessionId, realtimeStatus, embedded]);
 
+    // Opening from the list grows this pane out of the pressed row (web).
+    const revealRef = React.useRef<View>(null);
+    useSessionReveal(revealRef, sessionId);
+
     let content = (
         <>
             <Deferred>
@@ -1478,7 +1483,7 @@ export function SessionViewLoaded({
             )}
 
             {/* Main content area - no padding since header is overlay */}
-            <View style={{
+            <View ref={revealRef} style={{
                 flexBasis: 0,
                 flexGrow: 1,
                 // The floating chat content reaches the physical bottom of
