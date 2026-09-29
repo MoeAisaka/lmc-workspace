@@ -6,7 +6,7 @@ import { Platform } from 'react-native';
  * the previous session's body is kept underneath as a snapshot, and the new
  * one spreads over it as a circle centred on the pane's edge at that row's
  * height, until it covers the pane; the old body dims as it is covered and
- * the spreading edge is traced in the brand blue with a soft glow.
+ * the spreading edge is traced in a very light grey with a soft glow.
  * Web only (mask-image over registered custom properties, Web Animations);
  * other platforms, older browsers and reduced motion keep the plain fade in
  * SessionContentEnter.
@@ -19,8 +19,8 @@ export const SESSION_REVEAL = {
     featherPx: 28,
     /** How far the covered body dims by the end. */
     dimTo: 0.55,
-    /** The spreading edge is drawn in the brand blue (lmcColors.brand) so it reads at a glance. */
-    edgeColor: '#0060F0',
+    /** The spreading edge: a very light grey (Owner found the brand blue too loud). */
+    edgeColor: { light: '#DEDEE2', dark: 'rgba(255,255,255,0.16)' },
     /** Bright line width, then glow width, outside the edge. */
     edgeLinePx: 3,
     edgeGlowPx: 26,
@@ -63,6 +63,13 @@ function opaqueBackground(from: HTMLElement | null): string {
         if (colour && colour !== 'transparent' && !/rgba\([^)]*,\s*0\)$/.test(colour)) return colour;
     }
     return getComputedStyle(document.body).backgroundColor || '#fff';
+}
+
+function isDark(colour: string): boolean {
+    const m = colour.match(/\d+(\.\d+)?/g);
+    if (!m || m.length < 3) return false;
+    const [r, g, b] = m.slice(0, 3).map(Number);
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b < 128;
 }
 
 let registered: boolean | null = null;
@@ -138,7 +145,8 @@ export function useSessionReveal(ref: React.RefObject<unknown>, sessionId: strin
         // A coloured ring rides the edge: a bright line with a glow fading
         // outwards, drawn over both panes and gone before the circle settles.
         const ring = document.createElement('div');
-        const c = SESSION_REVEAL.edgeColor;
+        const c = isDark(element.style.backgroundColor || opaqueBackground(element.parentElement))
+            ? SESSION_REVEAL.edgeColor.dark : SESSION_REVEAL.edgeColor.light;
         const line = SESSION_REVEAL.edgeLinePx;
         const glow = SESSION_REVEAL.edgeGlowPx;
         Object.assign(ring.style, {
