@@ -395,7 +395,10 @@ const DeviceSection = React.memo(({ group, selectedSessionId, now, onNavigate, o
     // Once open, the wrapper hands height back to the content so a dragged row
     // can lift out of it without being clipped.
     const bodyStyle = useAnimatedStyle(() => (expandedSettled
-        ? { opacity: 1 }
+        // 'auto', not an omitted key: Reanimated keeps the last height it
+        // wrote, so a group whose rows were archived kept its old height as
+        // a blank gap until reload.
+        ? { height: 'auto' as const, opacity: 1 }
         : { height: bodyHeight ? progress.value * bodyHeight : undefined, opacity: progress.value }));
     const chevronStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${-90 + progress.value * 90}deg` }] }));
 
@@ -544,7 +547,10 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
     // Once open the wrapper hands height back, so a dragged row can lift out
     // of the group without being clipped.
     const hubBodyStyle = useAnimatedStyle(() => (expandedSettled
-        ? { opacity: 1 }
+        // 'auto', not an omitted key: Reanimated keeps the last height it
+        // wrote, so a group whose rows were archived kept its old height as
+        // a blank gap until reload.
+        ? { height: 'auto' as const, opacity: 1 }
         : { height: bodyHeight ? progress.value * bodyHeight : collapsed ? 0 : undefined, opacity: progress.value }));
     const hubChevronStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${-90 + progress.value * 90}deg` }] }));
     const toggleCollapsed = () => setCollapsed((value) => { hubCollapsedById.set(group.hub.id, !value); return !value; });
@@ -722,7 +728,10 @@ const ArchivedSection = React.memo(({ sessions, open, onToggle, selectedSessionI
     }, [open, progress]);
 
     const bodyStyle = useAnimatedStyle(() => (openSettled
-        ? { opacity: 1 }
+        // 'auto', not an omitted key: Reanimated keeps the last height it
+        // wrote, so a group whose rows were archived kept its old height as
+        // a blank gap until reload.
+        ? { height: 'auto' as const, opacity: 1 }
         : { height: bodyHeight ? progress.value * bodyHeight : undefined, opacity: progress.value }));
     const chevronStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${-90 + progress.value * 90}deg` }] }));
 

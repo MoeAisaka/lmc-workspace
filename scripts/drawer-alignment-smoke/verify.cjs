@@ -93,7 +93,9 @@ const server=http.createServer((req,res)=>{
      await page.evaluate(show=>showFigures(show),figures);await page.waitForTimeout(150);
      if(figures){
       assert.equal(await page.getByTestId('agent-input-usage').count(),1);
-      assert.ok((await page.getByTestId('agent-input-usage').innerText()).includes('50%'),'weekly usage is actually rendered');
+      // The week figure left the composer on 2026-09-27 (the account card
+      // shows it); the row still carries the context gauge.
+      assert.ok(!(await page.getByTestId('agent-input-usage').innerText()).includes('本周'),'week figure stays off the composer');
      }
      const b=await bounds();
      assert.ok(Math.abs(b.composerBottom-b.drawerBottom)<1.5,JSON.stringify({theme,viewport,inset,figures,...b}));
