@@ -6,24 +6,21 @@ import { Platform } from 'react-native';
  * the previous session's body is kept underneath as a snapshot, and the new
  * one spreads over it as a circle centred on the pane's edge at that row's
  * height, until it covers the pane; the old body dims as it is covered and
- * the spreading edge is traced in a very light grey with a soft glow.
- * Web only (mask-image over registered custom properties, Web Animations);
- * other platforms, older browsers and reduced motion keep the plain fade in
- * SessionContentEnter.
+ * the spreading edge is traced as a thin, very light grey line.
+ * Web only (clip-path and a transform-scaled ring, Web Animations); other
+ * platforms and reduced motion keep the plain fade in SessionContentEnter.
  */
 export const SESSION_REVEAL = {
     durationMs: 560,
     easing: 'cubic-bezier(0.3, 0, 0.2, 1)',
     freshMs: 1200,
-    /** Width of the circle's edge; narrow so the circle reads clearly. */
-    featherPx: 28,
     /** How far the covered body dims by the end. */
-    dimTo: 0.55,
+    dimTo: 0.6,
     /** The spreading edge: a very light grey (Owner found the brand blue too loud). */
-    edgeColor: { light: '#DEDEE2', dark: 'rgba(255,255,255,0.16)' },
-    /** Bright line width, then glow width, outside the edge. */
-    edgeLinePx: 3,
-    edgeGlowPx: 26,
+    edgeColor: { light: '#F1F1F3', dark: 'rgba(255,255,255,0.07)' },
+    /** Line width of the edge; also the margin added to the covering radius. */
+    edgeLinePx: 2,
+    edgeGlowPx: 2,
 } as const;
 
 let origin: { x: number; y: number; at: number; snapshot: HTMLElement | null } | null = null;
@@ -72,18 +69,6 @@ function isDark(colour: string): boolean {
     return 0.2126 * r + 0.7152 * g + 0.0722 * b < 128;
 }
 
-let registered: boolean | null = null;
-/** The mask animates through a typed custom property; without them gradients cannot interpolate. */
-function registerRevealProperties(): boolean {
-    if (registered !== null) return registered;
-    const css = (globalThis as { CSS?: { registerProperty?: (definition: object) => void } }).CSS;
-    if (!css?.registerProperty) return (registered = false);
-    try {
-        css.registerProperty({ name: '--lmc-reveal-r', syntax: '<length>', inherits: false, initialValue: '0px' });
-    } catch { /* already registered by an earlier bundle on this page */ }
-    return (registered = true);
-}
-
 /** True while a reveal is playing, so the inner fade does not stack on it. */
 export function revealJustPlayed(): boolean {
     return Date.now() - lastRevealAt < SESSION_REVEAL.durationMs;
@@ -107,8 +92,7 @@ export function useSessionReveal(ref: React.RefObject<unknown>, sessionId: strin
         const radius = Math.max(
             Math.hypot(x, y), Math.hypot(rect.width - x, y),
             Math.hypot(x, rect.height - y), Math.hypot(rect.width - x, rect.height - y),
-        ) + SESSION_REVEAL.featherPx;
-        if (!registerRevealProperties()) return;
+        ) + SESSION_REVEAL.edgeGlowPx;
         lastRevealAt = Date.now();
         // The old body stays underneath, exactly where it was, so the circle
         // visibly covers it rather than opening onto an empty background.
@@ -118,57 +102,72 @@ export function useSessionReveal(ref: React.RefObject<unknown>, sessionId: strin
                 position: 'absolute', left: `${element.offsetLeft}px`, top: `${element.offsetTop}px`,
                 width: `${element.offsetWidth}px`, height: `${element.offsetHeight}px`,
                 margin: '0', pointerEvents: 'none', overflow: 'hidden',
+                // A fixed dim: animating it made every frame repaint the snapshot.
+                opacity: String(SESSION_REVEAL.dimTo),
             });
             under.setAttribute('aria-hidden', 'true');
             element.parentElement.insertBefore(under, element);
-            under.animate([{ opacity: 1 }, { opacity: SESSION_REVEAL.dimTo }],
-                { duration: SESSION_REVEAL.durationMs, easing: SESSION_REVEAL.easing, fill: 'forwards' });
         }
         // The pane is transparent over the screen colour; inside the circle it
         // must hide the snapshot, so it borrows that colour while revealing.
         const previousBackground = element.style.backgroundColor;
         if (under) element.style.backgroundColor = opaqueBackground(element.parentElement);
-        const mask = `radial-gradient(circle at ${x}px ${y}px, #000 var(--lmc-reveal-r), transparent calc(var(--lmc-reveal-r) + ${SESSION_REVEAL.featherPx}px))`;
-        const style = element.style as CSSStyleDeclaration & { webkitMaskImage: string };
-        style.maskImage = mask;
-        style.webkitMaskImage = mask;
+        // Clip-path, not a gradient mask: a mask re-rasterises the whole pane
+        // (and the snapshot under it) every frame, which dropped frames.
+        const style = element.style;
+        const previousWillChange = style.willChange;
+        style.willChange = 'clip-path';
         let cleared = false;
         const clear = () => {
             if (cleared) return;
             cleared = true;
-            style.maskImage = '';
-            style.webkitMaskImage = '';
+            style.clipPath = '';
+            style.willChange = previousWillChange;
             element.style.backgroundColor = previousBackground;
             under?.remove();
             ring.remove();
         };
-        // A coloured ring rides the edge: a bright line with a glow fading
-        // outwards, drawn over both panes and gone before the circle settles.
+        // The edge is a real ring element grown by transform, which the
+        // compositor animates without repainting anything.
         const ring = document.createElement('div');
         const c = isDark(element.style.backgroundColor || opaqueBackground(element.parentElement))
             ? SESSION_REVEAL.edgeColor.dark : SESSION_REVEAL.edgeColor.light;
-        const line = SESSION_REVEAL.edgeLinePx;
-        const glow = SESSION_REVEAL.edgeGlowPx;
+        const r = Math.ceil(radius);
         Object.assign(ring.style, {
-            position: 'absolute', left: `${element.offsetLeft}px`, top: `${element.offsetTop}px`,
-            width: `${element.offsetWidth}px`, height: `${element.offsetHeight}px`,
-            pointerEvents: 'none', zIndex: '2',
-            backgroundImage: `radial-gradient(circle at ${x}px ${y}px, transparent calc(var(--lmc-reveal-r) - ${line}px), ${c} var(--lmc-reveal-r), color-mix(in srgb, ${c} 35%, transparent) calc(var(--lmc-reveal-r) + ${line}px), transparent calc(var(--lmc-reveal-r) + ${glow}px))`,
+            position: 'absolute', left: `${x - r}px`, top: `${y - r}px`,
+            width: `${r * 2}px`, height: `${r * 2}px`, borderRadius: '50%', boxSizing: 'border-box',
+            border: `${SESSION_REVEAL.edgeLinePx}px solid ${c}`,
+            pointerEvents: 'none', zIndex: '2', willChange: 'transform, opacity', transform: 'scale(0)',
         });
         ring.setAttribute('aria-hidden', 'true');
-        element.parentElement?.insertBefore(ring, element.nextSibling);
-        ring.animate([
-            { '--lmc-reveal-r': '0px', opacity: 1, offset: 0 },
-            { opacity: 1, offset: 0.7 },
-            { '--lmc-reveal-r': `${Math.ceil(radius)}px`, opacity: 0, offset: 1 },
-        ] as Keyframe[], { duration: SESSION_REVEAL.durationMs, easing: SESSION_REVEAL.easing, fill: 'forwards' });
-        const animation = element.animate([
-            { '--lmc-reveal-r': '0px' },
-            { '--lmc-reveal-r': `${Math.ceil(radius)}px` },
-        ] as Keyframe[], { duration: SESSION_REVEAL.durationMs, easing: SESSION_REVEAL.easing, fill: 'forwards' });
-        animation.onfinish = clear;
-        animation.oncancel = clear;
-        // Never leave the pane masked or the snapshot behind.
-        setTimeout(clear, SESSION_REVEAL.durationMs + 250);
+        // The ring's box can reach far outside the pane; keep it to the pane.
+        const ringClip = document.createElement('div');
+        Object.assign(ringClip.style, {
+            position: 'absolute', left: `${element.offsetLeft}px`, top: `${element.offsetTop}px`,
+            width: `${element.offsetWidth}px`, height: `${element.offsetHeight}px`,
+            overflow: 'hidden', pointerEvents: 'none', zIndex: '2',
+        });
+        ringClip.setAttribute('aria-hidden', 'true');
+        ringClip.appendChild(ring);
+        element.parentElement?.insertBefore(ringClip, element.nextSibling);
+        const removeRing = ring.remove.bind(ring);
+        ring.remove = () => { removeRing(); ringClip.remove(); };
+        const start = () => {
+            if (cleared) return;
+            ring.animate([
+                { transform: 'scale(0)', opacity: 1, offset: 0 },
+                { opacity: 1, offset: 0.7 },
+                { transform: 'scale(1)', opacity: 0, offset: 1 },
+            ], { duration: SESSION_REVEAL.durationMs, easing: SESSION_REVEAL.easing, fill: 'forwards' });
+            const animation = element.animate([
+                { clipPath: `circle(0px at ${x}px ${y}px)` },
+                { clipPath: `circle(${r}px at ${x}px ${y}px)` },
+            ], { duration: SESSION_REVEAL.durationMs, easing: SESSION_REVEAL.easing, fill: 'forwards' });
+            animation.onfinish = clear;
+            animation.oncancel = clear;
+            // Never leave the pane masked or the snapshot behind.
+            setTimeout(clear, SESSION_REVEAL.durationMs + 250);
+        };
+        start();
     }, [ref, sessionId]);
 }
