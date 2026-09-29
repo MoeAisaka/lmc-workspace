@@ -36,7 +36,7 @@ export const SESSION_REVEAL = {
     edgeGlowPx: 2,
 } as const;
 
-let origin: { x: number; y: number; at: number; snapshot: HTMLElement | null } | null = null;
+let origin: { x: number; y: number; at: number; snapshot: HTMLElement | null; snapshotScroll: ScrollOffsets } | null = null;
 /** The pane carries this marker so a press can snapshot what it is about to cover. */
 export const SESSION_PANE_DATASET = { lmcSessionPane: 'true' } as const;
 let lastRevealAt = 0;
@@ -50,6 +50,7 @@ function listen() {
         if (target?.closest?.('.happy-sort-row, [data-hub-sort-id]')) {
             const pane = document.querySelector<HTMLElement>('[data-lmc-session-pane]');
             const snapshot = pane ? pane.cloneNode(true) as HTMLElement : null;
+            const snapshotScroll = pane ? readScroll(pane) : [];
             snapshot?.removeAttribute('data-lmc-session-pane');
             // A press right after the previous switch can catch that session's
             // own fade-in part way; the snapshot shows it fully arrived.
@@ -57,7 +58,7 @@ function listen() {
                 node.style.opacity = '1';
                 node.style.transform = 'none';
             });
-            origin = { x: event.clientX, y: event.clientY, at: Date.now(), snapshot };
+            origin = { x: event.clientX, y: event.clientY, at: Date.now(), snapshot, snapshotScroll };
         }
     }, { capture: true, passive: true });
 }
@@ -65,6 +66,28 @@ function listen() {
 // Installed on import so the very first press, before any session pane
 // exists, is already recorded.
 listen();
+
+/**
+ * Scroll offsets are not part of the DOM and do not clone: a copied list sits
+ * at its top, then jumps when the real one takes over. Record them from the
+ * source and replay them on the copy once it is in the document.
+ */
+type ScrollOffsets = Array<[number, number, number]>;
+function readScroll(root: HTMLElement): ScrollOffsets {
+    const out: ScrollOffsets = [];
+    [root, ...root.querySelectorAll<HTMLElement>('*')].forEach((node, index) => {
+        if (node.scrollTop || node.scrollLeft) out.push([index, node.scrollTop, node.scrollLeft]);
+    });
+    return out;
+}
+function applyScroll(root: HTMLElement, offsets: ScrollOffsets): void {
+    if (!offsets.length) return;
+    const nodes = [root, ...root.querySelectorAll<HTMLElement>('*')];
+    for (const [index, top, left] of offsets) {
+        const node = nodes[index];
+        if (node) { node.scrollTop = top; node.scrollLeft = left; }
+    }
+}
 
 /** The first opaque background up the tree — what the pane is drawn on. */
 function opaqueBackground(from: HTMLElement | null): string {
@@ -133,6 +156,7 @@ export function useSessionReveal(ref: React.RefObject<unknown>, sessionId: strin
             });
             under.setAttribute('aria-hidden', 'true');
             element.parentElement.insertBefore(under, element);
+            applyScroll(under, press.snapshotScroll);
         }
         // Everything below animates only transform and opacity, which the
         // compositor runs without repainting: clip-path and a changing blur
@@ -161,6 +185,7 @@ export function useSessionReveal(ref: React.RefObject<unknown>, sessionId: strin
             blurred = under.cloneNode(true) as HTMLElement;
             Object.assign(blurred.style, { filter: `blur(${SESSION_REVEAL.blurPx}px)`, opacity: '0', willChange: 'opacity' });
             element.parentElement.insertBefore(blurred, element);
+            applyScroll(blurred, press.snapshotScroll);
         }
         const stage = layer({ zIndex: '2' });
         const windowCircle = document.createElement('div');
@@ -195,6 +220,7 @@ export function useSessionReveal(ref: React.RefObject<unknown>, sessionId: strin
             // Copy the new body once it has mounted; the copy is what the
             // circle shows, so building the list never lands mid-animation.
             const copy = element.cloneNode(true) as HTMLElement;
+            const copyScroll = readScroll(element);
             copy.removeAttribute('data-lmc-session-pane');
             // Form values are not attributes and do not clone; carry the draft.
             const sources = element.querySelectorAll<HTMLTextAreaElement | HTMLInputElement>('textarea, input');
@@ -212,6 +238,7 @@ export function useSessionReveal(ref: React.RefObject<unknown>, sessionId: strin
                 visibility: 'visible', transformOrigin: `${x}px ${y}px`, willChange: 'transform',
             });
             windowCircle.appendChild(copy);
+            applyScroll(copy, copyScroll);
             // Sample the easing so the circle and its counter-scaled content
             // stay exact inverses at every frame, not just at the ends.
             const steps = 24;
@@ -247,11 +274,29 @@ export function useSessionReveal(ref: React.RefObject<unknown>, sessionId: strin
             done.oncancel = clear;
             setTimeout(clear, SESSION_REVEAL.durationMs + 250);
         };
+        // Copy only once the transcript has settled: right after mounting, the
+        // list still scrolls itself to the bottom and measures rows, and a copy
+        // taken then showed the body too high, jumping down when the real pane
+        // took over. Settled = scroll offsets and heights unchanged for two frames.
         const startedAt = performance.now();
+        let lastSignature = '';
+        let stableFrames = 0;
+        const signature = () => {
+            let text = '';
+            element.querySelectorAll<HTMLElement>('*').forEach((node) => {
+                if (node.scrollHeight > node.clientHeight + 1) text += `${node.scrollTop}:${node.scrollHeight};`;
+            });
+            return text;
+        };
         const waitForContent = () => {
             if (cleared) return;
             const ready = element.querySelector('[data-testid="session-content-enter"], [data-testid="session-content-skeleton"]');
-            if (ready || performance.now() - startedAt > SESSION_REVEAL.maxWaitMs) requestAnimationFrame(start);
+            if (ready) {
+                const next = signature();
+                stableFrames = next === lastSignature ? stableFrames + 1 : 0;
+                lastSignature = next;
+            }
+            if ((ready && stableFrames >= 2) || performance.now() - startedAt > SESSION_REVEAL.maxWaitMs) start();
             else requestAnimationFrame(waitForContent);
         };
         requestAnimationFrame(waitForContent);
