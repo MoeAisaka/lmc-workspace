@@ -11,7 +11,8 @@ import { Platform } from 'react-native';
  * platforms and reduced motion keep the plain fade in SessionContentEnter.
  */
 export const SESSION_REVEAL = {
-    durationMs: 560,
+    // Owner kept finding it fast; the radius is 1000+ px, so length matters more than the curve.
+    durationMs: 850,
     // Fast out of the row, long gentle settle (Owner: 先快后慢; initial speed halved, then cut by another 25%).
     easing: 'cubic-bezier(0.16, 0.375, 0.3, 1)',
     freshMs: 1200,
