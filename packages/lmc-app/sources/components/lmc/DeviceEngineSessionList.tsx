@@ -105,10 +105,11 @@ const styles = StyleSheet.create((theme) => ({
     rolePill: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999 },
     rolePillText: { fontSize: 10.5, lineHeight: 15, ...Typography.default('semiBold') },
     dropHint: { fontSize: 11, paddingLeft: 34, paddingBottom: 6, ...Typography.default('semiBold') },
-    taskRow: { marginRight: 4, paddingLeft: 6, paddingRight: 10, paddingVertical: 6, borderRadius: 10, gap: 3 },
-    idChip: { paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
-    idChipText: { fontSize: 10, lineHeight: 14, fontFamily: 'Menlo', letterSpacing: 0.2 },
-    taskTitle: { fontSize: 13, color: theme.colors.text, ...Typography.default() },
+    taskRow: { marginRight: 4, paddingLeft: 6, paddingRight: 10, paddingVertical: 8, gap: 4, minWidth: 0 },
+    idChip: { alignSelf: 'flex-start', maxWidth: '100%', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
+    idChipText: { fontSize: 10, lineHeight: 14, fontFamily: 'Menlo', letterSpacing: 0.2, ...(Platform.OS === 'web' ? { overflowWrap: 'anywhere' as const } : {}) },
+    taskTitle: { flex: 1, minWidth: 0, fontSize: 13, lineHeight: 19, color: theme.colors.text, ...Typography.default(), ...(Platform.OS === 'web' ? { overflowWrap: 'anywhere' as const } : {}) },
+    taskMeta: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8, rowGap: 2 },
     dots: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
     rowPressed: { backgroundColor: theme.colors.surfacePressed },
     title: { fontSize: 14, lineHeight: 20, color: theme.colors.text, ...Typography.default() },
@@ -566,24 +567,22 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
                 const at = new Date(entry.updatedAt);
                 const took = isClosedState(entry.state) ? Math.max(1, Math.round((entry.updatedAt - entry.firstAt) / 60000)) : null;
                 return (
-                    <Pressable
+                    <View
                         key={entry.id}
-                        accessibilityRole="button"
-                        onPress={() => { onNavigate?.(); navigate(entry.counterpart ?? group.hub.id); }}
-                        style={({ pressed }) => [styles.taskRow, { marginLeft: indent }, pressed && styles.rowPressed]}
+                        testID="worker-task-step"
+                        {...(Platform.OS === 'web' ? { dataSet: { sessionSortIgnore: 'true' } } : {})}
+                        style={[styles.taskRow, { marginLeft: indent }]}
                     >
-                        <View style={styles.rowLine}>
-                            <View style={[styles.idChip, { backgroundColor: colors.subtle }]}><RNText style={[styles.idChipText, { color: colors.tertiary }]}>{entry.id}</RNText></View>
-                            <RNText numberOfLines={1} style={[styles.taskTitle, { flexShrink: 1 }]}>{entry.title}</RNText>
-                            <View style={{ flex: 1 }} />
-                            <SessionStatusRing tone={taskTone(entry)} size={10} />
+                        <View style={[styles.rowLine, { alignItems: 'flex-start' }]}>
+                            <RNText selectable style={styles.taskTitle}>{entry.title}</RNText>
+                            <View style={{ paddingTop: 4, flexShrink: 0 }}><SessionStatusRing tone={taskTone(entry)} size={10} /></View>
                         </View>
-                        <View style={styles.rowLine}>
-                            <RNText numberOfLines={1} style={[styles.metaText, { color: colors.tertiary, flexShrink: 1 }]}>{entry.stage ?? ''}</RNText>
-                            <View style={{ flex: 1 }} />
-                            <RNText style={[styles.metaText, { color: colors.tertiary }]}>{pad(at.getHours())}:{pad(at.getMinutes())}{took ? ` · ${t('lmc.orchestration.took', { minutes: took })}` : ''}</RNText>
+                        <View style={[styles.idChip, { backgroundColor: colors.subtle }]}><RNText selectable style={[styles.idChipText, { color: colors.tertiary }]}>{entry.id}</RNText></View>
+                        <View style={styles.taskMeta}>
+                            <RNText style={[styles.metaText, { color: colors.tertiary }]}>{entry.stage ?? ''}</RNText>
+                            <RNText style={[styles.metaText, { color: colors.tertiary, marginLeft: 'auto' }]}>{pad(at.getHours())}:{pad(at.getMinutes())}{took ? ` · ${t('lmc.orchestration.took', { minutes: took })}` : ''}</RNText>
                         </View>
-                    </Pressable>
+                    </View>
                 );
             })}
         </>

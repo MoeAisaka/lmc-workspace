@@ -147,6 +147,9 @@ export function SortableSessionRows<T extends {id:string}>({groupId,sessions,ren
                     // itself to pick it up, so no handle has to be shown.
                     if(disabled||current.current||e.isPrimary===false)return;
                     if(e.pointerType==='mouse'&&e.button!==0)return;
+                    // Expanded task details are readable content, not a handle
+                    // for dragging their owning session.
+                    if((e.target as HTMLElement).closest('[data-session-sort-ignore]'))return;
                     clearTouch();suppressClick.current=false;
                     touch.current={id:session.id,pointer:e.pointerId,x:e.clientX,y:e.clientY,armed:false,target:e.target as HTMLElement,pointerType:e.pointerType};
                     holdTimer.current=setTimeout(()=>{const p=touch.current;if(p){p.armed=true;setHeld(p.id);}},SORT_HOLD_MS);
