@@ -32,9 +32,21 @@ async function setup(fresh = false) {
     const hook = (event: string) => fixture.options.onHook({ event, sessionId: 'provider-same' });
     const screen = (ready: boolean) => { composer = ready; relay.outputChanged(); fixture.options.onScreen(); };
     const rpc = (request: any) => handlers.get('native-computer')!(request);
-    return { client, queue, session, write, hook, screen, rpc, relay };
+    return { client, queue, session, write, hook, screen, rpc, relay, handlers };
 }
 describe('native LMC lifecycle', () => {
+    it('releases a promoted message after Escape reaches a fresh idle composer even without a Stop hook', async () => {
+        const f = await setup(); f.hook('SessionStart'); f.screen(false); f.hook('UserPromptSubmit');
+        f.queue.push('after interrupt', mode, undefined, { key: 'after-stop' });
+        await f.handlers.get('promote')!({ key: 'after-stop' });
+        await f.handlers.get('abort')!({});
+        await vi.advanceTimersByTimeAsync(500);
+        expect(f.write.mock.calls.map(c => c[0])).toEqual(['\x1b']);
+        expect(f.queue.size()).toBe(1);
+        f.screen(true); await vi.advanceTimersByTimeAsync(500);
+        expect(f.write.mock.calls.map(c => c[0])).toEqual(['\x1b', '\x1b[200~after interrupt\x1b[201~', '\x1b[13;1u']);
+        expect(f.client.closeClaudeSessionTurn).toHaveBeenCalledWith('completed');
+    });
     it('marks a native failed turn as failed after its terminal is idle', async () => {
         const f = await setup(); f.hook('SessionStart'); f.hook('UserPromptSubmit'); f.hook('StopFailure'); f.screen(true);
         await vi.advanceTimersByTimeAsync(500);
@@ -53,6 +65,41 @@ describe('native LMC lifecycle', () => {
         const observed = await f.rpc({ action: 'claim', clientId: 'client_fixture' });
         await expect(f.rpc({ action: 'leave', clientId: 'client_fixture', epoch: observed.epoch, revision: observed.revision })).rejects.toThrow('/tasks');
         expect(f.write).not.toHaveBeenCalled();
+    });
+    it('delivers changed-model chat once while background work keeps running, then applies settings after completion', async () => {
+        const f = await setup(); f.hook('SessionStart'); f.screen(true);
+        fixture.scanner.onMessage({ type: 'user', toolUseResult: { backgroundTaskId: 'task-1' }, message: { content: [] } });
+        f.session.getNativeMode = () => ({ ...mode, model: 'opus', effort: 'high' });
+        f.queue.push('keep working', f.session.getNativeMode(), undefined, { key: 'deferred' });
+        await vi.advanceTimersByTimeAsync(500);
+        expect(f.write.mock.calls.map(c => c[0])).toEqual(['\x1b[200~keep working\x1b[201~', '\x1b[13;1u']);
+        f.hook('UserPromptSubmit'); f.hook('Stop'); f.screen(true);
+        await vi.advanceTimersByTimeAsync(500);
+        expect(f.write).toHaveBeenCalledTimes(2);
+        expect(f.client.sendSessionEvent.mock.calls.filter(c => c[0].type === 'queue-released')).toEqual([[{ type: 'queue-released', keys: ['deferred'] }]]);
+        fixture.scanner.onTaskNotification({ taskId: 'task-1' });
+        await vi.advanceTimersByTimeAsync(500);
+        expect(f.write.mock.calls.slice(2).map(c => c[0])).toEqual(['\x1b[200~/exit\x1b[201~', '\x1b[13;1u']);
+        finish({ exitCode: 0 }); await expect(running).resolves.toBe('restart');
+    });
+    it('keeps changed permissions queued while background work remains', async () => {
+        const f = await setup(); f.hook('SessionStart'); f.screen(true);
+        // The production SDK queue hash ignores permission changes except plan.
+        f.queue.modeHasher = m => JSON.stringify({ model: m.model, effort: m.effort });
+        fixture.scanner.onMessage({ type: 'user', toolUseResult: { backgroundTaskId: 'task-1' }, message: { content: [] } });
+        f.queue.push('requires new policy', { ...mode, permissionMode: 'yolo' });
+        await vi.advanceTimersByTimeAsync(500);
+        expect(f.write).not.toHaveBeenCalled(); expect(f.queue.size()).toBe(1);
+    });
+    it('wakes an idle native consumer when promoting a deliverable message ahead of a blocked one', async () => {
+        const f = await setup(); f.hook('SessionStart'); f.screen(true);
+        fixture.scanner.onMessage({ type: 'user', toolUseResult: { backgroundTaskId: 'task-1' }, message: { content: [] } });
+        f.queue.push('blocked', { ...mode, permissionMode: 'yolo' });
+        f.queue.push('insert now', mode, undefined, { key: 'promoted' });
+        await vi.advanceTimersByTimeAsync(500); expect(f.write).not.toHaveBeenCalled();
+        await f.handlers.get('promote')!({ key: 'promoted' });
+        await vi.advanceTimersByTimeAsync(500);
+        expect(f.write.mock.calls.map(c => c[0])).toEqual(['\x1b[200~insert now\x1b[201~', '\x1b[13;1u']);
     });
     it('does not lose a fresh transcript when the first prompt arrives after the scanner missing-file timeout', async () => {
         const f = await setup(true); f.hook('SessionStart'); f.screen(true);

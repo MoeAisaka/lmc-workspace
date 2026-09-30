@@ -65,6 +65,8 @@ export function registerQueueControlHandlers<T>(
     opts: {
         isBusy: () => boolean;
         interrupt: () => Promise<void>;
+        /** Wake push-driven consumers after a queued item moves to the front. */
+        wake?: () => void;
         /**
          * Hand one waiting prompt to the running turn. Absent on engines that
          * cannot (Claude Code), which answer `unsupported` rather than quietly
@@ -89,6 +91,7 @@ export function registerQueueControlHandlers<T>(
         if (!key) throw new Error('promote needs { key }');
         const promoted = queue.promote(key);
         if (!promoted) return { promoted: false, interrupted: false };
+        opts.wake?.();
         if (!opts.isBusy()) return { promoted: true, interrupted: false };
         await opts.interrupt();
         return { promoted: true, interrupted: true };

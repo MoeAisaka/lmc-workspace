@@ -41,6 +41,20 @@ describe('sessionScanner', () => {
       await rm(projectDir, { recursive: true, force: true })
     }
   })
+
+  it('reports new native task completion once without replaying history or displaying an internal queue entry', async () => {
+    const sessionId = 'task-session';
+    const sessionFile = join(projectDir, `${sessionId}.jsonl`);
+    const notification = (taskId: string, source = sessionId) => JSON.stringify({ type: 'queue-operation', operation: 'enqueue', sessionId: source, timestamp: taskId,
+      content: `<task-notification><task-id>${taskId}</task-id><status>completed</status></task-notification>` }) + '\n';
+    await writeFile(sessionFile, notification('old'));
+    const completed: string[] = [];
+    scanner = await createSessionScanner({ sessionId, workingDirectory: testDir, onMessage: m => collectedMessages.push(m), onTaskNotification: e => completed.push(e.taskId) });
+    expect(completed).toEqual([]);
+    await appendFile(sessionFile, notification('new') + notification('foreign', 'other-session'));
+    await scanner.flush(); await scanner.flush();
+    expect(completed).toEqual(['new']); expect(collectedMessages).toEqual([]);
+  })
   
   it('should process initial session and resumed session correctly', async () => {
     // TEST SCENARIO:

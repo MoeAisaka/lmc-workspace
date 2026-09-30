@@ -6,6 +6,7 @@ import { readFile } from "node:fs/promises";
 import { logger } from "@/ui/logger";
 import { startFileWatcher } from "@/modules/watcher/startFileWatcher";
 import { getProjectPath } from "./path";
+import { parseNativeTaskNotification, type NativeTaskNotification } from './nativeTaskNotification';
 
 /**
  * Known internal Claude Code event types that should be silently skipped.
@@ -22,6 +23,7 @@ export type ScannerTranscriptEvent = ClaudeGoalStatusTranscriptEvent;
 
 type SessionLogEntry =
     | { kind: 'message'; key: string; message: RawJSONLines }
+    | { kind: 'task-notification'; key: string; event: NativeTaskNotification }
     | { kind: 'transcript-event'; key: string; event: ScannerTranscriptEvent };
 
 export async function createSessionScanner(opts: {
@@ -29,6 +31,7 @@ export async function createSessionScanner(opts: {
     workingDirectory: string
     onMessage: (message: RawJSONLines) => void
     onTranscriptEvent?: (event: ScannerTranscriptEvent) => void
+    onTaskNotification?: (event: NativeTaskNotification) => void
     /** Restore only the latest native goal, without replaying old chat messages. */
     hydrateGoalStatus?: boolean
     /**
@@ -116,6 +119,8 @@ export async function createSessionScanner(opts: {
                     logger.debug(`[SESSION_SCANNER] Sending new message: type=${entry.message.type}, uuid=${entry.message.type === 'summary' ? entry.message.leafUuid : entry.message.uuid}`);
                     opts.onMessage(entry.message);
                     sentMessages++;
+                } else if (entry.kind === 'task-notification') {
+                    opts.onTaskNotification?.(entry.event);
                 } else {
                     logger.debug(`[SESSION_SCANNER] Sending new transcript event: type=${entry.event.type}, uuid=${entry.event.uuid}`);
                     opts.onTranscriptEvent?.(entry.event);
@@ -269,6 +274,11 @@ async function readSessionEntries(projectDir: string, sessionId: string): Promis
                 continue;
             }
             let message = JSON.parse(l);
+            const taskNotification = parseNativeTaskNotification(message);
+            if (taskNotification && message.sessionId === sessionId) {
+                entries.push({ kind: 'task-notification', key: `task:${sessionId}:${taskNotification.taskId}:${message.timestamp}`, event: taskNotification });
+                continue;
+            }
             
             // Silently skip known internal Claude Code events
             // These are state/tracking events, not conversation messages
