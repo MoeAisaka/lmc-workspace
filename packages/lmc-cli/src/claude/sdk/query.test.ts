@@ -7,6 +7,14 @@ import { query } from './query';
 import { query as sdkQuery } from '@anthropic-ai/claude-agent-sdk';
 
 describe('Claude permission capability at the real SDK adapter', () => {
+    it('passes the explicit browser choice without forwarding arbitrary CLI flags', () => {
+        query({ prompt: 'fixture only', options: { chrome: true } as any });
+        expect(vi.mocked(sdkQuery).mock.calls.at(-1)?.[0].options?.extraArgs).toEqual({ chrome: null });
+        query({ prompt: 'fixture only', options: { chrome: false } as any });
+        expect(vi.mocked(sdkQuery).mock.calls.at(-1)?.[0].options?.extraArgs).toEqual({ 'no-chrome': null });
+        query({ prompt: 'fixture only' });
+        expect(vi.mocked(sdkQuery).mock.calls.at(-1)?.[0].options?.extraArgs).toBeUndefined();
+    });
     it('passes the bypass capability explicitly; setting the mode alone is insufficient', () => {
         query({ prompt: 'fixture only', options: { permissionMode: 'bypassPermissions', allowDangerouslySkipPermissions: true } as any });
         // Assert only the relevant scalars: a full options diff contains env.

@@ -43,6 +43,8 @@ export interface QueryOptions {
     model?: string
     fallbackModel?: string
     strictMcpConfig?: boolean
+    /** Official Claude in Chrome integration; undefined preserves the provider default. */
+    chrome?: boolean
     canCallTool?: CanCallToolCallback
     /** Path to a settings JSON file to pass to Claude via --settings */
     settingsPath?: string

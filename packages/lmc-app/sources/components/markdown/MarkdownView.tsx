@@ -22,6 +22,7 @@ import { openFileReference } from '@/utils/lmc/openFileReference';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import { inferQuestionOptions } from './inferQuestionOptions';
 import { useMarkdownImage } from '@/hooks/useMarkdownImage';
+import { openImagePreview } from '../ImagePreviewModal';
 
 // Option type for callback
 export type Option = {
@@ -270,13 +271,14 @@ function RenderImageBlock(props: { url: string, alt: string, sessionId?: string,
     return (
         <View style={[style.imageBlock, props.first && style.first, props.last && style.last]}>
             <View style={style.image}>
-                {image.uri && <Image
+                {image.uri && <Pressable accessibilityRole="button" accessibilityLabel={accessibleLabel}
+                    onPress={() => openImagePreview(image.uri!, accessibleLabel)} style={{ width: '100%', height: '100%' }}><Image
                     source={{ uri: image.uri }}
                     style={{ width: '100%', height: '100%' }}
                     accessibilityLabel={accessibleLabel}
                     resizeMode="contain"
                     onError={image.onError}
-                />}
+                /></Pressable>}
                 {image.status === 'loading' && <ActivityIndicator accessibilityLabel={t('common.loading')} />}
                 {image.status === 'failed' && <Pressable accessibilityRole="button" onPress={image.retry} style={{ padding: 12 }}>
                     <Text style={style.imageCaption}>{t('common.retry')}</Text>

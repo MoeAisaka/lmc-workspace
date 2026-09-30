@@ -20,3 +20,6 @@ sample is only served locally and is never copied into the repository.
 Checks cover Claude and Codex session routing, bracketed paths with spaces,
 chunked image decoding, unchanged HTTP delivery, encoded file URLs, retry after
 failure, capability fallback, and light/dark layouts at 390 and 1200 pixels.
+Loaded Markdown images and user attachments must open the shared preview;
+zoom/reset, close, Escape, touch opening, viewport bounds and the opaque viewer
+surface are checked. Screenshots wait for the modal's entrance animation.

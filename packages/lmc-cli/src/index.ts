@@ -697,6 +697,8 @@ ${chalk.bold('To clean up runaway processes:')} Use ${chalk.cyan('lmc doctor cle
     const chromeEnabled = chromeOverride ?? settings.chromeMode ?? false
     if (chromeEnabled) {
       options.claudeArgs = [...(options.claudeArgs || []), '--chrome']
+    } else if (chromeOverride === false || settings.chromeMode === false) {
+      options.claudeArgs = [...(options.claudeArgs || []), '--no-chrome']
     }
 
     // Show help

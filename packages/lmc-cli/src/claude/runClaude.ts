@@ -1,5 +1,6 @@
 import { cachedModel, cachedDefaultEffort, readModelCatalogs } from '@/runtime/modelCatalogCache';
 import { engineCapabilities } from '@/runtime/managedRuntime';
+import { readComputerUseSetup, withClaudeChromeDefault } from '@/runtime/computerUse';
 import { registerEngineAuth } from '@/utils/engineAuth';
 import { restoreReconnectMessageCursor } from '@/utils/reconnectMessageCursor';
 import { UNKNOWN_RECONNECT_REVISION, refreshSessionRuntimeMetadata, SESSION_STATE_REVISION } from '@/utils/sessionRuntimeMetadata';
@@ -91,6 +92,8 @@ type PendingClaudeGoalAction = {
 };
 
 export async function runClaude(credentials: Credentials, options: StartOptions = {}): Promise<void> {
+    const computerUse = readComputerUseSetup('claude');
+    options = { ...options, claudeArgs: withClaudeChromeDefault(options.claudeArgs, computerUse.chrome) };
     logger.debug(`[CLAUDE] ===== CLAUDE MODE STARTING =====`);
     logger.debug(`[CLAUDE] This is the Claude agent, NOT Gemini`);
     
@@ -1097,6 +1100,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         },
         onAbort: resetCurrentModeDefaults,
         mcpServers: {
+            ...computerUse.mcpServers,
             'happy': {
                 type: 'http' as const,
                 url: happyServer.url,

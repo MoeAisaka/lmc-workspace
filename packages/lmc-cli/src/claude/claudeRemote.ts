@@ -1,4 +1,5 @@
 import { EnhancedMode } from "./loop";
+import { claudeChromeChoice } from '@/runtime/computerUse';
 import { query, type CanCallToolOptions, type QueryOptions, type SDKMessage, type SDKSystemMessage, AbortError, SDKUserMessage } from '@/claude/sdk'
 import type { MessageParam } from '@anthropic-ai/sdk/resources'
 import { mapToClaudeMode } from "./utils/permissionMode";
@@ -135,6 +136,7 @@ export async function claudeRemote(opts: {
         cwd: opts.path,
         resume: startFrom ?? undefined,
         mcpServers: opts.mcpServers,
+        chrome: claudeChromeChoice(opts.claudeArgs),
         permissionMode: mapToClaudeMode(initial.mode.permissionMode),
         allowDangerouslySkipPermissions: opts.allowWorkerPermissionControl
             || initial.mode.permissionMode === 'bypassPermissions' || initial.mode.permissionMode === 'yolo' || undefined,

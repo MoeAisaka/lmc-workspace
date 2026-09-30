@@ -23,6 +23,9 @@ const fixture = `
 const init=modules.get(0); __r(init.deps[0]);__r(init.deps[1]);
 const React=moduleExport('useState'),h=React.createElement,{createRoot}=moduleExport('createRoot');
 const {MarkdownView}=moduleExport('MarkdownView'),{storage}=moduleExport('storage'),{apiSocket}=moduleExport('apiSocket');
+const {ModalProvider}=moduleExport('ModalProvider');
+moduleExport('useAttachmentImage').useAttachmentImage=()=>({uri:'data:image/png;base64,'+${JSON.stringify(preview)},loading:false,error:null});
+const {FileView}=moduleExport('FileView');
 const {UnistylesRuntime}=moduleExport('UnistylesRuntime');
 window.setTheme=theme=>{UnistylesRuntime.setAdaptiveThemes(false);UnistylesRuntime.setTheme(theme);document.body.style.background=theme==='dark'?'#202020':'#fff'};
 window.calls=[];window.fail=false;
@@ -35,7 +38,9 @@ apiSocket.sessionRPC=async(sid,method,params)=>{
 };
 const local='/tmp/LMC Preview/desktop.png';
 function App(){const [state,set]=React.useState({sid:'codex',url:'<'+local+'>'});window.renderPreview=next=>set(next);
- return h('main',{style:{maxWidth:850,margin:'24px auto',padding:'0 16px'}},h(MarkdownView,{markdown:'![Preview]('+state.url+')',sessionId:state.sid}));}
+ return h(ModalProvider,null,h('main',{style:{maxWidth:850,margin:'24px auto',padding:'0 16px'}},state.attachment
+ ?h(FileView,{sessionId:state.sid,tool:{input:{ref:'fixture',name:'Attachment preview',image:{width:1200,height:600}}}})
+ :h(MarkdownView,{markdown:'![Preview]('+state.url+')',sessionId:state.sid})));}
 window.setSupported=(sid,supported)=>storage.setState({sessions:{...storage.getState().sessions,[sid]:{id:sid,metadata:{flavor:sid,sessionCapabilities:{resourceFiles:supported}}}}});
 setSupported('codex',true);setSupported('claude',true);
 createRoot(document.getElementById('root')).render(h(App));
@@ -65,7 +70,7 @@ const server=http.createServer((req,res)=>{
  const browser=await chromium.launch({headless:true,executablePath:process.env.LMC_CHROME_PATH||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',args:['--disk-cache-size=0','--renderer-process-limit=4','--disable-extensions']});
  try{
   const origin='http://127.0.0.1:'+server.address().port;
-  const context=await browser.newContext({viewport:{width:390,height:1000},locale:'en-US'});
+  const context=await browser.newContext({viewport:{width:390,height:1000},locale:'en-US',hasTouch:true});
   await context.route('**/*',route=>new URL(route.request().url()).hostname==='127.0.0.1'?route.continue():route.abort());
   const page=await context.newPage();page.setDefaultTimeout(5000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
   const loaded=async()=>page.waitForFunction(()=>[...document.querySelectorAll('main img')].some(img=>img.complete&&img.naturalWidth>0));
@@ -81,6 +86,16 @@ const server=http.createServer((req,res)=>{
    await page.waitForFunction(sid=>calls.some(c=>c.sid===sid&&c.params.path==='/tmp/LMC Preview/'+sid+'.png'),sid);
    await loaded();
    assert.equal(await page.locator('main img').evaluate(img=>img.src.startsWith('data:image/png;base64,')),true);
+   await page.locator('main img').click();
+   await page.getByTestId('image-preview').waitFor();
+   assert.equal(await page.getByTestId('image-preview').locator('img').evaluate(img=>img.src),await page.locator('main img').evaluate(img=>img.src));
+   await page.getByTestId('image-preview-zoom-in').click();
+   await page.getByRole('button',{name:'Reset',exact:true}).waitFor();
+   assert.equal(await page.getByTestId('image-preview-reset').innerText(),'150%');
+   await page.getByTestId('image-preview-reset').click();
+   assert.equal(await page.getByTestId('image-preview-reset').innerText(),'100%');
+   await page.getByTestId('image-preview-close').click();
+   await page.getByTestId('image-preview').waitFor({state:'detached'});
   }
   assert.ok((await page.evaluate(()=>calls)).every(c=>c.method==='resource-file'&&!c.params.path.includes('<')));
   const beforeRemote=await page.evaluate(()=>calls.length);
@@ -96,8 +111,20 @@ const server=http.createServer((req,res)=>{
    for(const width of [390,1200]){
     await page.setViewportSize({width,height:850});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+    if(width===390)await page.locator('main img').tap();else await page.locator('main img').click();
+    await page.getByTestId('image-preview').waitFor();
+    await page.waitForFunction(()=>{let el=document.querySelector('[data-testid="image-preview"]');if(!el)return false;for(;el;el=el.parentElement)if(Number(getComputedStyle(el).opacity)<0.99)return false;return true;});
+    const bounds=await page.getByTestId('image-preview').boundingBox();
+    assert.ok(bounds.x>=0&&bounds.x+bounds.width<=width+1,'Preview must fit the viewport');
+    assert.equal(await page.getByTestId('image-preview').evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(20, 20, 20)');
     await page.screenshot({path:path.join(out,theme+'-'+width+'.png'),fullPage:true});
+    await page.keyboard.press('Escape');await page.getByTestId('image-preview').waitFor({state:'detached'});
    }
+  }
+  for(const sid of ['codex','claude']){
+   await page.evaluate(sid=>renderPreview({sid,attachment:true}),sid);await loaded();
+   await page.locator('main img').click();await page.getByTestId('image-preview').waitFor();
+   await page.getByTestId('image-preview-close').click();await page.getByTestId('image-preview').waitFor({state:'detached'});
   }
   const beforeUnsupported=await page.evaluate(()=>calls.length);
   await page.evaluate(()=>{setSupported('legacy',false);renderPreview({sid:'legacy',url:'</tmp/legacy.png>'})});

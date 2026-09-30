@@ -8,7 +8,7 @@
  * ratio is used until the actual image lands and contentFit shows it.
  */
 import * as React from 'react';
-import { View, Text } from 'react-native';
+import { View, Text, Pressable } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -16,6 +16,7 @@ import { ToolViewProps } from './_all';
 import { z } from 'zod';
 import { useAttachmentImage } from '@/hooks/useAttachmentImage';
 import { thumbhashToDataUri } from '@/utils/thumbhash';
+import { openImagePreview } from '@/components/ImagePreviewModal';
 
 const fileInputSchema = z.object({
     ref: z.string(),
@@ -66,7 +67,9 @@ export const FileView = React.memo<ToolViewProps>(({ tool, sessionId }) => {
 
     return (
         <View style={styles.inlineContainer}>
-            <View style={[styles.inlineWrapper, { borderColor: theme.colors.divider }]}>
+            <Pressable accessibilityRole="button" accessibilityLabel={name} disabled={!uri}
+                onPress={() => { if (uri) openImagePreview(uri, name); }}
+                style={[styles.inlineWrapper, { borderColor: theme.colors.divider }]}>
                 <Image
                     source={uri ? { uri } : undefined}
                     placeholder={placeholder}
@@ -79,7 +82,7 @@ export const FileView = React.memo<ToolViewProps>(({ tool, sessionId }) => {
                         <Ionicons name="alert-circle-outline" size={20} color={theme.colors.textSecondary} />
                     </View>
                 )}
-            </View>
+            </Pressable>
             <Text style={[styles.filename, { color: theme.colors.textSecondary }]} numberOfLines={1}>{name}</Text>
         </View>
     );

@@ -46,6 +46,7 @@ export function query(params: { prompt: QueryPrompt; options?: QueryOptions }): 
         strictMcpConfig: opts?.strictMcpConfig,
         sessionId: undefined,
         effort: opts?.effort,
+        extraArgs: opts?.chrome === undefined ? undefined : { [opts.chrome ? 'chrome' : 'no-chrome']: null },
     }
 
     // Map abort signal -> AbortController

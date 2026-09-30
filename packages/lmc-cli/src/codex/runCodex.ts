@@ -1,4 +1,5 @@
 import { cachedDefaultEffort } from '@/runtime/modelCatalogCache';
+import { readComputerUseSetup } from '@/runtime/computerUse';
 import { codexUsageLimits } from './usageLimits';
 import { engineCapabilities } from '@/runtime/managedRuntime';
 import { registerEngineAuth, isEngineAuthError } from '@/utils/engineAuth';
@@ -1147,7 +1148,9 @@ export async function runCodex(opts: {
     // codex would otherwise fail to start the MCP server, the change_title tool would
     // not be visible to the model, and the model would improvise with shell echoes.
     const bridgeEntrypoint = join(projectPath(), 'bin', 'happy-mcp.mjs');
+    const computerUse = readComputerUseSetup('codex');
     const mcpServersForRole = () => ({
+        ...computerUse.mcpServers,
         happy: {
             command: process.execPath,
             args: ['--no-warnings', '--no-deprecation', bridgeEntrypoint, '--url', happyServer.url],

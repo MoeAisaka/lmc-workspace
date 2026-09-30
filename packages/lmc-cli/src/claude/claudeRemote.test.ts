@@ -29,6 +29,19 @@ describe('claudeRemote', () => {
         vi.mocked(query).mockReset();
     });
 
+    it.each([['--chrome', true], ['--no-chrome', false]] as const)('preserves %s across the remote launcher boundary', async (flag, expected) => {
+        let delivered = false;
+        vi.mocked(query).mockReturnValue({ async *[Symbol.asyncIterator]() {} } as any);
+        await claudeRemote({
+            sessionId: null, path: process.cwd(), allowedTools: [], claudeArgs: [flag],
+            hookSettingsPath: '/tmp/happy-test-settings.json',
+            nextMessage: async () => { if (delivered) return null; delivered = true; return { message: 'fixture only', mode }; },
+            onReady: vi.fn(), canCallTool: async () => ({ behavior: 'deny', message: 'fixture' }),
+            isAborted: () => false, onSessionFound: vi.fn(), onMessage: vi.fn(),
+        });
+        expect((vi.mocked(query).mock.calls[0][0].options as any).chrome).toBe(expected);
+    });
+
     it('prepares each consumed turn after discovering native commands and preserves input on failure', async () => {
         const delivered: string[] = [];
         let calls = 0;
