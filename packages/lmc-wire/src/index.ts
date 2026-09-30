@@ -9,3 +9,4 @@ export * from './modelCatalog';
 export * from './resourceSearch';
 export * from './engineLogin';
 export * from './accountQuota';
+export * from './clientPrompt';

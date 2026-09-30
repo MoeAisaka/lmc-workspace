@@ -21,12 +21,24 @@ import { NativeBackgroundTasks } from './backgroundTasks';
 import { hashObject } from '@/utils/deterministicJson';
 import { startNativeInteractiveProcess } from './interactiveProcess';
 import { encodeNativeInput, type NativeInputRequest } from './terminalRelay';
+import { LMC_OPTIONS_SYSTEM_PROMPT } from 'lmc-wire';
+
+function nativeRuntimeMode(mode: EnhancedMode): EnhancedMode {
+    return {
+        ...mode,
+        permissionMode: mapToClaudeMode(mode.permissionMode),
+        // The app attaches this exact built-in prompt to ordinary messages.
+        // It is already installed at native startup, including after refresh.
+        // Any custom append remains a real runtime policy change.
+        appendSystemPrompt: mode.appendSystemPrompt === LMC_OPTIONS_SYSTEM_PROMPT ? undefined : mode.appendSystemPrompt,
+    };
+}
 
 export async function claudeNativeLauncher(session: Session): Promise<'switch' | 'exit' | 'restart' | 'refresh'> {
     const resume = !!session.sessionId && !session.nativeUnwritten;
     session.nativeUnwritten = !resume;
     const id = session.sessionId ?? randomUUID();
-    const settings = { ...(session.queue.queue[0]?.mode ?? session.getNativeMode()) };
+    const settings = nativeRuntimeMode(session.queue.queue[0]?.mode ?? session.getNativeMode());
     let phase: 'starting' | 'idle' | 'busy' | 'stopping' | 'sending' | 'unconfirmed' | 'exited' = 'starting';
     let turnStatus: 'completed' | 'failed' = 'completed';
     let leaving = false;
@@ -53,8 +65,11 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
     const tasks = new NativeBackgroundTasks();
     // The SDK queue hash intentionally ignores live permission changes. A PTY
     // child has fixed startup permissions, so native boundaries must include them.
-    const runtimeHash = (mode: EnhancedMode) => hashObject({ ...mode, permissionMode: mapToClaudeMode(mode.permissionMode) });
-    const policyHash = ({ model: _model, effort: _effort, fallbackModel: _fallback, ...policy }: EnhancedMode) => hashObject({ ...policy, permissionMode: mapToClaudeMode(policy.permissionMode) });
+    const runtimeHash = (mode: EnhancedMode) => hashObject(nativeRuntimeMode(mode));
+    const policyHash = (mode: EnhancedMode) => {
+        const { model: _model, effort: _effort, fallbackModel: _fallback, ...policy } = nativeRuntimeMode(mode);
+        return hashObject(policy);
+    };
     let chain = Promise.resolve();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let process: Awaited<ReturnType<typeof startNativeInteractiveProcess>> | undefined;
@@ -199,7 +214,7 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
         }
     };
     try {
-        const args = ['--append-system-prompt', systemPrompt + '\nFor computer interaction, use the built-in computer-use tools. Do not silently substitute third-party desktop tools.'];
+        const args = ['--append-system-prompt', systemPrompt + '\nFor computer interaction, use the built-in computer-use tools. Do not silently substitute third-party desktop tools.\n\n' + LMC_OPTIONS_SYSTEM_PROMPT];
         if (settings.customSystemPrompt) args.push('--system-prompt', settings.customSystemPrompt);
         if (settings.appendSystemPrompt) args[1] += '\n' + settings.appendSystemPrompt;
         if (settings.fallbackModel) args.push('--fallback-model', settings.fallbackModel);

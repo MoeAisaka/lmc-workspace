@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MessageQueue2 } from '@/utils/MessageQueue2';
 import { NativeTerminalRelay } from './terminalRelay';
 import type { EnhancedMode } from '../loop';
+import { LMC_OPTIONS_SYSTEM_PROMPT } from 'lmc-wire';
 const fixture = vi.hoisted(() => ({ options: null as any, process: null as any, scanner: null as any, activate: vi.fn() }));
 vi.mock('./interactiveProcess', () => ({ startNativeInteractiveProcess: vi.fn(async (options: any) => { fixture.options = options; return fixture.process; }) }));
 vi.mock('@/runtime/managedRuntime', () => ({ claudeExecutable: () => '/fixture/claude', engineCapabilities: () => ({ turnQueue: true }), runtimeVersion: async () => ({ version: 'fixture' }) }));
@@ -35,6 +36,25 @@ async function setup(fresh = false) {
     return { client, queue, session, write, hook, screen, rpc, relay, handlers };
 }
 describe('native LMC lifecycle', () => {
+    it.each([false, true])('delivers app reply-format metadata without restarting (background=%s)', async background => {
+        const f = await setup(); f.hook('SessionStart'); f.screen(true);
+        expect(fixture.options.args[1]).toContain(LMC_OPTIONS_SYSTEM_PROMPT);
+        if (background) fixture.scanner.onMessage({ type: 'user', toolUseResult: { backgroundTaskId: 'task-1' }, message: { content: [] } });
+        f.queue.push('check progress', { ...mode, appendSystemPrompt: LMC_OPTIONS_SYSTEM_PROMPT }, undefined, { key: 'app-prompt' });
+        await vi.advanceTimersByTimeAsync(500);
+        expect(f.write.mock.calls.map(c => c[0])).toEqual(['\x1b[200~check progress\x1b[201~', '\x1b[13;1u']);
+        f.hook('UserPromptSubmit'); f.hook('Stop'); f.screen(true);
+        await vi.advanceTimersByTimeAsync(500);
+        expect(f.write).toHaveBeenCalledTimes(2);
+        expect(f.client.sendSessionEvent).toHaveBeenCalledWith({ type: 'queue-released', keys: ['app-prompt'] });
+    });
+    it('keeps custom append instructions queued even when they start with the built-in prompt', async () => {
+        const f = await setup(); f.hook('SessionStart'); f.screen(true);
+        fixture.scanner.onMessage({ type: 'user', toolUseResult: { backgroundTaskId: 'task-1' }, message: { content: [] } });
+        f.queue.push('new custom policy', { ...mode, appendSystemPrompt: LMC_OPTIONS_SYSTEM_PROMPT + '\nOnly inspect files.' });
+        await vi.advanceTimersByTimeAsync(500);
+        expect(f.write).not.toHaveBeenCalled(); expect(f.queue.size()).toBe(1);
+    });
     it('releases a promoted message after Escape reaches a fresh idle composer even without a Stop hook', async () => {
         const f = await setup(); f.hook('SessionStart'); f.screen(false); f.hook('UserPromptSubmit');
         f.queue.push('after interrupt', mode, undefined, { key: 'after-stop' });
