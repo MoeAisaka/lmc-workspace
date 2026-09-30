@@ -77,6 +77,8 @@ export function ClaudeNativeDialog({ sessionId, onClose }: { sessionId: string; 
                 </ScrollView>
             </ScrollView>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 }}>
+                {button('y', () => void input({ type: 'key', key: 'y' }), !enabled)}
+                {button('n', () => void input({ type: 'key', key: 'n' }), !enabled)}
                 {button('↑', () => void input({ type: 'key', key: 'up' }), !enabled)}
                 {button('↓', () => void input({ type: 'key', key: 'down' }), !enabled)}
                 {button('Tab', () => void input({ type: 'key', key: 'tab' }), !enabled)}

@@ -1350,15 +1350,15 @@ export function SessionViewLoaded({
                 placeholder={t('session.inputPlaceholder')}
                 sessionId={sessionId}
                 permissionMode={permissionMode}
-                onPermissionModeChange={!session.metadata?.claudeNativeActive && isRigPermissionSelectionEnabled(session.metadata) ? updatePermissionMode : undefined}
+                onPermissionModeChange={isRigPermissionSelectionEnabled(session.metadata) ? updatePermissionMode : undefined}
                 availableModes={availableModes}
                 modelMode={modelMode}
                 availableModels={availableModels}
-                onModelModeChange={!session.metadata?.claudeNativeActive && isRigModelSelectionEnabled(session.metadata) ? updateModelMode : undefined}
+                onModelModeChange={isRigModelSelectionEnabled(session.metadata) ? updateModelMode : undefined}
                 effortLevel={effortLevel}
                 availableEffortLevels={availableEffortLevels}
-                onEffortLevelChange={!session.metadata?.claudeNativeActive && isRigReasoningSelectionEnabled(session.metadata) ? updateEffortLevel : undefined}
-                onEngineSwitch={!session.metadata?.claudeNativeActive && canSwitchEngine ? switchEngine : undefined}
+                onEffortLevelChange={isRigReasoningSelectionEnabled(session.metadata) ? updateEffortLevel : undefined}
+                onEngineSwitch={canSwitchEngine ? switchEngine : undefined}
                 metadata={catalogMetadata}
                 connectionStatus={connectionStatus}
                 blockSend={isRig && session.thinking && session.metadata?.capabilities?.steering !== true}

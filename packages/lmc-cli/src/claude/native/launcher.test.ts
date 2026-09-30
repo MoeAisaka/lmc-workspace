@@ -4,8 +4,11 @@ import { NativeTerminalRelay } from './terminalRelay';
 import type { EnhancedMode } from '../loop';
 const fixture = vi.hoisted(() => ({ options: null as any, process: null as any, scanner: null as any, activate: vi.fn() }));
 vi.mock('./interactiveProcess', () => ({ startNativeInteractiveProcess: vi.fn(async (options: any) => { fixture.options = options; return fixture.process; }) }));
-vi.mock('@/runtime/managedRuntime', () => ({ claudeExecutable: () => '/fixture/claude', engineCapabilities: () => ({ turnQueue: true }) }));
+vi.mock('@/runtime/managedRuntime', () => ({ claudeExecutable: () => '/fixture/claude', engineCapabilities: () => ({ turnQueue: true }), runtimeVersion: async () => ({ version: 'fixture' }) }));
 vi.mock('../utils/sessionScanner', () => ({ createSessionScanner: vi.fn(async (options: any) => { fixture.scanner = options; return { cleanup: async () => {}, flush: async () => {}, onNewSession: fixture.activate }; }) }));
+vi.mock('../utils/permissionHandler', () => ({ PermissionHandler: class { reset() {} async handleModeChange() {} hasPendingRequests() { return false; } } }));
+vi.mock('@/modules/orchestration/workerConfig', () => ({ watchSessionConfiguration: () => () => {} }));
+vi.mock('./refresh', () => ({ nativeRefresh: () => ({ pending: false, drain: async () => {}, cancel: async () => {} }) }));
 vi.mock('../utils/systemPrompt', () => ({ systemPrompt: 'fixture' }));
 import { claudeNativeLauncher } from './launcher';
 import { startNativeInteractiveProcess } from './interactiveProcess';
@@ -21,7 +24,7 @@ async function setup(fresh = false) {
     const relay = new NativeTerminalRelay({ write, screen: () => ({ lines: ['fixture'], cursor: { x: 1, y: 0 }, composer }) });
     fixture.process = { relay, write, settled: async () => {}, exit: new Promise(resolve => { finish = resolve; }) };
     const handlers = new Map<string, (request: any) => any>();
-    const client = { sessionId: 'lmc-same', updateAgentState: vi.fn(), updateMetadata: vi.fn(async () => {}), sendSessionEvent: vi.fn(), sendClaudeSessionMessageFromLocalTranscript: vi.fn(async () => {}), closeClaudeSessionTurn: vi.fn(), rpcHandlerManager: { registerHandler: (name: string, handler: any) => handlers.set(name, handler), unregisterHandler: (name: string) => handlers.delete(name) } };
+    const client = { getMetadata: () => ({}), sessionId: 'lmc-same', updateAgentState: vi.fn(), updateMetadata: vi.fn(async () => {}), sendSessionEvent: vi.fn(), sendClaudeSessionMessageFromLocalTranscript: vi.fn(async () => {}), closeClaudeSessionTurn: vi.fn(), rpcHandlerManager: { registerHandler: (name: string, handler: any) => handlers.set(name, handler), unregisterHandler: (name: string) => handlers.delete(name) } };
     const queue = new MessageQueue2<EnhancedMode>(m => JSON.stringify(m));
     const session = { sessionId: fresh ? null : 'provider-same', path: '/fixture', getNativeMode: () => mode, client, queue, mcpServers: { happy: {}, 'lmc-computer': {} }, onSessionFound: vi.fn(), onThinkingChange: vi.fn() };
     running = claudeNativeLauncher(session as any);
@@ -92,8 +95,27 @@ describe('native LMC lifecycle', () => {
         const observed = await f.rpc({ action: 'claim', clientId: 'client_fixture' });
         await expect(f.rpc({ action: 'leave', clientId: 'client_fixture', epoch: observed.epoch, revision: observed.revision })).rejects.toThrow('排队消息');
     });
-    it('rejects changed settings and preserves message for regular mode', async () => {
+    it('acknowledges a local goal command from its exact transcript without retrying it', async () => {
+        const f = await setup(); f.hook('SessionStart'); f.screen(true);
+        f.queue.push('/goal clear', mode, undefined, { key: 'goal_clear' });
+        await vi.advanceTimersByTimeAsync(400);
+        fixture.scanner.onMessage({ type: 'user', message: { content: '<command-name>/goal</command-name><command-message>goal</command-message><command-args>clear</command-args>' } });
+        await vi.advanceTimersByTimeAsync(6000);
+        expect(f.write).toHaveBeenCalledTimes(2);
+        expect(f.client.sendSessionEvent).toHaveBeenCalledWith({ type: 'queue-released', keys: ['goal_clear'] });
+        expect(await f.rpc({ action: 'screen' })).toMatchObject({ phase: 'idle' });
+    });
+    it('does not resume an unwritten fresh provider record after a settings restart', async () => {
+        const f = await setup(true);
+        expect(fixture.options.resume).toBe(false);
+        f.hook('SessionStart');
+        expect(f.session).toMatchObject({ nativeUnwritten: true });
+        f.hook('UserPromptSubmit');
+        expect(f.session).toMatchObject({ nativeUnwritten: false });
+    });
+    it('gracefully restarts changed settings without consuming or resending the queued message', async () => {
         const f = await setup(); f.hook('SessionStart'); f.screen(true); f.queue.push('keep', { ...mode, effort: 'high' });
-        await vi.advanceTimersByTimeAsync(1000); expect(f.write).not.toHaveBeenCalled(); expect(f.queue.size()).toBe(1);
+        await vi.advanceTimersByTimeAsync(1000); expect(f.write.mock.calls.map(c => c[0])).toEqual(['\x1b[200~/exit\x1b[201~', '\x1b[13;1u']); expect(f.queue.size()).toBe(1);
+        finish({ exitCode: 0 }); await expect(running).resolves.toBe('restart');
     });
 });

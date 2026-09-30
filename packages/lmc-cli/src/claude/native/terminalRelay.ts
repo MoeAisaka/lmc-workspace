@@ -17,7 +17,7 @@ export function encodeNativeInput(input: NativeInput): string {
     }
     if (input?.type === 'choice' && Number.isInteger(input.choice) && input.choice >= 1 && input.choice <= 9) return `${input.choice}\r`;
     if (input?.type === 'key') {
-        const keys: Record<string, string> = { enter: '\x1b[13;1u', escape: '\x1b', up: '\x1b[A', down: '\x1b[B', tab: '\t' };
+        const keys: Record<string, string> = { y: 'y', n: 'n', enter: '\x1b[13;1u', escape: '\x1b', up: '\x1b[A', down: '\x1b[B', tab: '\t' };
         if (Object.hasOwn(keys, input.key)) return keys[input.key];
     }
     throw new Error('Unsupported terminal input');

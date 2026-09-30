@@ -36,6 +36,7 @@ import { saveAttachmentsToInbox, formatInboxNote } from '@/modules/common/attach
 import { watchSessionConfiguration } from '@/modules/orchestration/workerConfig';
 import { normalizeRemotePermissionMode } from './utils/permissionMode';
 import { nativeTransportAvailable } from './native/interactiveProcess';
+import { nativeResumeIdentity } from './native/policy';
 
 interface PermissionsField {
     date: number;
@@ -256,8 +257,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
     session.client.rpcHandlerManager.registerHandler('native-computer', async (request: any) => {
         if (request?.action !== 'start') return { active: false };
         if (!nativeTransportAvailable() || session.sandboxConfig?.enabled) throw new Error('当前设备或沙盒不支持原生电脑模式');
-        if (session.client.getMetadata()?.orchestration?.role === 'worker') throw new Error('执行单元尚不支持原生模式的主控审批转发');
-        if (session.claudeArgs?.some(arg => arg !== '--chrome' && arg !== '--no-chrome')) throw new Error('当前会话含自定义 CLI 参数，暂不支持安全转入原生模式');
+        session.sessionId = nativeResumeIdentity(session.claudeArgs, session.sessionId);
         if (!safeIdle || pending || exitReason || session.queue.size() || permissionHandler.hasPendingRequests() || backgroundTasks.size || refresh.pending) {
             throw new Error('请等待回合、排队消息、授权和后台任务结束后开启原生模式');
         }
@@ -456,6 +456,20 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
     }
 
     try {
+        // A restored runner has no active query. Its previous process already
+        // crossed the safe refresh boundary; queued input remains untouched.
+        if (!session.nativeFallback && nativeTransportAvailable() && !session.sandboxConfig?.enabled
+            && session.client.getMetadata()?.sessionConfigState !== 'error') {
+            try {
+                session.sessionId = nativeResumeIdentity(session.claudeArgs, session.sessionId);
+                if (session.sessionId && !claudeCheckSession(session.sessionId, session.path)) throw new Error('原会话恢复记录不可用');
+                session.nativeComputer = true;
+                exitReason = 'switch';
+            } catch (error) {
+                session.nativeFallback = true;
+                session.client.sendSessionEvent({ type: 'message', message: String(error) });
+            }
+        }
 
         // Track session ID to detect when it actually changes
         // This prevents context loss when mode changes (permission mode, model, etc.)

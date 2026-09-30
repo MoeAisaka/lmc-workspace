@@ -84,6 +84,9 @@ export async function loop(opts: LoopOptions): Promise<number> {
                 if (session.nativeComputer) {
                     const result = await claudeNativeLauncher(session);
                     if (result === 'exit') return 1;
+                    if (result === 'refresh') return 0;
+                    if (result === 'restart') { session.nativeComputer = true; break; }
+                    session.nativeFallback = true;
                     mode = 'remote';
                     opts.onModeChange(mode);
                     break;

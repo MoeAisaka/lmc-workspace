@@ -687,7 +687,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         if (command.type === 'set' && !capabilities.edit) {
             throw new Error('Claude edit goal action is not supported');
         }
-        if (currentRunMode !== 'remote') {
+        if (currentRunMode !== 'remote' && !currentSession?.nativeComputer) {
             throw new Error('Claude goal action is not ready: remote mode is not active');
         }
         if (!currentSession || currentSession.thinking) {
@@ -750,7 +750,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     });
 
     session.onUserMessage(async (message) => {
-        if (currentSession?.nativeComputer && /^\s*\//.test(message.content.text)) {
+        if (currentSession?.nativeComputer && /^\s*\//.test(message.content.text) && !/^\s*\/goal(?:\s|$)/.test(message.content.text)) {
             session.sendSessionEvent({ type: 'message', message: '原生模式下请在原生控制窗口输入斜杠命令；聊天框仅接收普通消息。' });
             return;
         }
@@ -1093,10 +1093,11 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
             sessionInstance.prepareGoalMessage = (input, commands) => prepareClaudeAutomaticGoal(input, {
                 commands,
                 policy: automaticGoals,
-                available: async () => !pendingClaudeGoalAction && await claudeGoalAvailable(getProjectPath(workingDirectory), sessionInstance.sessionId),
+                available: async () => !pendingClaudeGoalAction && await claudeGoalAvailable(getProjectPath(workingDirectory), sessionInstance.nativeUnwritten ? null : sessionInstance.sessionId),
                 onCommand: recordAppPrompt,
             });
             sessionInstance.getNativeMode = currentEnhancedMode;
+            sessionInstance.onNativeTranscriptEvent = updateClaudeGoalState;
             sessionInstance.getRefreshSettings = () => ({ model: currentModel, effort: currentEffort, permissionMode: currentPermissionMode });
             sessionInstance.handoff = handoffPort;
             sessionInstance.onTurnFailure = (detail) => { void quota.onFailure(detail); };

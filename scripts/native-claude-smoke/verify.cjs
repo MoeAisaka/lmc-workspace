@@ -73,12 +73,12 @@ const server=http.createServer((req,res)=>{
   const button=name=>page.getByRole('button',{name,exact:true});
   for(const theme of ['light','dark'])for(const size of [{width:320,height:568},{width:667,height:390},{width:1280,height:900}]) {
    await page.setViewportSize(size);await page.goto(origin+'/?theme='+theme);
-   await button('Open native').click();await button('空闲时开启原生模式').click();
+   await button('Open native').click();await button('空闲时重试原生模式').click();
    await page.getByTestId('native-screen').getByText('Native authorization',{exact:false}).waitFor();
    assert.equal(await page.evaluate(()=>calls.filter(c=>c.params.action==='input').length),0,'Reading a prompt must not confirm it');
    const bounds=await page.getByTestId('claude-native-dialog').boundingBox();
    assert.ok(bounds.x>=0&&bounds.y>=0&&bounds.x+bounds.width<=size.width+1&&bounds.y+bounds.height<=size.height+1,'Dialog fits viewport');
-   for(const name of ['关闭','回车','确认编号','仅粘贴','空闲时退出原生模式']){const b=await button(name).boundingBox();assert.ok(b.x>=0&&b.x+b.width<=size.width+1&&b.y+b.height<=size.height+1,name+' fits viewport');}
+   for(const name of ['关闭','回车','确认编号','仅粘贴','空闲时切回兼容模式']){const b=await button(name).boundingBox();assert.ok(b.x>=0&&b.x+b.width<=size.width+1&&b.y+b.height<=size.height+1,name+' fits viewport');}
    await page.screenshot({path:path.join(out,theme+'-'+size.width+'.png')});
    await page.getByRole('textbox',{name:'原生菜单编号'}).fill('1');
    await button('确认编号').dblclick();await page.getByTestId('native-screen').getByText('Authorization explicitly confirmed').waitFor();

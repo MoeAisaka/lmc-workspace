@@ -42,8 +42,11 @@ export class Session {
     interruptTurn: (() => Promise<void>) | null = null;
     sessionId: string | null;
     mode: 'local' | 'remote' = 'local';
-    /** Explicit opt-in at an idle SDK boundary; never inferred from a prompt. */
+    /** Native interactive transport is the macOS default at a safe boundary. */
     nativeComputer = false;
+    nativeFallback = false;
+    nativeUnwritten = false;
+    onNativeTranscriptEvent?: (event: any) => void;
     thinking: boolean = false;
     
     /** Callbacks to be notified when session ID is found/changed */

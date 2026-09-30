@@ -1,5 +1,7 @@
 # Claude native interactive mode · 2026-09-30
 
+Later delivery: [native default and session migration](claude-native-default-20260930.md) supersedes the optional-mode and worker/configuration limitations below.
+
 ## Delivery
 
 Optional macOS Claude mode, entered from the session menu **Claude 原生电脑**.

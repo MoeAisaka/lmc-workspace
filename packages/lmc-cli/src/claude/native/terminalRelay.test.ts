@@ -43,5 +43,7 @@ describe('native terminal ownership and input', () => {
         expect(encodeNativeInput({ type: 'text', text: 'a\nb' })).toBe('\x1b[200~a\nb\x1b[201~');
         for (const text of ['x\x1b[201~', '\r', '\x03', 'x'.repeat(16385)]) expect(() => encodeNativeInput({ type: 'text', text })).toThrow();
         expect(() => encodeNativeInput({ type: 'key', key: 'kill' })).toThrow();
+        expect(encodeNativeInput({ type: 'key', key: 'y' })).toBe('y');
+        expect(encodeNativeInput({ type: 'key', key: 'n' })).toBe('n');
     });
 });

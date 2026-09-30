@@ -1,3 +1,11 @@
+import { nativeRefresh } from './refresh';
+import { nativePermissionHook } from './permissions';
+import { PermissionHandler } from '../utils/permissionHandler';
+import { watchSessionConfiguration } from '@/modules/orchestration/workerConfig';
+import { normalizeRemotePermissionMode } from '../utils/permissionMode';
+import { claudeTurnFailure } from '@/modules/orchestration/quota';
+import { normalizeClaudeGoalEcho } from '../claudeAutomaticGoal';
+import { runtimeVersion } from '@/runtime/managedRuntime';
 import { randomUUID } from 'node:crypto';
 import type { Session } from '../session';
 import type { EnhancedMode } from '../loop';
@@ -7,19 +15,26 @@ import { createSessionScanner } from '../utils/sessionScanner';
 import { mapToClaudeMode } from '../utils/permissionMode';
 import { claudeChromeChoice } from '@/runtime/computerUse';
 import { systemPrompt } from '../utils/systemPrompt';
-import { registerQueueControlHandlers, applyQueueModeRequest } from '@/utils/sessionQueueControl';
+import { registerQueueControlHandlers } from '@/utils/sessionQueueControl';
 import { saveAttachmentsToInbox, formatInboxNote } from '@/modules/common/attachmentInbox';
 import { trackBackgroundTask, releaseForegroundTasks, type BackgroundTasks } from '../utils/backgroundTasks';
 import { startNativeInteractiveProcess } from './interactiveProcess';
 import { encodeNativeInput, type NativeInputRequest } from './terminalRelay';
 
-export async function claudeNativeLauncher(session: Session): Promise<'switch' | 'exit'> {
-    const resume = !!session.sessionId;
+export async function claudeNativeLauncher(session: Session): Promise<'switch' | 'exit' | 'restart' | 'refresh'> {
+    const resume = !!session.sessionId && !session.nativeUnwritten;
+    session.nativeUnwritten = !resume;
     const id = session.sessionId ?? randomUUID();
-    const settings = { ...session.getNativeMode() };
+    const settings = { ...(session.queue.queue[0]?.mode ?? session.getNativeMode()) };
     let phase: 'starting' | 'idle' | 'busy' | 'stopping' | 'sending' | 'unconfirmed' | 'exited' = 'starting';
     let turnStatus: 'completed' | 'failed' = 'completed';
     let leaving = false;
+    let exitPurpose: 'switch' | 'restart' | 'refresh' = 'switch';
+    const permissions = new PermissionHandler(session);
+    permissions.reset('Previous Claude transport exited');
+    await permissions.handleModeChange(normalizeRemotePermissionMode(settings.permissionMode));
+    let stopWatchingConfiguration = () => {};
+    let refresh: ReturnType<typeof nativeRefresh> | undefined;
     let stopped = false;
     let pending: TakenItem<EnhancedMode>[] = [];
     let pendingText = '';
@@ -27,13 +42,31 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
     let deliveryBlocked = false;
     let possibleBackgroundWork = false;
     const echoes: string[] = [];
+    const usageByMessage = new Map<string, { inputTokens: number; outputTokens: number }>();
+    let commands = session.client.getMetadata()?.slashCommands ?? [];
+    // This release's real interactive /goal path is covered by the lab. Unknown
+    // engine versions keep their discovered capabilities, rather than guessing.
+    if (!(commands.includes('goal') || commands.includes('/goal'))) {
+        try { if ((await runtimeVersion('claude')).version === '2.1.285') commands = [...commands, 'goal']; } catch {}
+    }
     const tasks: BackgroundTasks = new Map();
     let chain = Promise.resolve();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let process: Awaited<ReturnType<typeof startNativeInteractiveProcess>> | undefined;
     let lastWarning = '';
     const warn = (message: string) => { if (lastWarning !== message) { lastWarning = message; session.client.sendSessionEvent({ type: 'message', message }); } };
-    const scanner = await createSessionScanner({ sessionId: resume ? id : null, workingDirectory: session.path, onMessage: raw => {
+    const scanner = await createSessionScanner({ sessionId: resume ? id : null, workingDirectory: session.path, onTranscriptEvent: session.onNativeTranscriptEvent, hydrateGoalStatus: true, onMessage: raw => {
+        const failure = claudeTurnFailure(raw as any); if (failure) session.onTurnFailure?.(failure);
+        const m = (raw as any).message;
+        if (raw.type === 'assistant' && m?.id && m.usage) {
+            const count = (key: string) => typeof m.usage[key] === 'number' ? m.usage[key] : 0;
+            const usage = { inputTokens: count('input_tokens') + count('cache_creation_input_tokens') + count('cache_read_input_tokens'), outputTokens: count('output_tokens') };
+            const previous = usageByMessage.get(m.id) ?? { inputTokens: 0, outputTokens: 0 };
+            const delta = { inputTokens: Math.max(0, usage.inputTokens - previous.inputTokens), outputTokens: Math.max(0, usage.outputTokens - previous.outputTokens) };
+            if (delta.inputTokens || delta.outputTokens) session.onTurnUsage?.(delta);
+            usageByMessage.set(m.id, usage);
+            if (usageByMessage.size > 256) usageByMessage.delete(usageByMessage.keys().next().value!);
+        }
         trackBackgroundTask(tasks, raw);
         // Transcript task lifecycle events differ from SDK events. A request to
         // background work conservatively disables automatic /exit for this run.
@@ -42,11 +75,40 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
         const blocks = (raw as any).message?.content;
         if (Array.isArray(blocks) && blocks.some((b: any) => b.type === 'tool_use' && b.input?.run_in_background === true)) possibleBackgroundWork = true;
         const content = (raw as any).message?.content;
-        if (raw.type === 'user' && typeof content === 'string' && /^<(?:local-command|command-name)/.test(content.trim())) return;
+        if (raw.type === 'user' && typeof content === 'string' && /^<(?:local-command|command-name)/.test(content.trim())) {
+            if (pending.length && normalizeClaudeGoalEcho(content).trim() === pendingText.trim()) {
+                acknowledge();
+                phase = 'stopping'; schedule();
+            }
+            return;
+        }
         const echo = raw.type === 'user' && typeof content === 'string' ? echoes.indexOf(content.trim()) : -1;
         if (echo >= 0) { echoes.splice(echo, 1); return; }
         if (raw.type !== 'summary') chain = chain.then(() => session.client.sendClaudeSessionMessageFromLocalTranscript(raw)).catch(() => warn('原生会话记录同步暂时失败，请保留当前会话。'));
     } });
+    const acknowledge = () => {
+        session.nativeUnwritten = false;
+        if (deliveryTimer) clearTimeout(deliveryTimer);
+        if (pending.length) {
+            echoes.push(pendingText.trim()); if (echoes.length > 32) echoes.shift();
+            session.client.sendSessionEvent({ type: 'queue-released', keys: pending.map(item => item.key) });
+            pending = []; pendingText = '';
+        }
+    };
+    const boundaryBlocker = () => {
+        if (permissions.hasPendingRequests()) return '等权限请求处理完成';
+        if (possibleBackgroundWork || tasks.size) return '等原生后台任务确认结束（可在原生窗口查看 /tasks）';
+        if (pending.length || phase !== 'idle' || !process?.relay.snapshot().composer) return '等原生回合或提示处理完成';
+        if (leaving) return '会话正在退出';
+        return null;
+    };
+    const leave = async (purpose: typeof exitPurpose) => {
+        if (!process || leaving) return;
+        exitPurpose = purpose; leaving = true;
+        process.write(encodeNativeInput({ type: 'text', text: '/exit' }));
+        await new Promise(resolve => setTimeout(resolve, 120));
+        process.write(encodeNativeInput({ type: 'key', key: 'enter' }));
+    };
     const schedule = () => {
         if (timer) clearTimeout(timer);
         if (!stopped) timer = setTimeout(() => { void pump().catch(error => warn(String(error))); }, 180);
@@ -63,16 +125,18 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
                 phase = 'idle'; session.onThinkingChange(false); releaseForegroundTasks(tasks);
             } finally { finishingTurn = false; }
         }
-        if (!process || stopped || leaving || phase !== 'idle' || deliveryBlocked || pending.length || !session.queue.size()) return;
+        if (refresh?.pending) await refresh.drain();
+        if (!process || stopped || leaving || phase !== 'idle' || deliveryBlocked || pending.length) return;
         await process.settled();
         if (phase !== 'idle' || !process.relay.snapshot().composer) return;
         const head = session.queue.queue[0];
-        if (!head) return;
-        const mode = head.mode;
+        const mode = head?.mode ?? session.getNativeMode();
         if (session.queue.modeHasher(mode) !== session.queue.modeHasher(settings)) {
-            warn('原生模式尚不能应用这条消息的新运行设置。请撤回排队消息，退出原生模式后调整设置再发送。');
+            if (!boundaryBlocker()) await leave('restart');
+            else warn('运行设置已保存，等待当前回合和原生后台任务结束后应用。');
             return;
         }
+        if (!head) return;
         phase = 'sending';
         const batch = [head];
         if (session.queue.getQueueMode() === 'batch' && !head.isolate) {
@@ -86,7 +150,12 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
         try {
             const attachments = pending.flatMap(item => item.attachments ?? []);
             const note = attachments.length ? formatInboxNote(await saveAttachmentsToInbox(attachments, { projectPath: session.path, sessionId: session.client.sessionId })) : '';
-            pendingText = pending.map(item => item.message).join('\n\n') + note;
+            const text = pending.map(item => item.message).join('\n\n');
+            const prepared = await session.prepareGoalMessage?.({ message: text + note, mode, goalText: text }, commands);
+            pendingText = typeof prepared?.message === 'string' ? prepared.message : text + note;
+            // Slash commands may acknowledge through their transcript rather
+            // than UserPromptSubmit. Watch before writing; never resend a timeout.
+            if (pendingText.startsWith('/goal ')) void scanner.onNewSession(id);
             const bytes = encodeNativeInput({ type: 'text', text: pendingText });
             process.write(bytes);
             pasted = true;
@@ -100,7 +169,7 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
                     warn('消息交付尚未确认，请在原生窗口检查并手动提交；不会重复发送。');
                 }
             }, 5000);
-            // Only UserPromptSubmit acknowledges consumption. A timeout cannot
+            // Only native submit/command transcript acknowledges consumption. A timeout cannot
             // establish non-delivery, so it must never trigger an automatic retry.
         } catch {
             if (!pasted) {
@@ -131,7 +200,11 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
         if (allowedTools.length) args.push('--allowedTools', allowedTools.join(','));
         process = await startNativeInteractiveProcess({ executable: claudeExecutable(), cwd: session.path, sessionId: id, resume, args, env: session.claudeEnvVars,
             onScreen: schedule,
-            onHook: hook => {
+            onHook: async (hook, signal) => {
+                if (hook.event === 'PreToolUse') {
+                    if (mapToClaudeMode(session.getNativeMode().permissionMode) !== permission) return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'Permission settings changed. End this turn so LMC can apply the current settings safely.' } };
+                }
+                if (hook.event === 'PreToolUse' || hook.event === 'PermissionRequest') return nativePermissionHook(session, permissions, hook, signal);
                 if (hook.event === 'SessionStart') { session.onSessionFound(id); phase = 'idle'; }
                 if (hook.event === 'UserPromptSubmit') {
                     turnStatus = 'completed';
@@ -139,12 +212,7 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
                     // hours before a transcript exists. Start watching on the
                     // first real submission, not SessionStart's 60s timeout.
                     void scanner.onNewSession(id);
-                    if (deliveryTimer) clearTimeout(deliveryTimer);
-                    if (pending.length) {
-                        echoes.push(pendingText.trim()); if (echoes.length > 32) echoes.shift();
-                        session.client.sendSessionEvent({ type: 'queue-released', keys: pending.map(item => item.key) });
-                        pending = []; pendingText = '';
-                    }
+                    acknowledge();
                     phase = 'busy'; session.onThinkingChange(true);
                 }
                 if (hook.event === 'Stop' || hook.event === 'StopFailure') {
@@ -152,11 +220,12 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
                     phase = 'stopping';
                 }
                 schedule();
+                return undefined;
             } });
         session.mode = 'remote';
         session.client.updateAgentState(state => ({ ...state, controlledByUser: false }));
-        await session.client.updateMetadata(metadata => ({ ...metadata, claudeNativeActive: true,
-            sessionCapabilities: { ...engineCapabilities('claude'), nativeComputer: true, refresh: false, runtimeConfiguration: false, model: false, effort: false, automaticGoals: false } }));
+        await session.client.updateMetadata(metadata => ({ ...metadata, claudeNativeActive: true, slashCommands: commands,
+            sessionCapabilities: { ...engineCapabilities('claude'), nativeComputer: true, refresh: true, runtimeConfiguration: false, automaticGoals: commands.some(command => command.replace(/^\//, '') === 'goal') } }));
         const rpc = session.client.rpcHandlerManager;
         rpc.registerHandler('native-computer', async (request: any) => {
             await process!.settled();
@@ -174,10 +243,7 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
                     if (leaving) return { ok: true };
                     if (possibleBackgroundWork) throw new Error('本次原生会话启动过后台任务，请在原生窗口检查 /tasks，并由你输入 /exit 退出');
                     if (phase !== 'idle' || pending.length || session.queue.size() || tasks.size || !process!.relay.snapshot().composer) throw new Error('请等待回合、排队消息和后台任务结束后退出原生模式');
-                    leaving = true;
-                    process!.write(encodeNativeInput({ type: 'text', text: '/exit' }));
-                    await new Promise(resolve => setTimeout(resolve, 120));
-                    process!.write(encodeNativeInput({ type: 'key', key: 'enter' }));
+                    await leave('switch');
                     return { ok: true };
                 }
                 default: throw new Error('Unsupported native action');
@@ -189,22 +255,32 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
         };
         rpc.registerHandler('abort', interrupt);
         rpc.registerHandler('switch', async () => { throw new Error('请从原生控制窗口退出原生模式'); });
-        rpc.registerHandler('configure-session', async (request: unknown) => { if (applyQueueModeRequest(request, session.queue, session.client)) return { status: 'applied' }; throw new Error('请先退出原生模式再调整运行设置'); });
+        refresh = nativeRefresh(session, {
+            blocker: () => boundaryBlocker() ?? (session.queue.size() ? '等排队消息处理完成' : null),
+            flush: async () => { await scanner.flush(); await chain; },
+            exit: () => leave('refresh'),
+        });
+        stopWatchingConfiguration = watchSessionConfiguration(session.client, 'claude', async metadata => {
+            if (metadata.permissionMode !== undefined) await permissions.handleModeChange(normalizeRemotePermissionMode(metadata.permissionMode ?? undefined));
+            schedule();
+        });
         session.interruptTurn = interrupt;
         registerQueueControlHandlers(session.client, session.queue, { isBusy: () => phase !== 'idle', interrupt });
         session.queue.setOnMessage(schedule);
         schedule();
         const result = await process.exit;
         if (result.exitCode !== 0) warn(`原生 Claude 已退出（${result.exitCode}），未自动重发未确认消息。`);
-        return result.exitCode === 0 && !pending.length ? 'switch' : 'exit';
+        return result.exitCode === 0 && !pending.length ? exitPurpose : 'exit';
     } catch (error) {
         if (process) throw error;
         warn('原生进程未能启动，已返回普通模式：' + String(error));
         return 'switch';
     } finally {
-        stopped = true; phase = 'exited'; if (timer) clearTimeout(timer); if (deliveryTimer) clearTimeout(deliveryTimer);
+        stopped = true; stopWatchingConfiguration(); permissions.reset();
+        if (refresh?.pending) await refresh.cancel();
+        phase = 'exited'; if (timer) clearTimeout(timer); if (deliveryTimer) clearTimeout(deliveryTimer);
         session.queue.setOnMessage(null); session.interruptTurn = null;
-        for (const name of ['native-computer', 'configure-session']) session.client.rpcHandlerManager.unregisterHandler(name);
+        for (const name of ['native-computer', 'configure-session', 'cancel-session-refresh']) session.client.rpcHandlerManager.unregisterHandler(name);
         await scanner.cleanup(); await chain;
         session.nativeComputer = false;
         session.onThinkingChange(false);
