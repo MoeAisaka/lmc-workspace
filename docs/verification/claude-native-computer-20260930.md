@@ -31,6 +31,7 @@ This is a lab entry point, not a production transport or a shipped UI.
 | Mouse click with only fixture allowed, original display settings | Blocked: native tool says click would land on BetterDisplay |
 | Disable BetterDisplay software video adjustments | Overlay removed; virtual display stays connected; clicks now rejected as landing on Notification Center |
 | Hide desktop widgets and explicitly open the fixture | Same Notification Center rejection; widget setting restored |
+| User-approved, session-only Finder grant | Grant succeeded; fixture click still rejected as landing on Notification Center |
 | Temporarily exit BetterDisplay, with user approval | Native screenshot returned `CU display unavailable`; BetterDisplay immediately reopened |
 | Include BetterDisplay in native consent, separately approved by user | Blocked before consent: both exact bundle ID and display name returned `notInstalled` |
 | Fresh fixture PASS | **Not achieved**; old `result.json` was explicitly rejected as evidence |
@@ -107,6 +108,33 @@ The official npm registry still reported Claude Code **2.1.285** and Agent SDK
 remove these independent system-owned windows, so no replacement was installed.
 Production stays on the existing Peekaboo adapter; native transport integration
 remains blocked on a supported click path.
+
+## Session-only Finder authorization probe (17:26 CST follow-up)
+
+The user accepted the Notification Center misattribution and separately
+approved **one isolated test** of the broader Finder permission after the
+native prompt showed its read/write-any-file warning. Provider session
+`13fc49e4-3caf-4695-b621-d1ff349e5403` first tried Notification Center's exact
+bundle ID `com.apple.notificationcenterui`, executable name
+`NotificationCenter`, and localized name `通知中心`. All three returned
+`notInstalled`; none displayed a consent prompt. The suggested
+`UserNotificationCenter` and Print Center are different apps and were not used.
+
+The documented Finder route did produce a native consent prompt. After the
+user's explicit approval, the bridge delivered its numeric choice and the
+actual tool result confirmed `com.apple.finder` granted. A separate grant for
+`cn.moeaisaka.lmc.computer-lab` succeeded. The native tool opened only the
+fixture, returned one real screenshot image block, then rejected a click on
+its input at screenshot coordinate `(715,265)` with the same Notification
+Center error. No typing or Verify click followed; the result-file mtime
+remained identical to the baseline above. Finder files and notification
+contents were not opened or interacted with.
+
+This rules out **Finder approval alone** as a working workaround on this
+environment. It does not establish that Notification Center was granted.
+The native session exited via `/exit` with code 0, ending its session-only
+permissions, and the owned idle fixture process was stopped. No production
+configuration was changed and the one-time permission is not a standing grant.
 
 ## Why SDK hooks alone do not solve the relay
 
