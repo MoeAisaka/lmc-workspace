@@ -2,8 +2,9 @@ import { registerEngineLogin } from './registerEngineLogin';
 import { startModelDiscovery } from '@/runtime/modelDiscovery';
 import { UpgradeManager } from '@/runtime/upgradeManager';
 import { stageRelease, activateRelease, latestVersion, rollbackRelease } from '@/runtime/releaseInstaller';
+import { AUTO_UPGRADE, checkEngineUpgrades } from '@/runtime/autoUpgrade';
 import { decideRefresh } from '@/runtime/refreshDecision';
-import { runtimeVersion, agentRoot, readRuntimeSelection, refreshSupported } from '@/runtime/managedRuntime';
+import { runtimeVersion, runsSelectedAgent, readRuntimeSelection, refreshSupported } from '@/runtime/managedRuntime';
 import { RefreshJournal, type RefreshJob } from './refreshJournal';
 import { canRefreshSession, resumeAfterExit, type SessionRefreshOptions } from './sessionRefresh';
 import { findProviderSessionPid } from './sessionSpawnGuard';
@@ -1145,7 +1146,7 @@ export async function startDaemon(): Promise<void> {
     });
 
     const upgradeManager = new UpgradeManager(configuration.lmcHomeDir, {
-      ready: () => agentRoot() === projectPath(),
+      ready: () => runsSelectedAgent(),
       stage: stageRelease,
       activate: activateRelease,
       inspect: async () => ({}),
@@ -1193,7 +1194,7 @@ export async function startDaemon(): Promise<void> {
       },
     });
     apiMachine.registerDeviceHandler('runtime-status', async () => ({
-      ...await upgradeManager.status(), selection:readRuntimeSelection(), agentVersion:packageJson.version, agentSwitching:agentRoot() !== projectPath(),
+      ...await upgradeManager.status(), selection:readRuntimeSelection(), agentVersion:packageJson.version, agentSwitching:!runsSelectedAgent(),
       engines:await Promise.all(['codex','claude'].map(async engine=>{
         try{return await runtimeVersion(engine as 'codex'|'claude',true);}catch{return {engine,error:'无法读取实际引擎版本'};}
       })),
@@ -1210,6 +1211,22 @@ export async function startDaemon(): Promise<void> {
     });
     const upgradeTimer=setInterval(()=>{void upgradeManager.tick().catch(error=>logger.warn('[UPGRADE] 状态协调失败',error));},5000);
     upgradeTimer.unref();
+    // Follow engine releases without waiting for someone to press upgrade:
+    // a new model is listed only once the engine serving it is installed.
+    const autoUpgrade=()=>{void checkEngineUpgrades({
+      selection:readRuntimeSelection,
+      latest:engine=>latestVersion(engine),
+      job:async()=>(await upgradeManager.status()).job,
+      start:engine=>upgradeManager.start(engine),
+      stateFile:join(configuration.lmcHomeDir,'auto-upgrade.json'),
+    }).then(result=>{
+      // Another upgrade is still handing sessions over: ask again shortly
+      // instead of waiting out the long interval.
+      if(result==='busy'){const retry=setTimeout(autoUpgrade,AUTO_UPGRADE.busyRetryMs);retry.unref();}
+      else if(result)logger.debug(`[UPGRADE] 自动升级 ${result}`);
+    }).catch(error=>logger.warn('[UPGRADE] 自动升级检查失败',error));};
+    const autoUpgradeFirst=setTimeout(autoUpgrade,AUTO_UPGRADE.firstCheckMs);autoUpgradeFirst.unref();
+    const autoUpgradeTimer=setInterval(autoUpgrade,AUTO_UPGRADE.intervalMs);autoUpgradeTimer.unref();
 
 
     // Every 60 seconds:
@@ -1253,7 +1270,7 @@ export async function startDaemon(): Promise<void> {
           // File temporarily missing (e.g. mid-install) — retry on next heartbeat.
         }
       }
-      if (bundleReplaced || agentRoot() !== projectPath()) {
+      if (bundleReplaced || !runsSelectedAgent()) {
         // TODO: We probably do not want to keep this in-process self-restart logic long-term.
         // A native service manager would make startup and upgrades much simpler: the CLI would
         // ask the OS to start the latest daemon instead of hand-rolling respawn/kill behavior here.

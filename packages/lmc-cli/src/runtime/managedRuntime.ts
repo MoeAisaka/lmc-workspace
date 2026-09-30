@@ -37,6 +37,17 @@ export function codexExecutable(release:Release|null=runtimeRelease('codex')??nu
     return release ? join(release.directory,'node_modules','.bin','codex') : 'codex';
 }
 export function agentRoot() {return runtimeRelease('agent',true)?.directory ?? projectPath();}
+/**
+ * Whether this process runs the Agent release that is selected. Compared as
+ * resolved paths: on a Mac whose release directory is a symlink to another
+ * volume the two spellings never matched, so the daemon took itself for a
+ * stale build and handed off to a new one every heartbeat, and refused every
+ * engine upgrade as "Agent 正在交接".
+ */
+export function runsSelectedAgent(root:string=agentRoot(), running:string=projectPath()):boolean {
+    const resolve=(path:string)=>{try{return realpathSync(path);}catch{return path;}};
+    return root===running || resolve(root)===resolve(running);
+}
 export function engineCapabilities(engine:Engine) {
     return {automaticGoals:true,modelDiscovery:true,refresh:true,cancelRefresh:true,turnQueue:true,turnQueueLifecycle:true,authentication:true,authenticationRecovery:true,resume:true,resourceFiles:true,resourceSearch:true,fileInbox:true,model:true,effort:true,context:engine==='codex',serviceTier:engine==='codex',runtimeConfiguration:engine==='codex'};
 }
