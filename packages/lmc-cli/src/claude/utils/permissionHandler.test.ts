@@ -60,7 +60,7 @@ describe('PermissionHandler', () => {
             .mockResolvedValue(undefined);
         handler.setPermissionModeUpdater(setter);
         await handler.handleModeChange('bypassPermissions');
-        const pending = handler.handleToolCall('ExitPlanMode', {}, mode, { signal: new AbortController().signal, toolUseID: 'old-plan', requestId: 'request-old-plan' });
+        const pending = handler.handleToolCall('ExitPlanMode', {}, mode, { signal: new AbortController().signal, toolUseID: 'old-plan' });
         const tighten = handler.handleModeChange('default');
         finish();
         await tighten;
@@ -69,7 +69,7 @@ describe('PermissionHandler', () => {
     it('releases a pre-existing worker question to the hub on a policy update, not as an invented answer', async () => {
         const { session, getState } = createSessionMock();
         const handler = new PermissionHandler(session as any);
-        const pending = handler.handleToolCall('AskUserQuestion', { questions: [{ question: 'Which test?' }] }, mode, { signal: new AbortController().signal, toolUseID: 'old-q', requestId: 'request-old-q' });
+        const pending = handler.handleToolCall('AskUserQuestion', { questions: [{ question: 'Which test?' }] }, mode, { signal: new AbortController().signal, toolUseID: 'old-q' });
         expect(getState().requests['old-q']).toBeDefined();
         session.client.getMetadata.mockReturnValue({ orchestration: { role: 'worker', hub: { sessionId: 'H', autonomy: true } } });
         Object.assign(session.client, { requestHubDecision: vi.fn(async () => true) });
@@ -85,7 +85,7 @@ describe('PermissionHandler', () => {
         Object.assign(session.client, { requestHubDecision });
         const handler = new PermissionHandler(session as any);
         const controller = new AbortController();
-        const pending = handler.handleToolCall('AskUserQuestion', { questions: [{ question: 'Which fixture?' }] }, mode, { signal: controller.signal, toolUseID: 'ask', requestId: 'request-ask' });
+        const pending = handler.handleToolCall('AskUserQuestion', { questions: [{ question: 'Which fixture?' }] }, mode, { signal: controller.signal, toolUseID: 'ask' });
         void pending.catch(() => undefined);
         await Promise.resolve();
         try { expect(requestHubDecision).toHaveBeenCalledTimes(1); } finally { if (!requestHubDecision.mock.calls.length) controller.abort(); }
@@ -104,7 +104,7 @@ describe('PermissionHandler', () => {
         await handler.handleModeChange('bypassPermissions');
         const controller = new AbortController();
         let settled = false;
-        const pending = handler.handleToolCall('ExitPlanMode', { plan: 'run the assigned tests' }, mode, { signal: controller.signal, toolUseID: 'plan', requestId: 'request-plan' }).then(result => { settled = true; return result; });
+        const pending = handler.handleToolCall('ExitPlanMode', { plan: 'run the assigned tests' }, mode, { signal: controller.signal, toolUseID: 'plan' }).then(result => { settled = true; return result; });
         void pending.catch(() => undefined);
         for (let i = 0; i < 10; i++) await Promise.resolve();
         try { expect(settled).toBe(true); } finally { if (!settled) controller.abort(); }
@@ -116,7 +116,7 @@ describe('PermissionHandler', () => {
     it('does not let a late old-query response complete a reused request after reset', async () => {
         const { session, handlers, getState } = createSessionMock();
         const handler = new PermissionHandler(session as any);
-        const old = handler.handleToolCall('Bash', {}, mode, { signal: new AbortController().signal, toolUseID: 'same', requestId: 'request-same' });
+        const old = handler.handleToolCall('Bash', {}, mode, { signal: new AbortController().signal, toolUseID: 'same' });
         const oldRejected = expect(old).rejects.toThrow('Session reset');
         let finish!: () => void;
         handler.setPermissionModeUpdater(() => new Promise<void>(r => { finish = r; }));
@@ -124,7 +124,7 @@ describe('PermissionHandler', () => {
         const answer = respond({ id: 'same', approved: true, mode: 'bypassPermissions' });
         handler.reset();
         await oldRejected;
-        const newer = handler.handleToolCall('Bash', { command: 'new' }, mode, { signal: new AbortController().signal, toolUseID: 'same', requestId: 'request-same' });
+        const newer = handler.handleToolCall('Bash', { command: 'new' }, mode, { signal: new AbortController().signal, toolUseID: 'same' });
         finish(); await answer;
         expect(getState().requests.same.arguments).toEqual({ command: 'new' });
         expect(getState().completedRequests.same).toBeUndefined();
@@ -135,8 +135,8 @@ describe('PermissionHandler', () => {
     it('keeps AskUserQuestion and ExitPlanMode pending when ordinary permissions become full', async () => {
         const { session, handlers, getState } = createSessionMock();
         const handler = new PermissionHandler(session as any);
-        const question = handler.handleToolCall('AskUserQuestion', { questions: [] }, mode, { signal: new AbortController().signal, toolUseID: 'ask', requestId: 'request-ask' });
-        const plan = handler.handleToolCall('ExitPlanMode', { plan: 'plan' }, mode, { signal: new AbortController().signal, toolUseID: 'plan', requestId: 'request-plan' });
+        const question = handler.handleToolCall('AskUserQuestion', { questions: [] }, mode, { signal: new AbortController().signal, toolUseID: 'ask' });
+        const plan = handler.handleToolCall('ExitPlanMode', { plan: 'plan' }, mode, { signal: new AbortController().signal, toolUseID: 'plan' });
         await handler.handleModeChange('bypassPermissions');
         expect(Object.keys(getState().requests).sort()).toEqual(['ask', 'plan']);
         const respond = getPermissionResponseHandler(handlers);
@@ -144,19 +144,19 @@ describe('PermissionHandler', () => {
         await respond({ id: 'plan', approved: true });
         await expect(question).resolves.toMatchObject({ updatedInput: { answers: { choice: 'A' } } });
         await expect(plan).resolves.toMatchObject({ behavior: 'allow' });
-        const next = await handler.handleToolCall('Bash', {}, mode, { signal: new AbortController().signal, toolUseID: 'next', requestId: 'request-next' });
+        const next = await handler.handleToolCall('Bash', {}, mode, { signal: new AbortController().signal, toolUseID: 'next' });
         expect(next.behavior).toBe('allow');
     });
 
     it('does not widen runner policy before the active SDK setter accepts, then settles ordinary old pending once', async () => {
         const { session, handlers, getState } = createSessionMock();
         const handler = new PermissionHandler(session as any);
-        const pending = handler.handleToolCall('Bash', { command: 'pwd' }, mode, { signal: new AbortController().signal, toolUseID: 'old', requestId: 'request-old' });
+        const pending = handler.handleToolCall('Bash', { command: 'pwd' }, mode, { signal: new AbortController().signal, toolUseID: 'old' });
         let finish!: () => void;
         handler.setPermissionModeUpdater(() => new Promise<void>(r => { finish = r; }));
         const change = handler.handleModeChange('bypassPermissions');
         let newerDone = false;
-        const newer = handler.handleToolCall('Bash', { command: 'pwd' }, mode, { signal: new AbortController().signal, toolUseID: 'new', requestId: 'request-new' }).then(r => { newerDone = true; return r; });
+        const newer = handler.handleToolCall('Bash', { command: 'pwd' }, mode, { signal: new AbortController().signal, toolUseID: 'new' }).then(r => { newerDone = true; return r; });
         await Promise.resolve();
         expect(newerDone).toBe(false);
         finish();
@@ -173,7 +173,7 @@ describe('PermissionHandler', () => {
         const handler = new PermissionHandler(session as any);
         handler.setPermissionModeUpdater(async () => { throw new Error('setter refused'); });
         await expect(handler.handleModeChange('bypassPermissions')).rejects.toThrow('setter refused');
-        const pending = handler.handleToolCall('Bash', { command: 'pwd' }, mode, { signal: new AbortController().signal, toolUseID: 'kept', requestId: 'request-kept' });
+        const pending = handler.handleToolCall('Bash', { command: 'pwd' }, mode, { signal: new AbortController().signal, toolUseID: 'kept' });
         expect(getState().requests.kept).toBeDefined();
         await getPermissionResponseHandler(handlers)({ id: 'kept', approved: false });
         await expect(pending).resolves.toMatchObject({ behavior: 'deny' });
@@ -190,7 +190,7 @@ describe('PermissionHandler', () => {
             'Bash',
             { command: 'pwd' },
             mode,
-            { signal: controller.signal, toolUseID: 'toolu_yolo', requestId: 'request-toolu_yolo' },
+            { signal: controller.signal, toolUseID: 'toolu_yolo' },
         );
 
         expect(result).toMatchObject({ behavior: 'allow' });
@@ -208,7 +208,7 @@ describe('PermissionHandler', () => {
             'Write',
             { file_path: '/tmp/x', content: 'y' },
             mode,
-            { signal: controller.signal, toolUseID: 'toolu_bypass', requestId: 'request-toolu_bypass' },
+            { signal: controller.signal, toolUseID: 'toolu_bypass' },
         );
 
         expect(result).toMatchObject({ behavior: 'allow' });
@@ -234,7 +234,7 @@ describe('PermissionHandler', () => {
             'Bash',
             { command: 'pwd' },
             mode,
-            { signal: controller.signal, toolUseID: 'toolu_main', requestId: 'request-toolu_main' },
+            { signal: controller.signal, toolUseID: 'toolu_main' },
         );
 
         expect(getState().requests.toolu_main).toMatchObject({
@@ -256,13 +256,13 @@ describe('PermissionHandler', () => {
             'Bash',
             { command: 'pwd' },
             mode,
-            { signal: firstController.signal, toolUseID: 'toolu_shared', requestId: 'request-toolu_shared', agentID: 'agent-a' },
+            { signal: firstController.signal, toolUseID: 'toolu_shared', agentID: 'agent-a' },
         );
         const secondPending = handler.handleToolCall(
             'Bash',
             { command: 'whoami' },
             mode,
-            { signal: secondController.signal, toolUseID: 'toolu_shared', requestId: 'request-toolu_shared', agentID: 'agent-b' },
+            { signal: secondController.signal, toolUseID: 'toolu_shared', agentID: 'agent-b' },
         );
 
         expect(getState().requests).toMatchObject({
@@ -321,7 +321,7 @@ describe('PermissionHandler', () => {
             'Bash',
             { command: 'pwd' },
             mode,
-            { signal: controller.signal, toolUseID: 'toolu_result', requestId: 'request-toolu_result', agentID: 'agent-a' },
+            { signal: controller.signal, toolUseID: 'toolu_result', agentID: 'agent-a' },
         );
 
         await getPermissionResponseHandler(handlers)({

@@ -12,6 +12,11 @@ import { EnhancedMode, PermissionMode } from "../loop";
 import { getToolDescriptor } from "./getToolDescriptor";
 import { isClaudeBypassEquivalent, mapToClaudeMode } from "./permissionMode";
 
+// Shared by SDK callbacks and native hooks. Only depend on the fields this
+// handler consumes: newer SDKs also require a transport requestId, which is
+// absent in the lockfile SDK and is not the tool identity used by LMC.
+type PermissionCallOptions = Pick<CanCallToolOptions, 'signal' | 'toolUseID' | 'agentID'>;
+
 export interface PermissionResponse {
     id: string;
     approved: boolean;
@@ -207,7 +212,7 @@ export class PermissionHandler {
      * Creates the canCallTool callback for the SDK.
      * Uses toolUseID from official SDK callback options directly.
      */
-    handleToolCall = async (toolName: string, input: unknown, mode: EnhancedMode, options: CanCallToolOptions): Promise<PermissionResult> => {
+    handleToolCall = async (toolName: string, input: unknown, mode: EnhancedMode, options: PermissionCallOptions): Promise<PermissionResult> => {
         const toolCallId = this.getPermissionRequestId(options);
 
         // AskUserQuestion requires user interaction — never auto-approve, even in bypassPermissions mode.
@@ -281,7 +286,7 @@ export class PermissionHandler {
         return this.handlePermissionRequest(toolCallId, toolName, input, options.signal, options.toolUseID);
     }
 
-    private getPermissionRequestId(options: CanCallToolOptions): string {
+    private getPermissionRequestId(options: PermissionCallOptions): string {
         return options.agentID ? `${options.agentID}:${options.toolUseID}` : options.toolUseID;
     }
 

@@ -10,7 +10,7 @@ export async function nativePermissionHook(session: Session, handler: Permission
     if (hook.event === 'PreToolUse' && (!['AskUserQuestion', 'ExitPlanMode'].includes(hook.toolName ?? '') || worker?.role !== 'worker' || worker.hub.autonomy !== true)) return;
     if (!hook.toolName || !hook.requestId) throw new Error('Incomplete native permission request');
     const result = await handler.handleToolCall(hook.toolName, hook.toolInput ?? {}, session.getNativeMode(), {
-        signal, toolUseID: hook.toolUseId ?? hook.requestId, requestId: hook.requestId,
+        signal, toolUseID: hook.toolUseId ?? hook.requestId,
     });
     return { hookSpecificOutput: hook.event === 'PermissionRequest'
         ? { hookEventName: hook.event, decision: result }
