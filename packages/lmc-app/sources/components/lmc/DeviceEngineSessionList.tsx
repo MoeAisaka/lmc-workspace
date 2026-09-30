@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'expo-router';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import Animated, { Easing, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { Text } from '@/components/StyledText';
+import { HorizontalScrollView } from '@/components/HorizontalScrollView';
 import { Typography } from '@/constants/Typography';
 import { storage, useAllMachines, useAllSessions, useIsDataReady, useSessionUnread, useSetting } from '@/sync/storage';
 import type { Session } from '@/sync/storageTypes';
@@ -47,6 +48,18 @@ import { lmcElevation, lmcSurfaceBorder } from './elevation';
 import { t } from '@/text';
 
 const TOGGLE_SIZE = 44;
+
+// Board titles are the dispatch goal's first paragraph, often the whole task
+// contract. Use the named stage and stable task ID in this compact list.
+function taskStepName(entry: BoardEntry): string {
+    const stage = entry.stage?.trim();
+    const label = stage === 'build' ? t('lmc.orchestration.dutyCoding')
+        : stage === 'review' ? t('lmc.orchestration.dutyReview')
+        : stage === 'verify' ? t('lmc.orchestration.field.verification')
+        : stage === 'deploy' ? t('lmc.orchestration.dutyRelease')
+        : stage || t('lmc.orchestration.task');
+    return `${label} · ${entry.id}`;
+}
 
 /**
  * A full-width opening bracket carries half a character of blank on its left,
@@ -105,11 +118,9 @@ const styles = StyleSheet.create((theme) => ({
     rolePill: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999 },
     rolePillText: { fontSize: 10.5, lineHeight: 15, ...Typography.default('semiBold') },
     dropHint: { fontSize: 11, paddingLeft: 34, paddingBottom: 6, ...Typography.default('semiBold') },
-    taskRow: { marginRight: 4, paddingLeft: 6, paddingRight: 10, paddingVertical: 8, gap: 4, minWidth: 0 },
-    idChip: { alignSelf: 'flex-start', maxWidth: '100%', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
-    idChipText: { fontSize: 10, lineHeight: 14, fontFamily: 'Menlo', letterSpacing: 0.2, ...(Platform.OS === 'web' ? { overflowWrap: 'anywhere' as const } : {}) },
-    taskTitle: { flex: 1, minWidth: 0, fontSize: 13, lineHeight: 19, color: theme.colors.text, ...Typography.default(), ...(Platform.OS === 'web' ? { overflowWrap: 'anywhere' as const } : {}) },
-    taskMeta: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8, rowGap: 2 },
+    taskRow: { marginRight: 4, paddingLeft: 6, paddingRight: 10, paddingVertical: 4, minHeight: 34, flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 0 },
+    taskScroll: { flex: 1, minWidth: 0 },
+    taskTitle: { flexShrink: 0, fontSize: 13, lineHeight: 19, color: theme.colors.text, ...Typography.default() },
     dots: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
     rowPressed: { backgroundColor: theme.colors.surfacePressed },
     title: { fontSize: 14, lineHeight: 20, color: theme.colors.text, ...Typography.default() },
@@ -525,7 +536,6 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
     // Tasks wear the same three-state mark as sessions: in progress, done, needs a person.
     const taskTone = taskRowTone;
     const needsPerson = hasTaskAttention;
-    const pad = (n: number) => String(n).padStart(2, '0');
     const unassigned = tasksOf(null);
     const hubLine = describeLmcSessionStatus(group.hub, now);
     const hubUnread = useSessionUnread(group.hub.id);
@@ -561,11 +571,11 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
     // web there is no hover at all — either way the chevron simply stays.
     const showHubChevron = Platform.OS === 'web' ? (headerHovered || headerAnchor !== null || !hubRingTone) : true;
 
-    const TaskRows = ({ tasks, indent }: { tasks: BoardEntry[]; indent: number }) => (
+    // Render directly: a nested component type would remount on every ticker
+    // update and reset the user's horizontal scroll position.
+    const renderTaskRows = (tasks: BoardEntry[], indent: number) => (
         <>
             {tasks.map((entry) => {
-                const at = new Date(entry.updatedAt);
-                const took = isClosedState(entry.state) ? Math.max(1, Math.round((entry.updatedAt - entry.firstAt) / 60000)) : null;
                 return (
                     <View
                         key={entry.id}
@@ -573,15 +583,10 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
                         {...(Platform.OS === 'web' ? { dataSet: { sessionSortIgnore: 'true' } } : {})}
                         style={[styles.taskRow, { marginLeft: indent }]}
                     >
-                        <View style={[styles.rowLine, { alignItems: 'flex-start' }]}>
-                            <RNText selectable style={styles.taskTitle}>{entry.title}</RNText>
-                            <View style={{ paddingTop: 4, flexShrink: 0 }}><SessionStatusRing tone={taskTone(entry)} size={10} /></View>
-                        </View>
-                        <View style={[styles.idChip, { backgroundColor: colors.subtle }]}><RNText selectable style={[styles.idChipText, { color: colors.tertiary }]}>{entry.id}</RNText></View>
-                        <View style={styles.taskMeta}>
-                            <RNText style={[styles.metaText, { color: colors.tertiary }]}>{entry.stage ?? ''}</RNText>
-                            <RNText style={[styles.metaText, { color: colors.tertiary, marginLeft: 'auto' }]}>{pad(at.getHours())}:{pad(at.getMinutes())}{took ? ` · ${t('lmc.orchestration.took', { minutes: took })}` : ''}</RNText>
-                        </View>
+                        <HorizontalScrollView testID="worker-task-name-scroll" style={styles.taskScroll} contentContainerStyle={{ alignItems: 'center' }}>
+                            <RNText selectable numberOfLines={1} style={styles.taskTitle}>{taskStepName(entry)}</RNText>
+                        </HorizontalScrollView>
+                        <View style={{ flexShrink: 0 }}><SessionStatusRing tone={taskTone(entry)} size={10} /></View>
                     </View>
                 );
             })}
@@ -667,7 +672,7 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
                                     alert={needsPerson(tasks)}
                                     meta={{ device: deviceOf(session), engine: engineOf(session), toggle: tasks.length ? { open, onToggle: () => toggle(session.id) } : null }}
                                 />
-                                {open && <TaskRows tasks={tasks} indent={48} />}
+                                {open && renderTaskRows(tasks, 48)}
                                 {pendingDuty.has(session.id) && (
                                     <DutyChipRow
                                         compact
@@ -684,7 +689,7 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
             {unassigned.length > 0 && (
                 <>
                     <RNText style={[styles.metaText, { color: colors.tertiary, paddingLeft: 48, paddingTop: 6 }]}>{t('lmc.orchestration.unassigned')}</RNText>
-                    <TaskRows tasks={unassigned} indent={48} />
+                    {renderTaskRows(unassigned, 48)}
                 </>
             )}
             {group.workers.length === 0 && !hovered && (
