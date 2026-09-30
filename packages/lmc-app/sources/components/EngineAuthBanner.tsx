@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, Text, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { useSession, useMachine } from '@/sync/storage';
 import { checkSessionAuthentication } from '@/sync/engineAuthentication';
@@ -28,21 +28,22 @@ export function EngineAuthBanner({ sessionId, maxWidth, minHeight }: { sessionId
     const inProgress = relevant && login.flow && !loginIsTerminal(login.flow.state);
     const recovering = inProgress && login.flow?.state === 'recovering';
     const checkingAuth = inProgress && ['checking', 'verifying'].includes(login.flow!.state);
+    const wrapText = Platform.OS === 'web' ? { overflowWrap: 'anywhere' as const } : {};
     React.useEffect(() => {
         if (supported && needsAuth && machine?.active && metadata?.engineAuth && shouldAutoRecover(sessionId, metadata.engineAuth.checkedAt)) void login.request('auto');
     }, [sessionId, supported, needsAuth, machine?.active, metadata?.engineAuth?.checkedAt, login.request]);
     if (!metadata?.engineAuth || (!needsAuth && !inProgress)) return null;
     if (supported) return <View accessibilityLiveRegion="polite" style={{ width: '100%', maxWidth: maxWidth as any, padding: 16, gap: 10, backgroundColor: theme.colors.surface, borderRadius: 16, ...lmcSurfaceBorder(theme) }}>
         <Text style={{ color: theme.colors.text, fontWeight: '600', fontSize: 16 }}>{engineKey === 'claude' ? 'Claude Code' : 'Codex'} · {t(recovering ? 'localFeatures.loginRecovering' : checkingAuth ? 'localFeatures.loginAutoCheck' : inProgress ? 'localFeatures.loginWaiting' : metadata.engineAuth.status === 'unknown' ? 'localFeatures.engineAuthUnknown' : 'localFeatures.loginTitle')}</Text>
-        <Text style={{ color: theme.colors.textSecondary }}>{metadata.host} · {t(recovering ? 'localFeatures.loginSafeHint' : 'localFeatures.loginHint')}</Text>
+        <Text style={{ color: theme.colors.textSecondary, ...wrapText }}>{metadata.host} · {t(recovering ? 'localFeatures.loginSafeHint' : 'localFeatures.loginHint')}</Text>
         {login.flow?.state === 'checking' && <ActivityIndicator size="small" />}
         {!machine?.active && <Text style={{ color: theme.colors.textSecondary }}>{engineLoginError('offline')}</Text>}
         {(login.error || login.flow?.error) && <Text style={{ color: theme.colors.textSecondary }}>{engineLoginError(login.error ?? login.flow!.error!)}</Text>}
         <View style={{ gap: 8, flexDirection: 'row', flexWrap: 'wrap' }}>
-            <Pressable accessibilityRole="button" disabled={!machine?.active} onPress={() => Modal.show({ component: EngineLoginDialog, props: { sessionId } })} style={{ minHeight: 44, paddingHorizontal: 16, justifyContent: 'center', borderRadius: 22, backgroundColor: theme.dark ? '#6DA8FF' : '#0060F0', opacity: machine?.active ? 1 : 0.45 }}>
-                <Text style={{ color: theme.dark ? '#10243B' : '#FFFFFF', fontWeight: '600' }}>{t(recovering ? 'localFeatures.loginViewRecovery' : inProgress ? 'localFeatures.loginContinue' : 'localFeatures.loginTitle')} {metadata.host}</Text>
+            <Pressable accessibilityRole="button" disabled={!machine?.active} onPress={() => Modal.show({ component: EngineLoginDialog, props: { sessionId } })} style={{ minHeight: 44, maxWidth: '100%', minWidth: 0, flexShrink: 1, paddingHorizontal: 16, paddingVertical: 10, justifyContent: 'center', borderRadius: 22, backgroundColor: theme.dark ? '#6DA8FF' : '#0060F0', opacity: machine?.active ? 1 : 0.45 }}>
+                <Text style={{ color: theme.dark ? '#10243B' : '#FFFFFF', fontWeight: '600', textAlign: 'center', ...wrapText }}>{t(recovering ? 'localFeatures.loginViewRecovery' : inProgress ? 'localFeatures.loginContinue' : 'localFeatures.loginTitle')}</Text>
             </Pressable>
-            <Pressable accessibilityRole="button" disabled={!machine?.active || login.busy} onPress={() => Modal.show({ component: EngineLoginDialog, props: { sessionId, initialAction: 'check' } })} style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }}><Text style={{ color: theme.colors.text }}>{t('localFeatures.loginRecheck')}</Text></Pressable>
+            <Pressable accessibilityRole="button" disabled={!machine?.active || login.busy} onPress={() => Modal.show({ component: EngineLoginDialog, props: { sessionId, initialAction: 'check' } })} style={{ minHeight: 44, maxWidth: '100%', minWidth: 0, flexShrink: 1, justifyContent: 'center', paddingHorizontal: 8, paddingVertical: 10 }}><Text style={{ color: theme.colors.text, textAlign: 'center', ...wrapText }}>{t('localFeatures.loginRecheck')}</Text></Pressable>
         </View>
     </View>;
     const engine = metadata.flavor === 'codex' ? 'Codex' : 'Claude Code';
