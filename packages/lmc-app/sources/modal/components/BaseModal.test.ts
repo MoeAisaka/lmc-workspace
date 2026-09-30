@@ -15,7 +15,7 @@ vi.mock('react-native', async () => {
         Animated: {
             Value: AnimatedValue,
             View: host('AnimatedView'),
-            timing: () => ({ start: () => undefined }),
+            timing: () => ({ start: () => undefined, stop: () => undefined }),
         },
         KeyboardAvoidingView: host('KeyboardAvoidingView'),
         Modal: host('Modal'),

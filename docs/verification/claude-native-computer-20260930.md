@@ -1,8 +1,9 @@
 # Claude native computer use: interactive transport investigation
 
 Status: **isolated transport prototype implemented and verified; native desktop
-replacement not delivered or deployed**. Production remains Agent 1.2.64 / web
-v228. Codex's existing native computer tools are unchanged.
+replacement not delivered or deployed**. The transport tests below used Agent
+1.2.64 / web v228; the separate image-resource/UI release is Agent 1.2.65 / web
+v229 and does not enable native transport. Codex's existing native computer tools are unchanged.
 
 ## Scope and artifact
 
@@ -106,8 +107,9 @@ No provider binary or consent gate was patched, and no system process was killed
 The official npm registry still reported Claude Code **2.1.285** and Agent SDK
 **0.3.285** as latest during this follow-up. Replacing BetterDisplay would not
 remove these independent system-owned windows, so no replacement was installed.
-Production stays on the existing Peekaboo adapter; native transport integration
-remains blocked on a supported click path.
+At that point, production stayed on the existing Peekaboo adapter. The later
+user decision below removes mouse-click success as a prerequisite for further
+native transport work; it does not turn the rejected click into a success.
 
 ## Session-only Finder authorization probe (17:26 CST follow-up)
 
@@ -162,10 +164,11 @@ so the prototype requires an attended client and explicit native `/exit`.
   hook receipt and graceful `/exit`, with exit code 0 for completed probes.
 - No Agent version bump, production dependency change or release was performed.
 
-Next integration gate: achieve fresh native screenshot/input/click proof on a
-supported display/app-resolution setup. Then connect the persistent interactive
-process and its native prompts to LMC, preserving provider resume identity,
-queue and settings behavior, cancel, reconnection and safe refresh boundaries.
+Next integration gate (revised after the user accepted native limitations):
+connect the persistent interactive process and its native prompts to LMC,
+preserving provider resume identity, queue and settings behavior, cancel,
+reconnection and safe refresh boundaries. Click detection remains a visible
+known limitation, not a reason to silently substitute Peekaboo.
 Do not silently launch a second model agent for every desktop operation or
 replace all existing SDK sessions before those checks pass.
 
@@ -185,3 +188,45 @@ replace all existing SDK sessions before those checks pass.
 Issue reports are corroborating reports, not proof that the vendor has accepted
 our exact root cause or supplied a fix. Local measurements above are the basis
 for withholding a native desktop completion claim.
+
+## Native-first keyboard and exact-resume proof (17:40 CST)
+
+The user explicitly prefers native functionality even with its defects. A fresh
+fixture-only native session `efabfa65-cfb3-4ee8-b077-e2ff293794da` used the existing
+bridge and no external MCP or Chrome. Its own transcript contains three actual
+screenshot image blocks, one successful `type` of `LMC-COMPUTER-OK`, and one
+`key` Tab. Tab left the input focused with selected text; it did not focus Verify.
+No mouse click or Space followed, and no fresh fixture PASS was claimed.
+
+After a normal `/exit` (code 0), the official executable was launched in a real
+PTY with `--resume efabfa65-cfb3-4ee8-b077-e2ff293794da`, the same lab cwd/settings,
+empty strict MCP config and `--no-chrome`. The UI restored the transcript. A
+no-tool prompt correctly recalled `NATIVE-KEYBOARD-20260930` and the typing-only
+result. Both `SessionStart` hook receipts have exactly the same provider UUID.
+The resumed process exited normally with code 0, and the owned idle fixture
+was closed. This proves identity and conversation continuity, **not** persistence
+of native app grants or the desktop lock across process exit. Finder consent
+from the earlier one-off test was neither reused nor requested.
+
+### Integration seam confirmed in current source
+
+- `claudeLocalLauncher.ts` already tails real native JSONL through
+  `createSessionScanner`. Its queue callback currently aborts the local mode and
+  switches to SDK mode when a phone message arrives. This is the behavior an
+  optional native transport must replace, retaining the same interactive process.
+- Keep structured transcript ingestion; relay native prompt output separately.
+  Native per-app consent did not emit SDK PermissionRequest/Elicitation hooks.
+  The exact terminal prompt must therefore remain visible, with explicit user
+  input bound to the observed output sequence and connection epoch.
+- Official Remote Control retains a local interactive CLI but exposes Claude's
+  own web/mobile connection, not a documented third-party LMC transport API.
+  Print-only stream-json is not a replacement for the interactive native path.
+- Production readiness still requires reconnect replay, input ownership, queue
+  boundaries, interruption, stale consent rejection after reconnect, and safe
+  refresh tests. Keep this optional and Claude/macOS-gated; existing Codex and
+  SDK sessions must retain their current behavior. No provider patching, hidden
+  second agent per desktop action, or automatic approval is part of the design.
+
+Sources: [CLI reference](https://code.claude.com/docs/en/cli-reference),
+[Remote Control](https://code.claude.com/docs/en/remote-control), and the native
+computer-use reference above. These documents were checked on 2026-09-30.

@@ -38,8 +38,14 @@ export function ModalProvider({ children }: { children: React.ReactNode }) {
 
     const hideModal = useCallback((id: string) => {
         setState(prev => ({
-            modals: prev.modals.filter(modal => modal.id !== id)
+            modals: prev.modals.flatMap(modal => modal.id !== id ? [modal]
+                : modal.type === 'custom' && modal.animateExit && prev.modals.at(-1)?.id === id
+                    ? [{ ...modal, exiting: true }] : [])
         }));
+    }, []);
+
+    const removeModal = useCallback((id: string) => {
+        setState(prev => ({ modals: prev.modals.filter(modal => modal.id !== id) }));
     }, []);
 
     const hideAllModals = useCallback(() => {
@@ -115,8 +121,10 @@ export function ModalProvider({ children }: { children: React.ReactNode }) {
                     )}
                     {currentModal.type === 'custom' && (
                         <CustomModal
+                            key={currentModal.id}
                             config={currentModal}
                             onClose={() => hideModal(currentModal.id)}
+                            onExitComplete={() => removeModal(currentModal.id)}
                         />
                     )}
                 </>

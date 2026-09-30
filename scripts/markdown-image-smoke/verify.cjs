@@ -28,20 +28,22 @@ moduleExport('useAttachmentImage').useAttachmentImage=()=>({uri:'data:image/png;
 const {FileView}=moduleExport('FileView');
 const {UnistylesRuntime}=moduleExport('UnistylesRuntime');
 window.setTheme=theme=>{UnistylesRuntime.setAdaptiveThemes(false);UnistylesRuntime.setTheme(theme);document.body.style.background=theme==='dark'?'#202020':'#fff'};
-window.calls=[];window.fail=false;
+window.calls=[];window.fail=false;window.toastErrors=[];moduleExport('showToast').showToast=(...args)=>toastErrors.push(args);
 const imageBytes=atob(${JSON.stringify(preview)});
 apiSocket.sessionRPC=async(sid,method,params)=>{
  calls.push({sid,method,params});
+ if(window.disconnected)throw new Error('RPC target disconnected');
  if(window.fail)return {success:false,error:'Missing fixture file'};
  const offset=params.offset||0,end=Math.min(offset+32769,imageBytes.length);
  return {success:true,name:'desktop.png',content:btoa(imageBytes.slice(offset,end)),size:imageBytes.length,revision:'fixture',nextOffset:end<imageBytes.length?end:null};
 };
+apiSocket.machineRPC=async(mid,method,params)=>{calls.push({mid,method,params});const offset=params.offset||0,end=Math.min(offset+32769,imageBytes.length);return {success:true,name:'desktop.png',content:btoa(imageBytes.slice(offset,end)),size:imageBytes.length,revision:'fixture',nextOffset:end<imageBytes.length?end:null}};
 const local='/tmp/LMC Preview/desktop.png';
 function App(){const [state,set]=React.useState({sid:'codex',url:'<'+local+'>'});window.renderPreview=next=>set(next);
  return h(ModalProvider,null,h('main',{style:{maxWidth:850,margin:'24px auto',padding:'0 16px'}},state.attachment
  ?h(FileView,{sessionId:state.sid,tool:{input:{ref:'fixture',name:'Attachment preview',image:{width:1200,height:600}}}})
- :h(MarkdownView,{markdown:'![Preview]('+state.url+')',sessionId:state.sid})));}
-window.setSupported=(sid,supported)=>storage.setState({sessions:{...storage.getState().sessions,[sid]:{id:sid,metadata:{flavor:sid,sessionCapabilities:{resourceFiles:supported}}}}});
+ :h(MarkdownView,{markdown:(state.link?'[Linked preview](':'![Preview](')+state.url+')',sessionId:state.sid})));}
+window.setSupported=(sid,supported)=>storage.setState({sessions:{...storage.getState().sessions,[sid]:{id:sid,metadata:{flavor:sid,machineId:'host-'+sid,path:'/tmp/LMC Preview',sessionCapabilities:{resourceFiles:supported}}}}});
 setSupported('codex',true);setSupported('claude',true);
 createRoot(document.getElementById('root')).render(h(App));
 `;
@@ -126,11 +128,20 @@ const server=http.createServer((req,res)=>{
    await page.locator('main img').click();await page.getByTestId('image-preview').waitFor();
    await page.getByTestId('image-preview-close').click();await page.getByTestId('image-preview').waitFor({state:'detached'});
   }
+  for(const sid of ['codex','claude']){
+   await page.evaluate(sid=>{window.disconnected=true;renderPreview({sid,link:true,url:'<./linked preview.png>'})},sid);
+   await page.getByText('Linked preview',{exact:true}).click();
+   try { await page.getByTestId('image-preview').waitFor(); } catch(error) { console.log('Link diagnostics',await page.evaluate(()=>({calls:calls.slice(-6),text:document.body.innerText,toastErrors,html:document.querySelector('main').innerHTML,parsed:moduleExport('parseMarkdown').parseMarkdown('[Linked preview](<./linked preview.png>)'),metadata:window.moduleExport('storage').storage.getState().sessions})),errors);throw error; }
+   await page.waitForFunction(()=>{const img=document.querySelector('[data-testid="image-preview"] img');return img&&img.complete&&img.naturalWidth>0});
+   assert.ok(await page.evaluate(sid=>calls.some(c=>c.mid==='host-'+sid&&c.params.path==='/tmp/LMC Preview/./linked preview.png'),sid));
+   await page.getByTestId('image-preview-close').click();await page.getByTestId('image-preview').waitFor({state:'detached'});
+  }
+  await page.evaluate(()=>window.disconnected=false);
   const beforeUnsupported=await page.evaluate(()=>calls.length);
   await page.evaluate(()=>{setSupported('legacy',false);renderPreview({sid:'legacy',url:'</tmp/legacy.png>'})});
   await page.getByText(/safe refresh|刷新/).waitFor();assert.equal(await page.evaluate(()=>calls.length),beforeUnsupported);
   assert.deepEqual(errors,[]);
   fs.writeFileSync(path.join(out,'results.json'),JSON.stringify({calls:await page.evaluate(()=>calls),errors},null,2));
-  console.log('PASS actual MarkdownView: both engines, local path with spaces, chunked image, HTTP, file URI, retry, capability gate, light/dark mobile/desktop');
+  console.log('PASS actual MarkdownView: both engines, local path with spaces, chunked image, HTTP, file URI, retry, capability gate, light/dark mobile/desktop, disconnected-session image links via original host');
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exit(1)});

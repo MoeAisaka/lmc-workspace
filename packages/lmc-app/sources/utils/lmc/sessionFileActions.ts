@@ -7,6 +7,7 @@ import { FileActionSheet, type FileAction } from '@/components/FileActionSheet';
 import { openFileReference } from './openFileReference';
 import { fileName } from './fileKinds';
 import { t } from '@/text';
+import { readSessionResource } from '@/utils/readSessionResource';
 
 /**
  * The four things you can do with a file a session knows about.
@@ -23,14 +24,14 @@ const inFlight = new Set<string>();
 
 /** Reads the file off the session's device, following the chunk cursor to the end. */
 async function fetchResource(sessionId: string, path: string) {
-    const first = await apiSocket.sessionRPC<{ success: boolean; name?: string; content?: string; error?: string; nextOffset?: number | null; revision?: string }, { path: string; action: string }>(
-        sessionId, 'resource-file', { path, action: 'download' },
+    const first = await readSessionResource<{ success: boolean; name?: string; content?: string; error?: string; nextOffset?: number | null; revision?: string }>(
+        sessionId, { path, action: 'download' },
     );
     if (!first.success) throw new Error(first.error || t('lmc.resources.operationFailed'));
     const chunks = [first.content || ''];
     let next = first.nextOffset;
     while (typeof next === 'number') {
-        const part = await apiSocket.sessionRPC<any, any>(sessionId, 'resource-file', { path, action: 'download', offset: next, revision: first.revision });
+        const part = await readSessionResource<any>(sessionId, { path, action: 'download', offset: next, revision: first.revision });
         if (!part.success) throw new Error(part.error || t('lmc.resources.downloadInterrupted'));
         if (typeof part.nextOffset === 'number' && part.nextOffset <= next) throw new Error(t('lmc.resources.downloadOffset'));
         chunks.push(part.content);

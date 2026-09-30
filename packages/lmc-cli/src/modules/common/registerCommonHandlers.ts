@@ -174,7 +174,7 @@ export type SpawnSessionResult =
  * wherever it happened to be started from, not a meaningful boundary.
  */
 export function registerCommonHandlers(rpcHandlerManager: RpcHandlerManager, workingDirectory: string | null) {
-    if (workingDirectory !== null) registerResourceHandlers(rpcHandlerManager, workingDirectory);
+    registerResourceHandlers(rpcHandlerManager, workingDirectory);
 
     const checkPath = (targetPath: string): PathValidationResult =>
         workingDirectory === null

@@ -26,6 +26,7 @@ interface BaseModalProps {
     closeOnBackdrop?: boolean;
     closeOnRequestClose?: boolean;
     blurBackdrop?: boolean;
+    onExitComplete?: () => void;
 }
 
 export function BaseModal({
@@ -37,36 +38,35 @@ export function BaseModal({
     closeOnBackdrop = true,
     closeOnRequestClose = true,
     blurBackdrop = false,
+    onExitComplete,
 }: BaseModalProps) {
     const fadeAnim = useRef(new Animated.Value(0)).current;
+    const exitCallback = useRef(onExitComplete);
+    exitCallback.current = onExitComplete;
 
     useEffect(() => {
-        if (visible) {
-            Animated.timing(fadeAnim, {
-                toValue: 1,
-                duration: 200,
-                useNativeDriver: true
-            }).start();
-        } else {
-            Animated.timing(fadeAnim, {
-                toValue: 0,
-                duration: 200,
-                useNativeDriver: true
-            }).start();
-        }
+        const animation = Animated.timing(fadeAnim, {
+            toValue: visible ? 1 : 0,
+            duration: 200,
+            useNativeDriver: true,
+        });
+        animation.start(({ finished }) => {
+            if (finished && !visible) exitCallback.current?.();
+        });
+        return () => animation.stop();
     }, [visible, fadeAnim]);
 
     const handleBackdropPress = () => {
-        if (closeOnBackdrop && onClose) {
+        if (visible && closeOnBackdrop && onClose) {
             onClose();
         }
     };
 
     return (
         <Modal
-            visible={visible}
+            visible={visible || !!onExitComplete}
             transparent={transparent}
-            animationType={animationType}
+            animationType={onExitComplete ? 'none' : animationType}
             onRequestClose={closeOnRequestClose ? onClose : () => {}}
         >
             <KeyboardAvoidingView
@@ -90,14 +90,17 @@ export function BaseModal({
                         />
                     </TouchableWithoutFeedback>
                 ) : (
-                    <AnimatedBlurBackdrop
+                    <Animated.View style={[StyleSheet.absoluteFillObject, { opacity: fadeAnim }]}>
+                      <AnimatedBlurBackdrop
                         blurIntensity={44}
                         dimColor="rgba(0, 0, 0, 0.42)"
                         onPress={handleBackdropPress}
-                    />
+                      />
+                    </Animated.View>
                 )}
                 
                 <Animated.View
+                    pointerEvents={visible ? 'auto' : 'none'}
                     style={[
                         styles.content,
                         {

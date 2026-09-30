@@ -23,6 +23,7 @@ import { openExternalUrl } from '@/utils/openExternalUrl';
 import { inferQuestionOptions } from './inferQuestionOptions';
 import { useMarkdownImage } from '@/hooks/useMarkdownImage';
 import { openImagePreview } from '../ImagePreviewModal';
+import { parseMarkdownImageSource } from '@/utils/markdownImage';
 
 // Option type for callback
 export type Option = {
@@ -64,6 +65,11 @@ export const MarkdownView = React.memo((props: {
         // file is the decision, and it does not depend on where the file was
         // named. Without a session there is nothing to read from, so the press
         // falls back to opening the viewer.
+        const image = parseMarkdownImageSource(url);
+        if (props.sessionId && image?.kind === 'file') {
+            void openFileReference(props.sessionId, image.path);
+            return;
+        }
         const reference = parseFileReference(url);
         if (!reference) return;
         if (props.sessionId) chooseSessionFile({ sessionId: props.sessionId, path: reference.path });
@@ -335,7 +341,8 @@ function RenderSpans(props: RenderSpanProps) {
         {props.spans.map((span, index) => {
             if (span.url) {
                 // A file path is as pressable as a URL; only where it opens differs.
-                const followable = isHttpMarkdownLink(span.url) || parseFileReference(span.url) !== null;
+                const followable = isHttpMarkdownLink(span.url) || parseFileReference(span.url) !== null
+                    || parseMarkdownImageSource(span.url)?.kind === 'file';
                 return (
                     <Text
                         key={index}

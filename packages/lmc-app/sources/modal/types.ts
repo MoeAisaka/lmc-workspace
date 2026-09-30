@@ -48,6 +48,10 @@ export interface CustomModalConfig extends BaseModalConfig {
     dismissible?: boolean;
     /** Soft backdrop for the floating settings surface; other modals keep their default dimming. */
     blurBackdrop?: boolean;
+    /** Keep this surface mounted until BaseModal's exit animation completes. */
+    animateExit?: boolean;
+    /** Managed by ModalProvider, never supplied by callers. */
+    exiting?: boolean;
 }
 
 export type ModalConfig = AlertModalConfig | ConfirmModalConfig | PromptModalConfig | CustomModalConfig;

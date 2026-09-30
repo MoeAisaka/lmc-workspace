@@ -23,3 +23,6 @@ failure, capability fallback, and light/dark layouts at 390 and 1200 pixels.
 Loaded Markdown images and user attachments must open the shared preview;
 zoom/reset, close, Escape, touch opening, viewport bounds and the opaque viewer
 surface are checked. Screenshots wait for the modal's entrance animation.
+
+Also verifies image links with spaces after session RPC disconnect, using only
+the original machine ID and the session project directory.

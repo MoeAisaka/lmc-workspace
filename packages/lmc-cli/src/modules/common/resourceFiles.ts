@@ -1,5 +1,5 @@
 import { realpath, stat, open } from 'node:fs/promises';
-import { basename, resolve } from 'node:path';
+import { basename, resolve, isAbsolute } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { RpcHandlerManager } from '@/api/rpc/RpcHandlerManager';
@@ -53,13 +53,18 @@ export async function readResourceChunk(root:string,target:string,offset=0,expec
         return {name:basename(path),content:buffer.subarray(0,bytesRead).toString('base64'),size:info.size,revision,nextOffset:offset+bytesRead<info.size?offset+bytesRead:null};
     }finally{await handle.close();}
 }
-export function registerResourceHandlers(manager: RpcHandlerManager, root: string) {
+export function registerResourceHandlers(manager: RpcHandlerManager, root: string | null) {
     manager.registerHandler('resource-file', async (data: { path: string; action: 'download' | 'open-host';offset?:number;revision?:string }) => {
         try {
-            if (data?.action === 'download') return { success: true, ...await readResourceChunk(root, data.path,data.offset,data.revision) };
+            // The daemon has no session cwd. Only accept explicit absolute reads;
+            // opening applications stays attached to a live session.
+            if (root === null && (data?.action !== 'download' || typeof data.path !== 'string' || !isAbsolute(data.path))) {
+                throw new Error('设备文件接口仅支持绝对路径下载');
+            }
+            if (data?.action === 'download') return { success: true, ...await readResourceChunk(root ?? '/', data.path,data.offset,data.revision) };
             if (data?.action !== 'open-host') throw new Error('不支持的文件操作');
             if (process.platform !== 'darwin') throw new Error('当前设备尚不支持默认应用打开，请下载文件');
-            const path = await resolveResourceFile(root, data.path);
+            const path = await resolveResourceFile(root!, data.path);
             await execFileAsync('/usr/bin/open', [path], { timeout: 10000, maxBuffer: 8192 });
             return { success: true };
         } catch (error) { return { success: false, error: error instanceof Error ? error.message : '文件操作失败' }; }

@@ -2,8 +2,17 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, writeFile, symlink, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, basename } from 'node:path';
-import { resolveResourceFile, readResourceFile } from './resourceFiles';
+import { resolveResourceFile, readResourceFile, registerResourceHandlers } from './resourceFiles';
 const roots: string[] = [];
+it('daemon serves bounded absolute reads and refuses relative paths and host actions', async () => {
+ const dir = await setup(); const file = join(dir, 'preview.png'); await writeFile(file, 'fixture');
+ let handler: any;
+ registerResourceHandlers({ registerHandler: (_name: string, fn: any) => { handler = fn; } } as any, null);
+ expect(await handler({ path: file, action: 'download' })).toMatchObject({ success: true, size: 7, content: 'Zml4dHVyZQ==', nextOffset: null });
+ for (const data of [{ path: 'preview.png', action: 'download' }, { path: file, action: 'open-host' }, { path: dir, action: 'download' }]) {
+  expect(await handler(data)).toMatchObject({ success: false });
+ }
+});
 afterEach(async () => { for (const dir of roots.splice(0)) await rm(dir, { recursive: true, force: true }); });
 async function setup() { const dir = await mkdtemp(join(tmpdir(), 'lmc-resource-')); roots.push(dir); return dir; }
 describe('scoped resource files', () => {

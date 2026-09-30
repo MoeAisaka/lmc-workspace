@@ -147,5 +147,5 @@ export function LmcSettingsDialog({ section: initial = 'general', onClose }: { s
 }
 
 export function openLmcSettings(section: LmcSettingsSection = 'general') {
-    Modal.show({ component: LmcSettingsDialog, props: { section }, blurBackdrop: true });
+    Modal.show({ component: LmcSettingsDialog, props: { section }, blurBackdrop: true, animateExit: true });
 }

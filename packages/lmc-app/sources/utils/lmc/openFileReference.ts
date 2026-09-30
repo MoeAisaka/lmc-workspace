@@ -4,6 +4,8 @@ import { showToast } from '@/components/lmc/Toast';
 import { deliverResourceFile } from '@/utils/deliverResourceFile';
 import { decodeBase64ToBytes, fileName, isBinaryExtension, looksBinary } from './fileKinds';
 import { t } from '@/text';
+import { loadMarkdownImage, parseMarkdownImageSource } from '@/utils/markdownImage';
+import { openImagePreview } from '@/components/ImagePreviewModal';
 
 /**
  * What pressing a file path does.
@@ -25,6 +27,12 @@ export async function openFileReference(sessionId: string | undefined, path: str
     }
     const name = fileName(path);
     try {
+        const image = parseMarkdownImageSource(path);
+        if (image) {
+            const uri = image.kind === 'uri' ? image.uri : await loadMarkdownImage(sessionId, image.path, image.mime);
+            openImagePreview(uri, name);
+            return;
+        }
         const response = await sessionReadFile(sessionId, path);
         if (!response.success || !response.content) {
             showToast(t('lmc.files.cannotOpen', { name, reason: response.error || t('files.failedToRead') }), 'error');

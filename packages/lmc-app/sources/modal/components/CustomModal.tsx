@@ -7,9 +7,10 @@ import { CommandPalette } from '@/components/CommandPalette';
 interface CustomModalProps {
     config: CustomModalConfig;
     onClose: () => void;
+    onExitComplete?: () => void;
 }
 
-export function CustomModal({ config, onClose }: CustomModalProps) {
+export function CustomModal({ config, onClose, onExitComplete }: CustomModalProps) {
     const Component = config.component;
     
     // Use special modal wrapper for CommandPalette with animation support
@@ -19,7 +20,8 @@ export function CustomModal({ config, onClose }: CustomModalProps) {
     
     return (
         <BaseModal
-            visible={true}
+            visible={!config.exiting}
+            onExitComplete={config.animateExit ? onExitComplete : undefined}
             onClose={onClose}
             closeOnBackdrop={config.dismissible !== false}
             closeOnRequestClose={config.dismissible !== false}

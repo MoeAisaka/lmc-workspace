@@ -26,3 +26,7 @@ checks 320/390/430px phones, landscape and desktop, in light and dark mode:
 Screenshots and `results.json` are written to a new `/tmp/lmc-settings-qa-*`
 directory. This verifies rendering and local interactions; it does not verify
 real account mutations, daemon upgrades, device pairing or physical iOS keyboards.
+
+For settings exit animation only, run `verify-exit.cjs` against the same fixture
+server. It samples intermediate opacity before unmount for close, Escape and
+backdrop at mobile/desktop sizes and light/dark themes.

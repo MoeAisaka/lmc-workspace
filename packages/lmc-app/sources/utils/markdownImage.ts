@@ -1,4 +1,4 @@
-import { apiSocket } from '@/sync/apiSocket';
+import { readSessionResource } from './readSessionResource';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 
 type ImageSource = { kind: 'uri'; uri: string } | { kind: 'file'; path: string; mime: string };
@@ -31,8 +31,8 @@ async function readImage(sessionId: string, path: string, mime: string): Promise
     let revision: string | undefined;
     const chunks: Uint8Array[] = [];
     do {
-        const part = await apiSocket.sessionRPC<ImageChunk, { path: string; action: string; offset?: number; revision?: string }>(
-            sessionId, 'resource-file', { path, action: 'download', ...(offset ? { offset, revision } : {}) },
+        const part = await readSessionResource<ImageChunk>(
+            sessionId, { path, action: 'download', ...(offset ? { offset, revision } : {}) },
         );
         if (!part.success || !part.content || !Number.isSafeInteger(part.size) || part.size! <= 0 || part.size! > MAX_IMAGE_BYTES) throw new Error('Image unavailable');
         if (size === undefined) { size = part.size; revision = part.revision; }
