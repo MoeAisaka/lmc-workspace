@@ -52,6 +52,7 @@ vi.mock('./sync', () => ({
 }));
 
 import { storage } from './storage';
+import { buildFlatSessionRows } from '@/utils/flatSessionList';
 import { resolveMessageModeMeta } from './messageMeta';
 import {
     getAvailableModels,
@@ -208,6 +209,20 @@ function shown(merged: any) {
 
 beforeEach(() => {
     storage.setState({ sessions: {}, sessionsData: null, sessionListViewData: null } as any);
+});
+
+describe('disconnected session visibility through the real store', () => {
+    it.each(['claude', 'codex'])('keeps a running %s session visible until an archive metadata update', (flavor) => {
+        const id = 'disconnected-' + flavor;
+        const offline = { ...session({ ...CLAUDE_BEFORE, flavor, lifecycleState: 'running' }, id), active: false, presence: 100 };
+        storage.getState().applySessions([offline]);
+        const rows = () => buildFlatSessionRows(storage.getState().sessionListViewData ?? [], { sortByActivity: false });
+        expect(rows().map(row => row.session.id)).toEqual([id]);
+        expect(rows()[0].session.archived).toBe(false);
+        storage.getState().applySessions([{ ...offline, metadataVersion: 2, metadata: { ...offline.metadata, lifecycleState: 'archived' } }]);
+        expect(rows()).toEqual([]);
+        expect(storage.getState().sessionListViewData?.some(item => item.type === 'session' && item.session.id === id && item.session.archived)).toBe(true);
+    });
 });
 
 describe('applySessions merging an engine switch', () => {

@@ -1,4 +1,5 @@
 import { compareDisplayMessages } from './messageDisplayOrder';
+import { isSessionArchived } from './sessionArchive';
 import { resolveWorkerPermissionMode } from './workerPermission';
 import { create } from "zustand";
 import { log } from '@/log';
@@ -69,19 +70,6 @@ function resolveSessionOnlineState(session: { active: boolean; activeAt: number 
 function isSessionActive(session: { active: boolean; activeAt: number }): boolean {
     // Use the active flag directly, no timeout checks
     return session.active;
-}
-
-/**
- * A session the agent retired, or a LMC CLI session that has ended. Rig
- * sessions that merely lost their connection are still live work.
- *
- * Archived sessions never sit inside a project card: they trail the list as
- * flat, date-grouped rows, so revealing the archive appends to the bottom
- * instead of reshaping the groups above it.
- */
-function isSessionArchived(session: Session): boolean {
-    return session.metadata?.lifecycleState === 'archived'
-        || (!isRigMetadata(session.metadata) && !session.active);
 }
 
 /** "Today", "Yesterday", or "N days ago" for a flat row's date heading. */

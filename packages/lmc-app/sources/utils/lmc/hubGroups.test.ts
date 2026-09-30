@@ -32,6 +32,16 @@ describe('splitHubGroups', () => {
         expect(rest.map((s) => s.id)).toEqual(['H', 'W']);
     });
 
+    it('preserves hub order and bound workers when the device disconnects', () => {
+        const hub = { ...session('H', 1, { role: 'hub', workers: [{ sessionId: 'W' }] }, { lifecycleState: 'running' }), active: false };
+        const worker = { ...session('W', 2, { role: 'worker', hub: { sessionId: 'H' } }, { lifecycleState: 'running' }), active: false };
+        const other = session('Other', 3, { role: 'hub', workers: [] });
+        const { hubs, rest } = splitHubGroups([other, worker, hub], ['H', 'Other']);
+        expect(hubs.map(g => g.hub.id)).toEqual(['H', 'Other']);
+        expect(hubs[0].workers.map(s => s.id)).toEqual(['W']);
+        expect(rest).toEqual([]);
+    });
+
     it('orders hub groups by the saved order, falling any unlisted hub in behind by createdAt', () => {
         const h1 = session('H1', 1, { role: 'hub', workers: [] });
         const h2 = session('H2', 2, { role: 'hub', workers: [] });

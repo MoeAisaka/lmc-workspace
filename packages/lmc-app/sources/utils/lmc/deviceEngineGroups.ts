@@ -1,5 +1,6 @@
 import type { Machine, Session } from '@/sync/storageTypes';
 import { resolveSessionState } from '@/sync/sessionState';
+import { isSessionArchived as isArchivedForList } from '@/sync/sessionArchive';
 import { isRigMetadata } from '@/sync/rig';
 import { getRepoPath, isWorktreePath } from '@/utils/worktreePaths';
 import { t } from '@/text';
@@ -44,14 +45,7 @@ export function machineAgentVersion(machine: Machine | undefined): string | null
     return machine?.daemonState?.startedWithCliVersion ?? machine?.metadata?.happyCliVersion ?? null;
 }
 
-/**
- * Same rule as the storage list: explicitly archived, or a plain CLI session
- * whose process is gone. Rig sessions that merely lost their socket stay live.
- */
-export function isArchivedForList(session: Session): boolean {
-    return session.metadata?.lifecycleState === 'archived'
-        || (!isRigMetadata(session.metadata) && !session.active);
-}
+export { isArchivedForList };
 
 /** Archived sessions, newest first, for the collapsed section under the device groups. */
 export function collectArchivedSessions(sessions: Session[]): Session[] {

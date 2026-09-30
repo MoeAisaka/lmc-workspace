@@ -57,6 +57,21 @@ describe('buildDeviceEngineGroups', () => {
         expect(collectArchivedSessions([dead, session('live', 'm1', 'claude')]).map((s) => s.id)).toEqual(['dead']);
     });
 
+    it('keeps disconnected Claude and Codex sessions on their offline device until explicitly archived', () => {
+        const rows = ['claude', 'codex'].map(flavor => session(flavor, 'm1', flavor, {
+            active: false, presence: 100,
+            metadata: { machineId: 'm1', flavor, lifecycleState: 'running' } as any,
+        }));
+        const groups = buildDeviceEngineGroups(rows, [machine('m1', { active: false })]);
+        expect(groups).toHaveLength(1);
+        expect(groups[0].online).toBe(false);
+        expect(flattenDeviceSessions(groups[0]).map(s => s.id)).toEqual(['claude', 'codex']);
+        expect(collectArchivedSessions(rows)).toEqual([]);
+        const archived = rows.map(s => ({ ...s, metadata: { ...s.metadata!, lifecycleState: 'archived' } }));
+        expect(buildDeviceEngineGroups(archived, [machine('m1', { active: false })])).toEqual([]);
+        expect(collectArchivedSessions(archived)).toHaveLength(2);
+    });
+
     it('drops an offline device that has no sessions left', () => {
         const groups = buildDeviceEngineGroups([session('a', 'm1', 'claude')], [machine('m1'), machine('old', { active: false })]);
         expect(groups.map((g) => g.machineId)).toEqual(['m1']);
