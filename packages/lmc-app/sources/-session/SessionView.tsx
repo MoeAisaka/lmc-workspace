@@ -1,4 +1,3 @@
-import { openClaudeNative } from '@/components/ClaudeNativeDialog';
 import { resolveTurnElapsed } from '@/utils/turnElapsed';
 import { pendingQueuePrompts } from '@/sync/queuedMessageVisibility';
 import { useMachine } from '@/sync/storage';
@@ -1424,13 +1423,6 @@ export function SessionViewLoaded({
     const input = (
         <>
             {inactiveHint}
-            {session.metadata?.claudeNativeActive && (
-                <CenteredInputWidth horizontalPadding={sessionInputHorizontalPadding}>
-                    <Pressable accessibilityRole="button" onPress={() => openClaudeNative(sessionId)} style={{ paddingVertical: 8, alignItems: 'center' }}>
-                        <Text style={{ color: theme.colors.textSecondary }}>{t('localFeatures.nativeOpen')}</Text>
-                    </Pressable>
-                </CenteredInputWidth>
-            )}
             {visibleAgentGoal && (
                 <AnimatedFade visible={showBottomDockDetails}>
                     <CenteredInputWidth horizontalPadding={sessionInputHorizontalPadding}>
