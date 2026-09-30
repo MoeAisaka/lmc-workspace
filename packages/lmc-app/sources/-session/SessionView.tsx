@@ -1,3 +1,4 @@
+import { openClaudeNative } from '@/components/ClaudeNativeDialog';
 import { resolveTurnElapsed } from '@/utils/turnElapsed';
 import { pendingQueuePrompts } from '@/sync/queuedMessageVisibility';
 import { useMachine } from '@/sync/storage';
@@ -1349,15 +1350,15 @@ export function SessionViewLoaded({
                 placeholder={t('session.inputPlaceholder')}
                 sessionId={sessionId}
                 permissionMode={permissionMode}
-                onPermissionModeChange={isRigPermissionSelectionEnabled(session.metadata) ? updatePermissionMode : undefined}
+                onPermissionModeChange={!session.metadata?.claudeNativeActive && isRigPermissionSelectionEnabled(session.metadata) ? updatePermissionMode : undefined}
                 availableModes={availableModes}
                 modelMode={modelMode}
                 availableModels={availableModels}
-                onModelModeChange={isRigModelSelectionEnabled(session.metadata) ? updateModelMode : undefined}
+                onModelModeChange={!session.metadata?.claudeNativeActive && isRigModelSelectionEnabled(session.metadata) ? updateModelMode : undefined}
                 effortLevel={effortLevel}
                 availableEffortLevels={availableEffortLevels}
-                onEffortLevelChange={isRigReasoningSelectionEnabled(session.metadata) ? updateEffortLevel : undefined}
-                onEngineSwitch={canSwitchEngine ? switchEngine : undefined}
+                onEffortLevelChange={!session.metadata?.claudeNativeActive && isRigReasoningSelectionEnabled(session.metadata) ? updateEffortLevel : undefined}
+                onEngineSwitch={!session.metadata?.claudeNativeActive && canSwitchEngine ? switchEngine : undefined}
                 metadata={catalogMetadata}
                 connectionStatus={connectionStatus}
                 blockSend={isRig && session.thinking && session.metadata?.capabilities?.steering !== true}
@@ -1423,6 +1424,13 @@ export function SessionViewLoaded({
     const input = (
         <>
             {inactiveHint}
+            {session.metadata?.claudeNativeActive && (
+                <CenteredInputWidth horizontalPadding={sessionInputHorizontalPadding}>
+                    <Pressable accessibilityRole="button" onPress={() => openClaudeNative(sessionId)} style={{ paddingVertical: 8, alignItems: 'center' }}>
+                        <Text style={{ color: theme.colors.textSecondary }}>{t('localFeatures.nativeOpen')}</Text>
+                    </Pressable>
+                </CenteredInputWidth>
+            )}
             {visibleAgentGoal && (
                 <AnimatedFade visible={showBottomDockDetails}>
                     <CenteredInputWidth horizontalPadding={sessionInputHorizontalPadding}>

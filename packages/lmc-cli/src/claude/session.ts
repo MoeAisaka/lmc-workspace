@@ -26,6 +26,7 @@ export class Session {
     readonly jsRuntime: JsRuntime;
 
     getRefreshSettings: () => { model?: string; effort?: string; permissionMode?: string } = () => ({});
+    getNativeMode: () => EnhancedMode = () => ({});
     /** Runs only for a consumed user turn, never for a steer or a queued preview. */
     prepareGoalMessage?: (input: ClaudeGoalMessage, commands: string[]) => Promise<ClaudeGoalMessage>;
     /** Set by the runner. The launcher arms it when a switch is requested. */
@@ -41,6 +42,8 @@ export class Session {
     interruptTurn: (() => Promise<void>) | null = null;
     sessionId: string | null;
     mode: 'local' | 'remote' = 'local';
+    /** Explicit opt-in at an idle SDK boundary; never inferred from a prompt. */
+    nativeComputer = false;
     thinking: boolean = false;
     
     /** Callbacks to be notified when session ID is found/changed */

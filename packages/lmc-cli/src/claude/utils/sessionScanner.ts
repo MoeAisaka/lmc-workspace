@@ -168,6 +168,7 @@ export async function createSessionScanner(opts: {
 
     // Public interface
     return {
+        flush: () => sync.invalidateAndAwait(),
         cleanup: async () => {
             clearInterval(intervalId);
             for (let w of watchers.values()) {

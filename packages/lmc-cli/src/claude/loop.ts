@@ -4,6 +4,7 @@ import { logger } from "@/ui/logger"
 import { Session } from "./session"
 import { claudeLocalLauncher, LauncherResult } from "./claudeLocalLauncher"
 import { claudeRemoteLauncher } from "./claudeRemoteLauncher"
+import { claudeNativeLauncher } from './native/launcher';
 import { ApiClient } from "@/lib"
 import type { JsRuntime } from "./runClaude"
 import type { SandboxConfig } from "@/persistence"
@@ -80,6 +81,13 @@ export async function loop(opts: LoopOptions): Promise<number> {
 
         switch (mode) {
             case 'local': {
+                if (session.nativeComputer) {
+                    const result = await claudeNativeLauncher(session);
+                    if (result === 'exit') return 1;
+                    mode = 'remote';
+                    opts.onModeChange(mode);
+                    break;
+                }
                 const result = await claudeLocalLauncher(session);
                 switch (result.type ) {
                     case 'switch':

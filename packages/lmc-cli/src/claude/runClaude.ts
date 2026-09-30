@@ -750,6 +750,10 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     });
 
     session.onUserMessage(async (message) => {
+        if (currentSession?.nativeComputer && /^\s*\//.test(message.content.text)) {
+            session.sendSessionEvent({ type: 'message', message: '原生模式下请在原生控制窗口输入斜杠命令；聊天框仅接收普通消息。' });
+            return;
+        }
         const candidateModel = message.meta && Object.hasOwn(message.meta, 'model') ? message.meta.model ?? undefined : currentModel;
         const candidateEffort = message.meta && Object.hasOwn(message.meta, 'effort') ? message.meta.effort : currentEffort;
         const supportedEfforts = cachedModel('claude', candidateModel)?.efforts;
@@ -1080,7 +1084,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
             session.sendSessionEvent({ type: 'switch', mode: newMode });
             session.updateAgentState((currentState) => ({
                 ...currentState,
-                controlledByUser: newMode === 'local'
+                controlledByUser: newMode === 'local' && !currentSession?.nativeComputer
             }));
         },
         onSessionReady: (sessionInstance) => {
@@ -1092,6 +1096,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
                 available: async () => !pendingClaudeGoalAction && await claudeGoalAvailable(getProjectPath(workingDirectory), sessionInstance.sessionId),
                 onCommand: recordAppPrompt,
             });
+            sessionInstance.getNativeMode = currentEnhancedMode;
             sessionInstance.getRefreshSettings = () => ({ model: currentModel, effort: currentEffort, permissionMode: currentPermissionMode });
             sessionInstance.handoff = handoffPort;
             sessionInstance.onTurnFailure = (detail) => { void quota.onFailure(detail); };

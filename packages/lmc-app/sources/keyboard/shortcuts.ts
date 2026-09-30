@@ -22,6 +22,7 @@ export interface NavigatorPlatformLike {
 }
 
 export type SessionActionShortcutId =
+    | 'native-computer'
     | 'session-settings'
     | 'refresh-config'
     | 'check-auth'
@@ -46,6 +47,7 @@ export interface ShortcutChord {
 }
 
 export const SESSION_ACTION_SHORTCUTS: Readonly<Record<SessionActionShortcutId, ShortcutChord>> = {
+    'native-computer': { key: 'c', code: 'KeyC', keyLabel: 'C', altKey: true, shiftKey: true },
     'session-settings': { key: 's', code: 'KeyS', keyLabel: 'S', altKey: true, shiftKey: true },
     'check-auth': { key: 'a', code: 'KeyA', keyLabel: 'A', altKey: true, shiftKey: true },
     'refresh-config': { key: 'u', code: 'KeyU', keyLabel: 'U', altKey: true, shiftKey: true },

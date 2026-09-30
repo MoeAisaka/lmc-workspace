@@ -1,3 +1,4 @@
+import { openClaudeNative } from '@/components/ClaudeNativeDialog';
 import { sessionCapabilities } from '@/sync/sessionCapabilities';
 import { checkSessionAuthentication } from '@/sync/engineAuthentication';
 import { refreshSessionCli } from '@/sync/sessionConfiguration';
@@ -316,6 +317,7 @@ export function useSessionQuickActions(
         ];
 
         const capabilities = sessionCapabilities(session.metadata);
+        if (session.metadata?.flavor === 'claude' && session.metadata.sessionCapabilities?.nativeComputer) items.push({ id: 'native-computer', icon: 'desktop-outline', label: t('localFeatures.nativeTitle'), onPress: () => openClaudeNative(session.id), disabled: !session.active });
         if (capabilities.authentication) items.push({ id: 'check-auth', icon: 'key-outline', label: t('localFeatures.engineAuthCheck'), onPress: checkAuthentication, disabled: !session.active });
         if (capabilities.refresh) items.push(
             { id: 'refresh-config', icon: 'refresh-outline', label: session.metadata?.sessionConfigState === 'queued' ? t('localFeatures.refreshWaiting') : session.metadata?.sessionConfigState === 'refreshing' ? t('localFeatures.refreshRestarting') : session.metadata?.sessionConfigState === 'verifying' ? t('localFeatures.refreshVerifying') : t('localFeatures.refreshConfiguration'), onPress: refreshConfiguration, disabled: !session.active || refreshProgress(session.metadata!, Date.now()).pending },

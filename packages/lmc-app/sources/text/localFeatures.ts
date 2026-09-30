@@ -1,4 +1,16 @@
 export const localFeatureEnglish = {
+    "nativeOpen": "Native mode · Open controls",
+    "nativeTitle": "Native Claude computer",
+    "nativeHint": "Same conversation. Messages stay in chat; respond to native prompts here. Closing this window leaves Claude running. Mouse detection may be limited.",
+    "nativeStart": "Enter native mode when idle",
+    "nativeReconnect": "Refresh the native screen before responding.",
+    "nativeEnter": "Enter",
+    "nativeChoice": "Native menu number",
+    "nativeConfirmChoice": "Confirm number",
+    "nativeText": "Text for the native prompt",
+    "nativePaste": "Paste only",
+    "nativeLeave": "Leave native mode when idle",
+
     "quotaTitle": "Account usage",
     "quotaRefresh": "Refresh usage",
     "quotaUnknown": "No data",
@@ -182,6 +194,18 @@ export const localFeatureEnglish = {
 };
 
 export const localFeatureZhHans = {
+    "nativeOpen": "原生模式中 · 打开控制窗口",
+    "nativeTitle": "Claude 原生电脑",
+    "nativeHint": "沿用当前会话。普通消息仍在聊天中发送，原生提示在这里操作。关闭窗口不会停止 Claude。鼠标识别可能受限。",
+    "nativeStart": "空闲时开启原生模式",
+    "nativeReconnect": "请刷新原生画面后再操作。",
+    "nativeEnter": "回车",
+    "nativeChoice": "原生菜单编号",
+    "nativeConfirmChoice": "确认编号",
+    "nativeText": "输入原生提示所需的文本",
+    "nativePaste": "仅粘贴",
+    "nativeLeave": "空闲时退出原生模式",
+
     "quotaTitle": "账户额度",
     "quotaRefresh": "刷新额度",
     "quotaUnknown": "暂无数据",

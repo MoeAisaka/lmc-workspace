@@ -385,10 +385,12 @@ export type Metadata = {
   modelMode?: string | null;
   effortLevel?: string | null;
   agentBuild?: string;
+  claudeNativeActive?: boolean;
   engineRuntime?: {engine:string;version:string;packageVersion?:string;source:string;path:string};
   sessionCapabilities?: { automaticGoals?: boolean; authenticationRecovery?: boolean; modelDiscovery?: boolean; refresh: boolean; authentication: boolean; runtimeConfiguration: boolean; resourceFiles?: boolean; resourceSearch?: boolean; fileInbox?: boolean; resume?:boolean;model?:boolean;effort?:boolean;context?:boolean;serviceTier?:boolean;
     /** The runner answers `cancel-session-refresh` while a refresh or switch is still queued. */
     cancelRefresh?: boolean;
+    nativeComputer?: boolean;
     /** The runner publishes agentState.queue and answers dequeue / promote; messages may carry meta.intent. */
     turnQueue?: boolean;
     /** Durable receipts identify when queued input leaves the waiting state. */

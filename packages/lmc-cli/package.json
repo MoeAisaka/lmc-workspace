@@ -1,6 +1,6 @@
 {
   "name": "link-my-cli",
-  "version": "1.2.65",
+  "version": "1.2.66",
   "description": "Link my Cli device Agent for Codex and Claude Code",
   "author": "Kirill Dubovitskiy",
   "license": "MIT",
@@ -81,6 +81,7 @@
     "@agentclientprotocol/sdk": "^0.14.1",
     "@anthropic-ai/claude-agent-sdk": "^0.3.179",
     "@anthropic-ai/sandbox-runtime": "^0.0.37",
+    "@lydell/node-pty": "1.2.0-beta.15",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@noble/ed25519": "^3.0.0",
     "@noble/hashes": "^2.0.1",
@@ -93,6 +94,7 @@
     "@types/qrcode-terminal": "^0.12.2",
     "@types/react": "^19.2.7",
     "@types/tmp": "^0.2.6",
+    "@xterm/headless": "6.0.0",
     "ai": "^5.0.107",
     "axios": "^1.13.2",
     "chalk": "^5.6.2",

@@ -35,6 +35,7 @@ import type { ContentBlockParam } from '@anthropic-ai/sdk/resources';
 import { saveAttachmentsToInbox, formatInboxNote } from '@/modules/common/attachmentInbox';
 import { watchSessionConfiguration } from '@/modules/orchestration/workerConfig';
 import { normalizeRemotePermissionMode } from './utils/permissionMode';
+import { nativeTransportAvailable } from './native/interactiveProcess';
 
 interface PermissionsField {
     date: number;
@@ -249,8 +250,22 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
         return { status: 'cancelled' };
     });
     await session.client.updateMetadata(m => ({ ...m,
-        sessionCapabilities: { ...engineCapabilities('claude'), refresh: true, runtimeConfiguration: false },
+        claudeNativeActive: false,
+        sessionCapabilities: { ...engineCapabilities('claude'), nativeComputer: nativeTransportAvailable() && !session.sandboxConfig?.enabled, refresh: true, runtimeConfiguration: false },
     }));
+    session.client.rpcHandlerManager.registerHandler('native-computer', async (request: any) => {
+        if (request?.action !== 'start') return { active: false };
+        if (!nativeTransportAvailable() || session.sandboxConfig?.enabled) throw new Error('当前设备或沙盒不支持原生电脑模式');
+        if (session.client.getMetadata()?.orchestration?.role === 'worker') throw new Error('执行单元尚不支持原生模式的主控审批转发');
+        if (session.claudeArgs?.some(arg => arg !== '--chrome' && arg !== '--no-chrome')) throw new Error('当前会话含自定义 CLI 参数，暂不支持安全转入原生模式');
+        if (!safeIdle || pending || exitReason || session.queue.size() || permissionHandler.hasPendingRequests() || backgroundTasks.size || refresh.pending) {
+            throw new Error('请等待回合、排队消息、授权和后台任务结束后开启原生模式');
+        }
+        if (session.sessionId && !claudeCheckSession(session.sessionId, session.path)) throw new Error('原会话记录不可恢复，未切换原生模式');
+        session.nativeComputer = true;
+        void doSwitch();
+        return { starting: true };
+    });
     // Seed the resumed identity once. /clear deliberately resets this to null.
     session.sessionId ??= session.client.getMetadata()?.claudeSessionId ?? null;
     if (process.env.HAPPY_REFRESH_RECEIVE_SEQ !== undefined) {
@@ -694,6 +709,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
             }
         }
     } finally {
+        session.client.rpcHandlerManager.unregisterHandler('native-computer');
         stopWatchingConfiguration();
         session.client.rpcHandlerManager.unregisterHandler('configure-session');
         session.client.rpcHandlerManager.unregisterHandler('cancel-session-refresh');
