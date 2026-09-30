@@ -1,3 +1,4 @@
+import { decideQueryBoundary } from './utils/queryBoundary';
 import { it, expect } from 'vitest';
 import fs from 'node:fs';
 import ts from 'typescript';
@@ -8,8 +9,8 @@ function visit(n: ts.Node){if(ts.isPropertyAssignment(n)&&n.name.getText(sf)==='
 const body=ts.transpileModule(`let exitReason=null,pending=null,safeIdle=true,modeHash='old',mode=null;const controller=new AbortController();const next=${arrow};return {next,restart:()=>{modeHash=null;mode=null;}}`,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
 let saves=0;const batches=[{message:'inspect attached image',hash:'new-model',mode:{model:'new-model'},attachments:[{name:'example.png',data:new Uint8Array([1]),mimeType:'image/png'}]}, {message:'switch back',hash:'old',mode:{model:'old'}}];
 const session={queue:{waitForMessagesAndGetAsString:async()=>batches.shift()},getRefreshSettings:()=>({}),client:{sessionId:'audit'},path:'/tmp'};
-const factory=new Function('session','permissionHandler','logger','saveAttachmentsToInbox','formatInboxNote','detectClaudeImageMime',body);
-const run=factory(session,{handleModeChange:async()=>{}},{debug:()=>{}},async()=>{saves++;return []},()=>'',()=> 'image/png');
+const factory=new Function('session','permissionHandler','logger','saveAttachmentsToInbox','formatInboxNote','detectClaudeImageMime','decideQueryBoundary','backgroundTasks',body);
+const run=factory(session,{handleModeChange:async()=>{}},{debug:()=>{}},async()=>{saves++;return []},()=>'',()=> 'image/png',decideQueryBoundary,new Map());
 expect(await run.next()).toBeNull();
 run.restart();
 const initial = await run.next();
@@ -18,4 +19,11 @@ expect(initial.message[0].type).toBe('image');
 expect(await run.next()).toBeNull();
 run.restart();
 expect((await run.next()).mode.model).toBe('old');
+
+// A background task keeps Claude alive: a batch in another mode goes into the
+// running query instead of waiting on a query end that never comes.
+const busy=[{message:'report from worker',hash:'new-model',mode:{model:'new-model'}}];
+const busySession={...session,queue:{waitForMessagesAndGetAsString:async()=>busy.shift()}};
+const runBusy=factory(busySession,{handleModeChange:async()=>{}},{debug:()=>{}},async()=>[],()=>'',()=> 'image/png',decideQueryBoundary,new Map([['task',{}]]));
+expect((await runBusy.next())?.message).toBe('report from worker');
 });

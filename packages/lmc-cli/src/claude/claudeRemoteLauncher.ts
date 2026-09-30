@@ -10,6 +10,7 @@ import { isPendingState } from '@/utils/refreshState';
 import { prepareDaemonSessionRefresh } from '@/daemon/controlClient';
 import { claudeCheckSession } from './utils/claudeCheckSession';
 import { trackBackgroundTask, releaseForegroundTasks, type BackgroundTasks } from './utils/backgroundTasks';
+import { decideQueryBoundary } from './utils/queryBoundary';
 import { render } from "ink";
 import { Session } from "./session";
 import { MessageBuffer } from "@/ui/ink/messageBuffer";
@@ -495,14 +496,24 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                             safeIdle = false;
                             const latest = session.getRefreshSettings();
                             if (Object.prototype.hasOwnProperty.call(latest, 'permissionMode')) msg.mode = { ...msg.mode, permissionMode: normalizeRemotePermissionMode(latest.permissionMode) };
-                            if ((modeHash && msg.hash !== modeHash) || (msg.isolate && !carried)) {
+                            const boundary = decideQueryBoundary({ runningModeHash: modeHash, batchHash: msg.hash, isolate: !!msg.isolate, carried: !!carried, backgroundTasks: backgroundTasks.size });
+                            if (boundary === 'restart') {
                                 logger.debug('[remote]: mode has changed, pending message');
                                 pending = msg;
                                 return null;
                             }
-                            modeHash = msg.hash;
-                            mode = msg.mode;
-                            await permissionHandler.handleModeChange(mode.permissionMode);
+                            if (boundary === 'defer-mode-change') {
+                                // Ending the query now would wait on background tasks that may
+                                // never finish. Run this batch in the current query; a later
+                                // batch in the new mode restarts once the tasks are done. The
+                                // permission mode still applies at once, it needs no restart.
+                                logger.debug(`[remote]: mode change deferred while ${backgroundTasks.size} background task(s) run`);
+                                await permissionHandler.handleModeChange(msg.mode.permissionMode);
+                            } else {
+                                modeHash = msg.hash;
+                                mode = msg.mode;
+                                await permissionHandler.handleModeChange(mode.permissionMode);
+                            }
 
                             // Per-message attachments are already claimed by the message
                             // when it was pushed onto the queue, so there is no race window
