@@ -53,7 +53,7 @@ import { startAgentMail } from '@/modules/agentMail/agentMailLoop';
 import { watchSessionConfiguration } from '@/modules/orchestration/workerConfig';
 import { workerBirthFromEnv } from '@/modules/orchestration/workerBirth';
 import { resolveWorkerPermissionMode } from '@/modules/orchestration/workerPermission';
-import { createQuotaReporter } from '@/modules/orchestration/quota';
+import { createWorkerFailureReporter } from '@/modules/orchestration/workerFailure';
 import { createTaskMeter } from '@/modules/orchestration/meter';
 import { hubDisallowedTools } from '@/modules/orchestration/hubGuard';
 import { consumePendingHandoff, createHandoffPort } from '@/utils/handoffPort';
@@ -515,7 +515,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     });
     // A worker refused for quota reports itself to its hub; the model cannot.
     const meter = createTaskMeter();
-    const quota = createQuotaReporter({ selfId: session.sessionId, metadata: () => session.getMetadata(), updateMetadata: (u) => session.updateMetadata(u), sendMail: (id, text) => agentMail.mail.send(id, text, 1) });
+    const failures = createWorkerFailureReporter({ selfId: session.sessionId, metadata: () => session.getMetadata(), updateMetadata: (u) => session.updateMetadata(u), sendMail: (id, text) => agentMail.mail.send(id, text, 1) });
     // Start Happy MCP server
     const handoffPort = createHandoffPort(session, 'Claude Code', 'claude', () => {
         const id = session.getMetadata()?.claudeSessionId;
@@ -1100,7 +1100,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
             sessionInstance.onNativeTranscriptEvent = updateClaudeGoalState;
             sessionInstance.getRefreshSettings = () => ({ model: currentModel, effort: currentEffort, permissionMode: currentPermissionMode });
             sessionInstance.handoff = handoffPort;
-            sessionInstance.onTurnFailure = (detail) => { void quota.onFailure(detail); };
+            sessionInstance.onTurnFailure = (detail) => { void failures.onFailure(detail); };
             sessionInstance.onTurnUsage = (usage) => meter.add(usage);
             sessionInstance.onTurnTotal = (total) => meter.reconcile(total);
         },

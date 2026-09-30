@@ -37,6 +37,9 @@ vi.mock('@/sandbox/manager', () => ({
     wrapForMcpTransport: mockWrapForMcpTransport,
 }));
 
+// Protocol fixtures use a custom provider; live ChatGPT model validation has its own suite.
+vi.mock('@/utils/engineLoginContext', () => ({ engineLoginContext: () => ({ supported: false }) }));
+
 vi.mock('@/ui/logger', () => ({
     logger: {
         debug: vi.fn(),

@@ -5,7 +5,8 @@ import { AgentMailClient, formatIncomingMail, type AgentDescriptor } from './age
 import { relationTo } from '@/modules/orchestration/roles';
 import { boardUpdate } from '@/modules/orchestration/board';
 import { formatReportEnvelope, parseEnvelope } from '@/modules/orchestration/envelope';
-import { applyWorkerConfig, configDirectives, hasConfig, isConfigMail } from '@/modules/orchestration/workerConfig';
+import { applyWorkerConfig, configDirectives, hasConfig, isConfigMail, WorkerConfigValidationError, type WorkerConfig } from '@/modules/orchestration/workerConfig';
+import type { Metadata } from '@/api/types';
 
 const POLL_MS = 10_000;
 
@@ -21,7 +22,8 @@ const POLL_MS = 10_000;
  * only when what it says actually changed, so a quiet session costs one small
  * request per tick and nothing else.
  */
-export function startAgentMail(session: ApiSessionClient, token: string, describe: () => AgentDescriptor) {
+export function startAgentMail(session: ApiSessionClient, token: string, describe: () => AgentDescriptor,
+    validateConfig?: (config: WorkerConfig, metadata: Metadata) => Promise<void>) {
     const mail = new AgentMailClient(token, session.sessionId);
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -103,27 +105,58 @@ export function startAgentMail(session: ApiSessionClient, token: string, describ
                     if (relation === 'hub') {
                         config = isConfigMail(message.text) ? configDirectives(message.text) : envelope?.kind === 'task' ? configDirectives(envelope.fields.run) : {};
                     }
-                    if (hasConfig(config)) await session.updateMetadata((m) => relationTo(m.orchestration, message.fromSessionId) === 'hub'
-                        ? applyWorkerConfig(m, config) : m, { strict: true });
+                    if (hasConfig(config)) {
+                        const current = session.getMetadata();
+                        if (current && relationTo(current.orchestration, message.fromSessionId) === 'hub') await validateConfig?.(config, current);
+                        await session.updateMetadata((m) => relationTo(m.orchestration, message.fromSessionId) === 'hub'
+                            ? applyWorkerConfig(m, config) : m, { strict: true });
+                    }
                     // A binding can change while the metadata write is in flight.
                     // Accepted settings reach the runner through its metadata
                     // subscription; never replay a captured configuration in a
                     // later user message (which could undo a newer choice).
+                    relation = relationTo(session.getMetadata()?.orchestration, message.fromSessionId);
+                    let projectionError: unknown;
+                    if (relation) {
+                        const update = boardUpdate(message.text, message.fromSessionId);
+                        // An immediately rejected turn must already have its task identity.
+                        // Storage failure still must not discard a collected instruction.
+                        if (update) try {
+                            await session.updateMetadata(m => relationTo(m.orchestration, message.fromSessionId) ? update(m) : m, { strict: true });
+                        } catch (error) { projectionError = error; }
+                    }
                     relation = relationTo(session.getMetadata()?.orchestration, message.fromSessionId);
                     if (relation === 'hub' && (isConfigMail(message.text) || envelope?.kind === 'review')) {
                         // Store/notify only. A review or configuration is not a
                         // fresh assignment and must not bill another model turn.
                         session.sendSessionEvent({ type: 'message', message: message.text });
                     } else {
-                        // Delivery precedes the board projection: a rejected
-                        // board write must not discard an already-collected task.
                         session.sendUserTextMessage(formatIncomingMail(message, relation), undefined);
                     }
-                    if (relation) {
-                        const update = boardUpdate(message.text, message.fromSessionId);
-                        if (update) await session.updateMetadata(m => relationTo(m.orchestration, message.fromSessionId) ? update(m) : m, { strict: true });
-                    }
+                    if (projectionError) throw projectionError;
                     } catch (error) {
+                        if (error instanceof WorkerConfigValidationError) {
+                            const text = `[configuration] ${error.message} 原设置保留，本条指令未启动模型回合。`;
+                            session.sendSessionEvent({ type: 'message', message: text });
+                            if (relationTo(session.getMetadata()?.orchestration, message.fromSessionId) === 'hub') {
+                                const task = parseEnvelope(message.text);
+                                if (task?.kind === 'task') {
+                                    const report = formatReportEnvelope({ id: task.id, attempt: task.attempt, status: 'blocked', fields: {
+                                        dispatch: task.fields.dispatch,
+                                        summary: 'Task was not started: its requested runtime configuration was rejected.', blocked: `configuration — ${error.message}`,
+                                    } });
+                                    // Keep the original contract even when validation precedes delivery.
+                                    for (const record of [message.text, report]) {
+                                        const update = boardUpdate(record, message.fromSessionId);
+                                        if (update) await session.updateMetadata(m => relationTo(m.orchestration, message.fromSessionId) === 'hub' ? update(m) : m, { strict: true }).catch(() => undefined);
+                                    }
+                                    await mail.send(message.fromSessionId, report, 1).catch(() => undefined);
+                                } else {
+                                    await mail.send(message.fromSessionId, `[notice] worker ${session.sessionId}: ${text}`, 1).catch(() => undefined);
+                                }
+                            }
+                            continue;
+                        }
                         // One failed projection/configuration must not swallow
                         // the rest of this batch, which has already been claimed.
                         logger.debug('[agent-mail] Message processing failed', error);

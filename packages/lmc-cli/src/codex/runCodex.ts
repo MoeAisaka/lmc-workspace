@@ -81,9 +81,10 @@ import {
     type CodexGoalCommand,
 } from './codexGoalStatus';
 import { startAgentMail } from '@/modules/agentMail/agentMailLoop';
-import { watchSessionConfiguration } from '@/modules/orchestration/workerConfig';
+import { watchSessionConfiguration, WorkerConfigValidationError } from '@/modules/orchestration/workerConfig';
+import { AccountModelSelectionError } from './accountModelGuard';
 import { consumePendingHandoff, createHandoffPort } from '@/utils/handoffPort';
-import { createQuotaReporter } from '@/modules/orchestration/quota';
+import { createWorkerFailureReporter } from '@/modules/orchestration/workerFailure';
 import { codexTurnUsage, createTaskMeter } from '@/modules/orchestration/meter';
 import { hubCodexPermissionMode, hubCodexApprovalDenied, isHub, HUB_CODEX_DENIAL, hubCodexMcpTools } from '@/modules/orchestration/hubGuard';
 import { resolveWorkerPermissionMode } from '@/modules/orchestration/workerPermission';
@@ -977,7 +978,7 @@ export async function runCodex(opts: {
             const failure = describeCodexFailure(msg);
             if (failure) {
                 if (isEngineAuthError(failure)) void session.updateMetadata(m => ({ ...m, engineAuth: { status: 'required', checkedAt: Date.now() } }));
-                void quota.onFailure(failure);
+                if (!isSubagentScopedEvent) void failures.onFailure(failure);
                 messageBuffer.addMessage(`Task failed: ${failure}`, 'status');
                 session.sendSessionEvent({ type: 'message', message: `Codex error: ${failure}` });
             } else {
@@ -987,7 +988,7 @@ export async function runCodex(opts: {
             const failure = describeCodexFailure(msg);
             if (failure) {
                 if (isEngineAuthError(failure)) void session.updateMetadata(m => ({ ...m, engineAuth: { status: 'required', checkedAt: Date.now() } }));
-                void quota.onFailure(failure);
+                if (!isSubagentScopedEvent) void failures.onFailure(failure);
                 messageBuffer.addMessage(`Turn aborted: ${failure}`, 'status');
                 session.sendSessionEvent({ type: 'message', message: `Codex error: ${failure}` });
             } else {
@@ -1082,6 +1083,8 @@ export async function runCodex(opts: {
 
     // Agent mail, same as Claude: the tools ride the MCP server the bridge
     // already forwards to, and the loop only polls for sessions that opted in.
+    let resolveClientReady!: (ready: boolean) => void;
+    const clientReady = new Promise<boolean>(resolve => { resolveClientReady = resolve; });
     const agentMail = startAgentMail(session, opts.credentials.token, () => {
         const meta = session.getMetadata();
         return {
@@ -1090,12 +1093,21 @@ export async function runCodex(opts: {
             title: meta?.summary?.text || meta?.path?.split('/').pop() || 'session',
             path: meta?.path,
         };
+    }, async (config, metadata) => {
+        if (!config.model && !config.effort) return;
+        try {
+            if (!await clientReady) throw new Error('Codex disconnected');
+            await client.validateModelSelection(config.model ?? metadata.modelMode, config.effort ?? metadata.effortLevel);
+        } catch (error) {
+            throw new WorkerConfigValidationError(error instanceof AccountModelSelectionError || error instanceof UnsupportedCodexEffortError
+                ? error.message : '无法确认所选 Codex 模型和思考深度，请检查当前账号模型目录后重试。');
+        }
     });
 
     // Start Happy MCP server (HTTP) and prepare STDIO bridge config for Codex
-    // A worker refused for quota reports itself to its hub; the model cannot.
+    // A worker refused by its engine reports itself to its hub; the model cannot.
     const meter = createTaskMeter();
-    const quota = createQuotaReporter({ selfId: session.sessionId, metadata: () => session.getMetadata(), updateMetadata: (u) => session.updateMetadata(u), sendMail: (id, text) => agentMail.mail.send(id, text, 1) });
+    const failures = createWorkerFailureReporter({ selfId: session.sessionId, metadata: () => session.getMetadata(), updateMetadata: (u) => session.updateMetadata(u), sendMail: (id, text) => agentMail.mail.send(id, text, 1) });
     const handoffPort = createHandoffPort(session, 'Codex', 'codex', () => {
         const id = session.getMetadata()?.codexThreadId;
         return id ? { engine: 'Codex', id } : null;
@@ -1166,6 +1178,7 @@ export async function runCodex(opts: {
     try {
         logger.debug('[codex]: client.connect begin');
         await client.connect();
+        resolveClientReady(true);
         logger.debug('[codex]: client.connect done');
         void refreshQuota();
         quotaTimer = setInterval(() => { void refreshQuota(); }, 30_000);
@@ -1522,8 +1535,10 @@ export async function runCodex(opts: {
                 if (error instanceof Error && isEngineAuthError(error.message)) {
                     void session.updateMetadata(m => ({ ...m, engineAuth: { status: 'required', checkedAt: Date.now() } }));
                 }
-                messageBuffer.addMessage('Process exited unexpectedly', 'status');
-                session.sendSessionEvent({ type: 'message', message: 'Process exited unexpectedly' });
+                const detail = error instanceof Error ? error.message : 'Codex runtime failure';
+                await failures.onFailure(detail);
+                messageBuffer.addMessage(detail, 'status');
+                session.sendSessionEvent({ type: 'message', message: `Codex 未完成本次请求：${detail}` });
             } finally {
                 // Reset permission handler, reasoning processor, and diff processor
                 permissionHandler.reset();
@@ -1553,6 +1568,7 @@ export async function runCodex(opts: {
         throw error;
     } finally {
         // Clean up resources when main loop exits
+        resolveClientReady(false);
         quotaStopped = true;
         if (quotaTimer) clearInterval(quotaTimer);
         logger.debug('[codex]: Final cleanup start');

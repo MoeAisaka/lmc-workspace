@@ -7,6 +7,7 @@ vi.mock('./agentMail', () => ({
 }));
 
 import { startAgentMail } from './agentMailLoop';
+import { WorkerConfigValidationError } from '@/modules/orchestration/workerConfig';
 
 function sessionWith(metadata: any) {
     let hubRequest: any;
@@ -24,6 +25,46 @@ function sessionWith(metadata: any) {
 afterEach(() => vi.useRealTimers());
 
 describe('control mail is not a new model turn', () => {
+    it('records the dispatch before delivering a task that can fail immediately', async () => {
+        vi.useFakeTimers();
+        const session = sessionWith({ orchestration: { role: 'worker', hub: { sessionId: 'H', by: 'auto', boundAt: 1 } } });
+        let dispatched: unknown;
+        session.sendUserTextMessage = vi.fn(() => { dispatched = session.getMetadata().orchestration.board[0]; });
+        const loop = startAgentMail(session, 'token', () => ({ machine: 'm', engine: 'codex', title: 'worker' }));
+        (loop.mail as any).receive.mockResolvedValueOnce([{ id: 'fast', fromSessionId: 'H', text: '[task deploy · attempt 1]\ndispatch  original\ngoal  work\nacceptance  tests', hop: 1, createdAt: 1 }]);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(dispatched).toMatchObject({ id: 'deploy', dispatchId: 'original', state: 'dispatched' });
+        loop.stop();
+    });
+    it('rejects an unavailable model before changing configuration and reports the original dispatch', async () => {
+        vi.useFakeTimers();
+        const session = sessionWith({ flavor: 'codex', modelMode: 'gpt-6-astra', effortLevel: 'medium', orchestration: { role: 'worker', hub: { sessionId: 'H', by: 'auto', boundAt: 1 } } });
+        const validate = vi.fn(async (config: any) => { if (config.model === 'gpt-6.1') throw new WorkerConfigValidationError('gpt-6.1 unavailable; select gpt-6.1-sol'); });
+        const loop = startAgentMail(session, 'token', () => ({ machine: 'm', engine: 'codex', title: 'worker' }), validate);
+        (loop.mail as any).receive.mockResolvedValueOnce([
+            { id: 'bad', fromSessionId: 'H', text: '[task deploy · attempt 1]\ndispatch  original\ngoal  work\nrun  model=gpt-6.1 effort=medium\nacceptance  tests', hop: 1, createdAt: 1 },
+            { id: 'good', fromSessionId: 'H', text: '[config for s1]\nmodel  gpt-6.1-sol', hop: 1, createdAt: 1 },
+        ]);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(session.sendUserTextMessage).not.toHaveBeenCalled();
+        expect(session.getMetadata().modelMode).toBe('gpt-6.1-sol');
+        expect(session.getMetadata().orchestration.board[0]).toMatchObject({ id: 'deploy', attempt: 1, dispatchId: 'original', state: 'blocked' });
+        expect((loop.mail as any).send).toHaveBeenCalledWith('H', expect.stringContaining('[report deploy · attempt 1 · blocked]'), 1);
+        expect((loop.mail as any).send.mock.calls[0][1]).toContain('gpt-6.1-sol');
+        loop.stop();
+    });
+    it('reports a rejected control-only configuration without a new task or model turn', async () => {
+        vi.useFakeTimers();
+        const session = sessionWith({ flavor: 'codex', modelMode: 'gpt-6-astra', orchestration: { role: 'worker', hub: { sessionId: 'H', by: 'auto', boundAt: 1 } } });
+        const loop = startAgentMail(session, 'token', () => ({ machine: 'm', engine: 'codex', title: 'worker' }), async () => { throw new WorkerConfigValidationError('invalid model'); });
+        (loop.mail as any).receive.mockResolvedValueOnce([{ id: 'bad', fromSessionId: 'H', text: '[config for s1]\nmodel  gpt-6.1', hop: 1, createdAt: 1 }]);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(session.sendUserTextMessage).not.toHaveBeenCalled();
+        expect(session.getMetadata().modelMode).toBe('gpt-6-astra');
+        expect(session.getMetadata().orchestration.board).toBeUndefined();
+        expect((loop.mail as any).send).toHaveBeenCalledWith('H', expect.stringContaining('[notice]'), 1);
+        loop.stop();
+    });
     it('delivers a blocked decision once to the current hub, without waking the worker or inventing an answer', async () => {
         const session = sessionWith({ orchestration: { role: 'worker', hub: { sessionId: 'H', by: 'auto', boundAt: 1, autonomy: true } } });
         const loop = startAgentMail(session, 'token', () => ({ machine: 'm', engine: 'claude', title: 'worker' }));

@@ -2,6 +2,8 @@ import { codexExecutable } from '@/runtime/managedRuntime';
 import { validateCodexServiceTier, type CodexServiceTier } from './serviceTier';
 import { validateCodexContextLimits, type CodexContextLimits } from './contextLimits';
 import { assertCodexModelEffort } from './modelEffort';
+import { assertAccountModel, AccountModelSelectionError } from './accountModelGuard';
+import { engineLoginContext } from '@/utils/engineLoginContext';
 /**
  * Codex App Server Client — drives Codex via the v2 JSON-RPC protocol
  * (`codex app-server`), replacing the legacy MCP-based CodexMcpClient.
@@ -298,6 +300,20 @@ export class CodexAppServerClient {
 
     setRateLimitsHandler(handler: (value: unknown) => void): void {
         this.rateLimitsHandler = handler;
+    }
+
+    async validateModelSelection(model: string | null | undefined, effort?: string | null): Promise<void> {
+        assertCodexModelEffort(model, effort);
+        try {
+            await assertAccountModel(model, effort, {
+                standardChatGptRoute: engineLoginContext('codex', this.threadDefaults?.cwd ?? process.cwd()).supported,
+                readAccount: () => this.request('account/read', { refreshToken: false }, 10_000),
+                listModels: () => this.listModels(),
+            });
+        } catch (error) {
+            if (error instanceof AccountModelSelectionError) throw error;
+            throw new AccountModelSelectionError('暂时无法核对 Codex 账号模型目录；本次配置或消息未执行，请恢复连接后重试。');
+        }
     }
 
     async listModels(): Promise<unknown[]> {
@@ -1249,7 +1265,7 @@ export class CodexAppServerClient {
             throw new Error('No active thread. Call startThread first.');
         }
 
-        assertCodexModelEffort(opts?.model ?? this.threadDefaults?.model, opts?.effort);
+        await this.validateModelSelection(opts?.model ?? this.threadDefaults?.model, opts?.effort);
 
         const extraInputItems = opts?.extraInputItems ?? [];
         const input: InputItem[] = [];

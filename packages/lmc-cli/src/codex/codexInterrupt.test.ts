@@ -11,6 +11,7 @@ vi.mock('node:child_process', async original => ({
 }));
 vi.mock('@/runtime/managedRuntime', () => ({ codexExecutable: () => 'codex-test', runtimeRelease: () => null }));
 vi.mock('@/ui/logger', () => ({ logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn() } }));
+vi.mock('@/utils/engineLoginContext', () => ({ engineLoginContext: () => ({ supported: false }) }));
 
 import { CodexAppServerClient } from './codexAppServerClient';
 import { MessageQueue2 } from '@/utils/MessageQueue2';

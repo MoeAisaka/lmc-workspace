@@ -20,6 +20,9 @@ export interface WorkerConfig {
     workerDefault?: boolean;
 }
 
+/** Only explicit validation messages are safe to relay as configuration errors. */
+export class WorkerConfigValidationError extends Error {}
+
 /** Observe accepted configuration without injecting a model/user turn. */
 export function watchSessionConfiguration(
     session: Pick<ApiSessionClient, 'on' | 'off' | 'getMetadata' | 'sendSessionEvent'> & Partial<Pick<ApiSessionClient, 'requestHubDecision'>>,
