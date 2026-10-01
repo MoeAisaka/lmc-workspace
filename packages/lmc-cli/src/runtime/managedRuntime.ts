@@ -49,7 +49,7 @@ export function runsSelectedAgent(root:string=agentRoot(), running:string=projec
     return root===running || resolve(root)===resolve(running);
 }
 export function engineCapabilities(engine:Engine) {
-    return {automaticGoals:true,modelDiscovery:true,refresh:true,cancelRefresh:true,turnQueue:true,turnQueueLifecycle:true,authentication:true,authenticationRecovery:true,resume:true,resourceFiles:true,resourceSearch:true,fileInbox:true,model:true,effort:true,context:engine==='codex',serviceTier:engine==='codex',runtimeConfiguration:engine==='codex'};
+    return {automaticGoals:true,modelDiscovery:true,refresh:true,cancelRefresh:true,turnQueue:true,turnSteer:engine==='codex',turnQueueLifecycle:true,authentication:true,authenticationRecovery:true,resume:true,resourceFiles:true,resourceSearch:true,fileInbox:true,model:true,effort:true,context:engine==='codex',serviceTier:engine==='codex',runtimeConfiguration:engine==='codex'};
 }
 export async function runtimeVersion(engine:Engine, fresh=false) {
     const release=runtimeRelease(engine,fresh)??null;

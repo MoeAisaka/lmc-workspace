@@ -393,6 +393,8 @@ export type Metadata = {
     nativeComputer?: boolean;
     /** The runner publishes agentState.queue and answers dequeue / promote; messages may carry meta.intent. */
     turnQueue?: boolean;
+    /** The active transport can accept a queued prompt without interrupting. */
+    turnSteer?: boolean;
     /** Durable receipts identify when queued input leaves the waiting state. */
     turnQueueLifecycle?: boolean };
   engineAuth?: { status: 'ready' | 'required' | 'unknown'; checkedAt: number };

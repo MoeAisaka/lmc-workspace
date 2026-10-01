@@ -55,6 +55,21 @@ describe('sessionScanner', () => {
     await scanner.flush(); await scanner.flush();
     expect(completed).toEqual(['new']); expect(collectedMessages).toEqual([]);
   })
+
+  it('reports only new native queue receipts from the correct provider transcript', async () => {
+    const sessionId = 'steer-session';
+    const sessionFile = join(projectDir, `${sessionId}.jsonl`);
+    const entry = (text: string, timestamp: string, source = sessionId) => JSON.stringify({ type: 'queue-operation', operation: 'enqueue', sessionId: source, timestamp, content: text }) + '\n';
+    await writeFile(sessionFile, entry('old', '2026-10-01T07:00:00.000Z'));
+    const received: { text: string; timestamp: number }[] = [];
+    scanner = await createSessionScanner({ sessionId, workingDirectory: testDir, onMessage: (m: RawJSONLines) => collectedMessages.push(m),
+      onQueuedMessage: e => received.push(e) });
+    await appendFile(sessionFile, entry('new', '2026-10-01T07:01:00.000Z') + entry('foreign', '2026-10-01T07:01:01.000Z', 'other')
+      + entry('malformed', 'not-a-timestamp') + entry('removed', '2026-10-01T07:01:02.000Z').replace('enqueue', 'remove'));
+    await scanner.flush(); await scanner.flush();
+    expect(received).toEqual([{ text: 'new', timestamp: 1790838060000 }]);
+    expect(collectedMessages).toEqual([]);
+  })
   
   it('should process initial session and resumed session correctly', async () => {
     // TEST SCENARIO:

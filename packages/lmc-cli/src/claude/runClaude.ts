@@ -960,9 +960,11 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
             return;
         }
         if (intent === 'steer' && currentSession?.thinking) {
-            // The Claude Agent SDK has no way to add to a running turn. Not an
-            // interrupt in disguise: the message waits, and the transcript says so.
-            session.sendSessionEvent({ type: 'message', message: 'Claude Code 无法把消息补充进正在进行的回合；这条已排队，本轮结束后处理。' });
+            // Explicit queue steering is guarded by the active transport's RPC.
+            // Older senders may still supply intent without issuing that RPC.
+            session.sendSessionEvent({ type: 'message', message: session.getMetadata()?.sessionCapabilities?.turnSteer
+                ? '这条已排队，可点击「引导」补充给正在运行的 Claude，或等待本轮结束后处理。'
+                : '当前 Claude 会话尚未提供引导能力；这条已排队，本轮结束后处理。' });
         }
         messageQueue.push(message.content.text, currentEnhancedMode(), attachmentsForThisMessage, { key: queueKey });
         logger.debugLargeJson('User message pushed to queue:', message)

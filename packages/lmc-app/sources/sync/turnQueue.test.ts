@@ -6,10 +6,16 @@ import { apiSocket } from './apiSocket';
 import { queueSteerState, sessionDequeue, sessionSetQueueMode, sessionSteerQueued, sessionSupportsTurnQueue, steerFailureKey } from './turnQueue';
 
 describe('queueSteerState', () => {
-    it('is enabled only on Codex — Claude keeps the button, dimmed', () => {
+    it('preserves legacy Codex support while keeping older Claude runners disabled', () => {
         expect(queueSteerState({ flavor: 'codex' } as any)).toBe('enabled');
         expect(queueSteerState({ flavor: 'claude' } as any)).toBe('disabled');
         expect(queueSteerState(null)).toBe('disabled');
+    });
+    it('enables Claude only when the running native transport advertises steering', () => {
+        expect(queueSteerState({ flavor: 'claude', claudeNativeActive: true, sessionCapabilities: { turnSteer: true } } as any)).toBe('enabled');
+        expect(queueSteerState({ flavor: 'claude', claudeNativeActive: true } as any)).toBe('disabled');
+        expect(queueSteerState({ flavor: 'claude', claudeNativeActive: false, sessionCapabilities: { turnSteer: true } } as any)).toBe('disabled');
+        expect(queueSteerState({ flavor: 'codex', sessionCapabilities: { turnSteer: false } } as any)).toBe('disabled');
     });
 });
 

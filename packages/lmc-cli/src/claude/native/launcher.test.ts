@@ -5,13 +5,13 @@ import type { EnhancedMode } from '../loop';
 import { LMC_OPTIONS_SYSTEM_PROMPT } from 'lmc-wire';
 const fixture = vi.hoisted(() => ({ options: null as any, process: null as any, scanner: null as any, activate: vi.fn() }));
 vi.mock('./interactiveProcess', () => ({ startNativeInteractiveProcess: vi.fn(async (options: any) => { fixture.options = options; return fixture.process; }) }));
-vi.mock('@/runtime/managedRuntime', () => ({ claudeExecutable: () => '/fixture/claude', engineCapabilities: () => ({ turnQueue: true }), runtimeVersion: async () => ({ version: 'fixture' }) }));
+vi.mock('@/runtime/managedRuntime', () => ({ claudeExecutable: () => '/fixture/claude', engineCapabilities: () => ({ turnQueue: true }), runtimeVersion: async () => ({ version: '2.1.286' }) }));
 vi.mock('../utils/sessionScanner', () => ({ createSessionScanner: vi.fn(async (options: any) => { fixture.scanner = options; return { cleanup: async () => {}, flush: async () => {}, onNewSession: fixture.activate }; }) }));
 vi.mock('../utils/permissionHandler', () => ({ PermissionHandler: class { reset() {} async handleModeChange() {} hasPendingRequests() { return false; } } }));
 vi.mock('@/modules/orchestration/workerConfig', () => ({ watchSessionConfiguration: () => () => {} }));
 vi.mock('./refresh', () => ({ nativeRefresh: () => ({ pending: false, drain: async () => {}, cancel: async () => {} }) }));
 vi.mock('../utils/systemPrompt', () => ({ systemPrompt: 'fixture' }));
-import { claudeNativeLauncher } from './launcher';
+import { claudeNativeLauncher, supportsNativeSteering } from './launcher';
 import { startNativeInteractiveProcess } from './interactiveProcess';
 const mode: EnhancedMode = { model: 'sonnet', effort: 'low', permissionMode: 'default' };
 let finish: (result: { exitCode: number }) => void;
@@ -21,11 +21,12 @@ afterEach(async () => { finish?.({ exitCode: 0 }); await running; vi.useRealTime
 async function setup(fresh = false) {
     fixture.activate.mockClear();
     let composer = false;
+    let inputLine = '$';
     const write = vi.fn();
-    const relay = new NativeTerminalRelay({ write, screen: () => ({ lines: ['fixture'], cursor: { x: 1, y: 0 }, composer }) });
+    const relay = new NativeTerminalRelay({ write, screen: () => ({ lines: [inputLine], cursor: { x: 1, y: 0 }, composer }) });
     fixture.process = { relay, write, settled: async () => {}, exit: new Promise(resolve => { finish = resolve; }) };
     const handlers = new Map<string, (request: any) => any>();
-    const client = { getMetadata: () => ({}), sessionId: 'lmc-same', updateAgentState: vi.fn(), updateMetadata: vi.fn(async () => {}), sendSessionEvent: vi.fn(), sendClaudeSessionMessageFromLocalTranscript: vi.fn(async () => {}), closeClaudeSessionTurn: vi.fn(), rpcHandlerManager: { registerHandler: (name: string, handler: any) => handlers.set(name, handler), unregisterHandler: (name: string) => handlers.delete(name) } };
+    const client = { getMetadata: () => ({}), sessionId: 'lmc-same', updateAgentState: vi.fn(), updateMetadata: vi.fn(async (_update: (metadata: any) => any) => {}), sendSessionEvent: vi.fn(), sendClaudeSessionMessageFromLocalTranscript: vi.fn(async () => {}), closeClaudeSessionTurn: vi.fn(), rpcHandlerManager: { registerHandler: (name: string, handler: any) => handlers.set(name, handler), unregisterHandler: (name: string) => handlers.delete(name) } };
     const queue = new MessageQueue2<EnhancedMode>(m => JSON.stringify(m));
     const session = { sessionId: fresh ? null : 'provider-same', path: '/fixture', getNativeMode: () => mode, client, queue, mcpServers: { happy: {}, 'lmc-computer': {} }, onSessionFound: vi.fn(), onThinkingChange: vi.fn() };
     running = claudeNativeLauncher(session as any);
@@ -33,9 +34,131 @@ async function setup(fresh = false) {
     const hook = (event: string) => fixture.options.onHook({ event, sessionId: 'provider-same' });
     const screen = (ready: boolean) => { composer = ready; relay.outputChanged(); fixture.options.onScreen(); };
     const rpc = (request: any) => handlers.get('native-computer')!(request);
-    return { client, queue, session, write, hook, screen, rpc, relay, handlers };
+    return { client, queue, session, write, hook, screen, rpc, relay, handlers, setInput: (text: string) => { inputLine = text; } };
 }
 describe('native LMC lifecycle', () => {
+    it('advertises steering only for receipt-capable native versions and clears it on exit', async () => {
+        for (const version of [undefined, '', 'unknown', '2.1.285', '2.0.999', '1.9.999', '2.1.286-beta']) expect(supportsNativeSteering(version)).toBe(false);
+        for (const version of ['2.1.286', '2.1.287', '2.2.0', '3.0.0']) expect(supportsNativeSteering(version)).toBe(true);
+        const f = await setup();
+        expect(f.client.updateMetadata.mock.calls[0][0]({})).toMatchObject({ claudeNativeActive: true, sessionCapabilities: { turnSteer: true } });
+        finish({ exitCode: 0 }); await running;
+        expect(f.client.updateMetadata.mock.calls.at(-1)![0]({ sessionCapabilities: { turnSteer: true } })).toMatchObject({ claudeNativeActive: false, sessionCapabilities: { turnSteer: false } });
+    });
+    it('steers once through the native queue receipt without interrupting the active turn', async () => {
+        const f = await setup(); f.hook('SessionStart'); f.hook('UserPromptSubmit');
+        f.queue.push('additional guidance', mode, undefined, { key: 'steer-one' });
+        const result = f.handlers.get('steer')!({ key: 'steer-one' });
+        await vi.advanceTimersByTimeAsync(400);
+        expect(f.write.mock.calls.map(c => c[0])).toEqual(['\x1b[200~additional guidance\x1b[201~', '\x1b[13;1u']);
+        fixture.scanner.onQueuedMessage({ text: 'additional guidance', timestamp: Date.now() });
+        await expect(result).resolves.toEqual({ steered: true });
+        expect(f.client.sendSessionEvent.mock.calls.filter(c => c[0].type === 'queue-released')).toEqual([[{ type: 'queue-released', keys: ['steer-one'] }]]);
+        await expect(f.handlers.get('steer')!({ key: 'steer-one' })).resolves.toEqual({ steered: false, reason: 'gone' });
+        expect(f.client.closeClaudeSessionTurn).not.toHaveBeenCalled();
+        expect(f.write).toHaveBeenCalledTimes(2);
+    });
+    it.each(['draft', 'settings', 'command', 'attachments'])('keeps a refused native steer queued (%s)', async reason => {
+        const f = await setup(); f.hook('SessionStart'); f.hook('UserPromptSubmit');
+        if (reason === 'draft') f.setInput('$ unfinished manual draft');
+        f.queue.push(reason === 'command' ? '! touch unsafe' : 'guidance', reason === 'settings' ? { ...mode, permissionMode: 'yolo' } : mode,
+            reason === 'attachments' ? [{ data: new Uint8Array([1]), mimeType: 'application/pdf', name: 'document.pdf' }] : undefined, { key: 'refused' });
+        const result = f.handlers.get('steer')!({ key: 'refused' });
+        await vi.advanceTimersByTimeAsync(500);
+        expect(await result).toEqual({ steered: false, reason: reason === 'draft' ? 'refused' : reason });
+        expect(f.queue.snapshot().map(item => item.key)).toEqual(['refused']);
+        expect(f.write).not.toHaveBeenCalled();
+    });
+    it('does not retry or restore a steer whose native receipt is missing', async () => {
+        const f = await setup(); f.hook('SessionStart'); f.hook('UserPromptSubmit');
+        f.queue.push('only once', mode, undefined, { key: 'uncertain' });
+        const result = f.handlers.get('steer')!({ key: 'uncertain' });
+        await vi.advanceTimersByTimeAsync(6000);
+        await expect(result).resolves.toEqual({ steered: false, reason: 'unconfirmed' });
+        expect(f.queue.size()).toBe(0);
+        await vi.advanceTimersByTimeAsync(10000);
+        expect(f.write).toHaveBeenCalledTimes(2);
+    });
+    it('serializes two steers and blocks manual input and interrupt only during paste/Enter', async () => {
+        const f = await setup(); f.hook('SessionStart'); f.hook('UserPromptSubmit');
+        f.queue.push('first', mode, undefined, { key: 'one' });
+        f.queue.push('second', mode, undefined, { key: 'two' });
+        const first = f.handlers.get('steer')!({ key: 'one' });
+        await vi.advanceTimersByTimeAsync(50);
+        expect(await f.handlers.get('steer')!({ key: 'two' })).toEqual({ steered: false, reason: 'refused' });
+        expect(f.queue.snapshot().map(i => i.key)).toEqual(['two']);
+        await expect(f.handlers.get('abort')!({})).rejects.toThrow('正在交付');
+        const lease = await f.rpc({ action: 'claim', clientId: 'client_fixture' });
+        await expect(f.rpc({ action: 'input', clientId: 'client_fixture', epoch: lease.epoch, revision: lease.revision, requestId: 'manual', input: { type: 'text', text: 'draft' } })).rejects.toThrow('正在交付');
+        await vi.advanceTimersByTimeAsync(200);
+        fixture.scanner.onQueuedMessage({ text: 'first', timestamp: Date.now() });
+        expect(await first).toEqual({ steered: true });
+        expect(f.write).toHaveBeenCalledTimes(2);
+        await expect(f.handlers.get('abort')!({})).resolves.toBeUndefined();
+        expect(f.write).toHaveBeenLastCalledWith('\x1b');
+    });
+    it('rechecks settings after waiting for terminal output, before writing', async () => {
+        const f = await setup(); f.hook('SessionStart'); f.hook('UserPromptSubmit');
+        let ready!: () => void;
+        fixture.process.settled = () => new Promise<void>(resolve => { ready = resolve; });
+        f.queue.push('new policy', mode, undefined, { key: 'policy' });
+        const result = f.handlers.get('steer')!({ key: 'policy' });
+        f.session.getNativeMode = () => ({ ...mode, permissionMode: 'yolo' });
+        ready();
+        expect(await result).toEqual({ steered: false, reason: 'settings' });
+        expect(f.write).not.toHaveBeenCalled(); expect(f.queue.size()).toBe(1);
+    });
+    it('leaves an uncertain draft recoverable when the turn ends between paste and Enter', async () => {
+        const f = await setup(); f.hook('SessionStart'); f.hook('UserPromptSubmit');
+        f.queue.push('guidance', mode, undefined, { key: 'race' });
+        const result = f.handlers.get('steer')!({ key: 'race' });
+        await vi.advanceTimersByTimeAsync(50);
+        f.setInput('$ guidance'); f.hook('Stop'); f.screen(false);
+        await vi.advanceTimersByTimeAsync(400);
+        expect(await result).toEqual({ steered: false, reason: 'unconfirmed' });
+        expect(f.write).toHaveBeenCalledTimes(1); expect(f.queue.size()).toBe(0);
+        f.queue.push('next ordinary prompt', mode, undefined, { key: 'next' });
+        await vi.advanceTimersByTimeAsync(6000);
+        expect(f.write).toHaveBeenCalledTimes(1);
+        // The user clears the draft in the native window. This must not leave
+        // the entire session blocked, nor restore/resend the uncertain prompt.
+        f.setInput('$'); f.screen(true); await vi.advanceTimersByTimeAsync(500);
+        expect(f.write.mock.calls.map(c => c[0])).toEqual(['\x1b[200~guidance\x1b[201~', '\x1b[200~next ordinary prompt\x1b[201~', '\x1b[13;1u']);
+    });
+    it('ignores stale/unrelated receipts, accepts a late exact receipt without a duplicate release', async () => {
+        const f = await setup(); f.hook('SessionStart'); f.hook('UserPromptSubmit');
+        f.queue.push('exact guidance', mode, undefined, { key: 'late' });
+        const started = Date.now();
+        const result = f.handlers.get('steer')!({ key: 'late' });
+        await vi.advanceTimersByTimeAsync(200);
+        fixture.scanner.onQueuedMessage({ text: 'exact guidance', timestamp: started - 1 });
+        fixture.scanner.onQueuedMessage({ text: 'unrelated', timestamp: Date.now() });
+        await vi.advanceTimersByTimeAsync(6000);
+        expect(await result).toEqual({ steered: false, reason: 'unconfirmed' });
+        fixture.scanner.onQueuedMessage({ text: 'exact guidance', timestamp: started + 200 });
+        f.queue.push('another guidance', mode, undefined, { key: 'again' });
+        const again = f.handlers.get('steer')!({ key: 'again' });
+        await vi.advanceTimersByTimeAsync(200);
+        fixture.scanner.onQueuedMessage({ text: 'another guidance', timestamp: Date.now() });
+        expect(await again).toEqual({ steered: true });
+        expect(f.client.sendSessionEvent.mock.calls.filter(c => c[0].type === 'queue-released')).toEqual([[{ type: 'queue-released', keys: ['late'] }], [{ type: 'queue-released', keys: ['again'] }]]);
+    });
+    it('never restores after a PTY write throws, which may have partially delivered', async () => {
+        const f = await setup(); f.hook('SessionStart'); f.hook('UserPromptSubmit');
+        f.write.mockImplementationOnce(() => { throw Error('partial write'); });
+        f.queue.push('partial', mode, undefined, { key: 'partial' });
+        expect(await f.handlers.get('steer')!({ key: 'partial' })).toEqual({ steered: false, reason: 'unconfirmed' });
+        expect(f.queue.size()).toBe(0); expect(f.write).toHaveBeenCalledTimes(1);
+    });
+    it('settles an outstanding steer when its native process exits', async () => {
+        const f = await setup(); f.hook('SessionStart'); f.hook('UserPromptSubmit');
+        f.queue.push('pending at exit', mode, undefined, { key: 'exit' });
+        const result = f.handlers.get('steer')!({ key: 'exit' });
+        await vi.advanceTimersByTimeAsync(200);
+        finish({ exitCode: 1 }); await running;
+        expect(await result).toEqual({ steered: false, reason: 'unconfirmed' });
+        expect(f.queue.size()).toBe(0); expect(f.write).toHaveBeenCalledTimes(2);
+    });
     it.each([false, true])('delivers app reply-format metadata without restarting (background=%s)', async background => {
         const f = await setup(); f.hook('SessionStart'); f.screen(true);
         expect(fixture.options.args[1]).toContain(LMC_OPTIONS_SYSTEM_PROMPT);

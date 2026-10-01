@@ -69,7 +69,7 @@ export function registerQueueControlHandlers<T>(
         wake?: () => void;
         /**
          * Hand one waiting prompt to the running turn. Absent on engines that
-         * cannot (Claude Code), which answer `unsupported` rather than quietly
+         * cannot, which answer `unsupported` rather than quietly
          * doing something else. The item is already out of the queue when this
          * runs; returning `restore: false` keeps it out — used when delivery
          * could not be disproved and resending might duplicate it.

@@ -20,10 +20,12 @@ const INTERNAL_CLAUDE_EVENT_TYPES = new Set([
 ]);
 
 export type ScannerTranscriptEvent = ClaudeGoalStatusTranscriptEvent;
+export type NativeQueuedMessage = { text: string; timestamp: number };
 
 type SessionLogEntry =
     | { kind: 'message'; key: string; message: RawJSONLines }
     | { kind: 'task-notification'; key: string; event: NativeTaskNotification }
+    | { kind: 'queued-message'; key: string; event: NativeQueuedMessage }
     | { kind: 'transcript-event'; key: string; event: ScannerTranscriptEvent };
 
 export async function createSessionScanner(opts: {
@@ -32,6 +34,8 @@ export async function createSessionScanner(opts: {
     onMessage: (message: RawJSONLines) => void
     onTranscriptEvent?: (event: ScannerTranscriptEvent) => void
     onTaskNotification?: (event: NativeTaskNotification) => void
+    /** A native queue receipt, not a second user chat message. */
+    onQueuedMessage?: (event: NativeQueuedMessage) => void
     /** Restore only the latest native goal, without replaying old chat messages. */
     hydrateGoalStatus?: boolean
     /**
@@ -121,6 +125,8 @@ export async function createSessionScanner(opts: {
                     sentMessages++;
                 } else if (entry.kind === 'task-notification') {
                     opts.onTaskNotification?.(entry.event);
+                } else if (entry.kind === 'queued-message') {
+                    opts.onQueuedMessage?.(entry.event);
                 } else {
                     logger.debug(`[SESSION_SCANNER] Sending new transcript event: type=${entry.event.type}, uuid=${entry.event.uuid}`);
                     opts.onTranscriptEvent?.(entry.event);
@@ -277,6 +283,14 @@ async function readSessionEntries(projectDir: string, sessionId: string): Promis
             const taskNotification = parseNativeTaskNotification(message);
             if (taskNotification && message.sessionId === sessionId) {
                 entries.push({ kind: 'task-notification', key: `task:${sessionId}:${taskNotification.taskId}:${message.timestamp}`, event: taskNotification });
+                continue;
+            }
+            if (message.type === 'queue-operation' && message.operation === 'enqueue'
+                && message.sessionId === sessionId && typeof message.content === 'string'
+                && typeof message.timestamp === 'string' && Number.isFinite(Date.parse(message.timestamp))) {
+                entries.push({ kind: 'queued-message',
+                    key: `queue:${sessionId}:${message.timestamp}:${message.content}`,
+                    event: { text: message.content, timestamp: Date.parse(message.timestamp) } });
                 continue;
             }
             

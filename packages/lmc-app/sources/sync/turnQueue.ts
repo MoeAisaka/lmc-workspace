@@ -27,12 +27,14 @@ export type SteerState = 'enabled' | 'disabled';
 /**
  * Whether a waiting prompt can be handed to the running turn at all.
  *
- * Only Codex can; Claude Code's SDK has no such interface. The button stays
- * visible and dimmed on Claude rather than disappearing — that difference is
- * worth showing, and pressing it explains why.
+ * Claude needs an explicitly capable native transport. Older Codex runners
+ * already implement this RPC; preserve their existing capability contract.
  */
 export function queueSteerState(metadata?: Metadata | null): SteerState {
-    return metadata?.flavor === 'codex' ? 'enabled' : 'disabled';
+    if (metadata?.sessionCapabilities?.turnSteer === false) return 'disabled';
+    if (metadata?.flavor === 'codex') return 'enabled';
+    return metadata?.flavor === 'claude' && metadata.claudeNativeActive === true
+        && metadata.sessionCapabilities?.turnSteer === true ? 'enabled' : 'disabled';
 }
 
 /** Why the runner would not steer a queued prompt, as something to show a person. */
