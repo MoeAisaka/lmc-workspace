@@ -102,11 +102,15 @@ describe('hashCodexEnhancedMode', () => {
         }, 'steer')).toBe(hashCodexEnhancedMode(runningMode, 'steer'));
     });
 
-    it.each([
-        { model: 'gpt-6-sol' },
-        { effort: 'high' as const },
-        { permissionMode: 'read-only' as const },
-    ])('still separates real execution changes while steering: %j', change => {
+    it.each([{ model: 'gpt-6.1-sol' }, { effort: 'high' as const }])('steers on the running model while preserving next-turn settings: %j', change => {
+        const queuedMode = { ...runningMode, ...change };
+        expect(hashCodexEnhancedMode(queuedMode, 'steer')).toBe(hashCodexEnhancedMode(runningMode, 'steer'));
+        expect(hashCodexEnhancedMode(queuedMode)).not.toBe(hashCodexEnhancedMode(runningMode));
+        expect(queuedMode).toMatchObject(change);
+    });
+
+    it('still rejects a changed permission policy while steering', () => {
+        const change = { permissionMode: 'read-only' as const };
         expect(hashCodexEnhancedMode({ ...runningMode, ...change }, 'steer'))
             .not.toBe(hashCodexEnhancedMode(runningMode, 'steer'));
     });

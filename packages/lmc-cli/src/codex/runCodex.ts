@@ -331,6 +331,7 @@ export async function runCodex(opts: {
     // relaunches through metadata.
     attachQueuePublisher(messageQueue, session, session.getMetadata()?.queueMode);
     let activeTurnModeHash: string | null = null;
+    let activeTurnMode: EnhancedMode | null = null;
     let activeTurnIsHub = false;
 
     session.onFileEvent((fileEvent) => {
@@ -361,6 +362,16 @@ export async function runCodex(opts: {
         });
     };
     attachConfiguration(session);
+    const canSteerMode = (mode: EnhancedMode) => activeTurnModeHash === hashCodexEnhancedMode(mode, 'steer')
+        && mode.permissionMode === remoteModeState.currentPermissionMode
+        && activeTurnIsHub === isHub(session.getMetadata());
+    const steerAcceptedMessage = (mode: EnhancedMode) => {
+        const modelChanged = activeTurnMode && (activeTurnMode.model !== mode.model || activeTurnMode.effort !== mode.effort
+            || activeTurnMode.model !== remoteModeState.currentModel || activeTurnMode.effort !== remoteModeState.currentEffort);
+        return modelChanged
+            ? 'Codex 已接收补充回复，将使用本回合的模型与思考层级处理；新设置仍已保存，将在下一轮生效。'
+            : 'Codex 已接收补充回复，将在当前工作中处理。';
+    };
     let currentAppendSystemPrompt: string | undefined = undefined;
 
     const resetCurrentModeDefaults = () => {
@@ -432,30 +443,31 @@ export async function runCodex(opts: {
             }
             return;
         }
-        // Steering belongs to the running turn only when nothing about it
-        // changes: same settings, not a command, nothing
+        // Explicit steering uses the running turn's model/effort and requires
+        // the same permission/role policy, not a command, nothing
         // already waiting ahead. Apps that predate `intent` send none and get
         // the old behaviour (steer when possible); an explicit 'queue' never
         // steers, and an explicit 'steer' that cannot be honoured says why.
-        const steerEligible = activeTurnModeHash === hashCodexEnhancedMode(enhancedMode, 'steer')
-            // A role change needs a new guarded turn, not a steer into the
-            // existing turn's old sandbox policy.
-            && activeTurnIsHub === isHub(session.getMetadata())
+        const steerEligible = canSteerMode(enhancedMode)
+            // Preserve legacy automatic steering only with unchanged model
+            // preferences. Deferral is chosen by the explicit Steer action.
+            && (intent === 'steer' || (activeTurnMode?.model === enhancedMode.model && activeTurnMode?.effort === enhancedMode.effort))
             && messageQueue.size() === 0
             && (attachmentsForThisMessage.length === 0 || intent === 'steer')
             && (message.content.text.trim().length > 0 || attachmentsForThisMessage.length > 0)
             && !message.content.text.trimStart().startsWith('/');
         if ((intent === 'steer' || intent === undefined) && steerEligible) {
+            const acceptedMessage = steerAcceptedMessage(enhancedMode);
             try {
                 if ((await steerCodexPrompt(client, message.content.text, attachmentsForThisMessage, {
                     sessionId: session.sessionId,
-                    canSteer: () => activeTurnModeHash === hashCodexEnhancedMode(enhancedMode, 'steer') && activeTurnIsHub === isHub(session.getMetadata()),
+                    canSteer: () => canSteerMode(enhancedMode),
                 })).steered) {
                     if (client.hasPendingTurnCompletion()) {
                         thinking = true;
                         session.keepAlive(true, 'remote');
                     }
-                    session.sendSessionEvent({ type: 'message', message: 'Codex 已接收补充回复，将在当前工作中处理。' });
+                    session.sendSessionEvent({ type: 'message', message: acceptedMessage });
                     return;
                 }
             } catch {
@@ -718,15 +730,13 @@ export async function runCodex(opts: {
         // say which condition failed rather than "not possible".
         steer: async (item) => {
             if (activeTurnModeHash === null) return { steered: false, reason: 'idle' };
-            if (activeTurnModeHash !== hashCodexEnhancedMode(item.mode, 'steer')) return { steered: false, reason: 'settings' };
-            // A role change needs a new guarded turn, not a steer into the
-            // existing turn's old sandbox policy.
-            if (activeTurnIsHub !== isHub(session.getMetadata())) return { steered: false, reason: 'settings' };
+            if (!canSteerMode(item.mode)) return { steered: false, reason: 'settings' };
             if (item.isolate || item.message.trimStart().startsWith('/')) return { steered: false, reason: 'command' };
+            const acceptedMessage = steerAcceptedMessage(item.mode);
             try {
                 const outcome = await steerCodexPrompt(client, item.message, item.attachments, {
                     sessionId: session.sessionId,
-                    canSteer: () => activeTurnModeHash === hashCodexEnhancedMode(item.mode, 'steer') && activeTurnIsHub === isHub(session.getMetadata()),
+                    canSteer: () => canSteerMode(item.mode),
                 });
                 if (!outcome.steered) return outcome;
             } catch {
@@ -739,7 +749,7 @@ export async function runCodex(opts: {
                 thinking = true;
                 session.keepAlive(true, 'remote');
             }
-            session.sendSessionEvent({ type: 'message', message: 'Codex 已接收补充回复，将在当前工作中处理。' });
+            session.sendSessionEvent({ type: 'message', message: acceptedMessage });
             return { steered: true };
         },
     });
@@ -1501,6 +1511,7 @@ export async function runCodex(opts: {
                 });
 
                 activeTurnModeHash = hashCodexEnhancedMode(message.mode, 'steer');
+                activeTurnMode = { ...message.mode };
                 const result = await client.sendTurnAndWait(turnPrompt, {
                     model: message.mode.model,
                     approvalPolicy: executionPolicy.approvalPolicy,
@@ -1545,6 +1556,7 @@ export async function runCodex(opts: {
                 reasoningProcessor.abort();  // Use abort to properly finish any in-progress tool calls
                 diffProcessor.reset();
                 activeTurnModeHash = null;
+                activeTurnMode = null;
                 activeTurnPermissionMode = undefined;
                 activeTurnIsHub = false;
                 hubDenialSent = false;

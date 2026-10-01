@@ -34,7 +34,7 @@ export function supportsNativeSteering(version: string | undefined): boolean {
 type SteerResult = { steered: boolean; reason?: string; restore?: boolean };
 type NativeGuidance = {
     text: string; startedAt: number; writing: boolean; submitted: boolean; written: boolean;
-    settled: boolean; confirmed: boolean; resolve: (result: SteerResult) => void;
+    settled: boolean; confirmed: boolean; modelDeferred: boolean; resolve: (result: SteerResult) => void;
     timer?: ReturnType<typeof setTimeout>;
 };
 
@@ -100,7 +100,8 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
         if (current.timer) clearTimeout(current.timer);
         if (confirmed) {
             if (guidance === current) guidance = undefined;
-            if (!current.confirmed) session.client.sendSessionEvent({ type: 'message', message: 'Claude 已接收引导，将在工具步骤结束后读取；若本轮已结束，会在下一轮处理。' });
+            if (!current.confirmed) session.client.sendSessionEvent({ type: 'message', message: 'Claude 已接收引导，将在工具步骤结束后读取；若本轮已结束，会在下一轮处理。'
+                + (current.modelDeferred ? '本条使用当前运行的模型与思考层级；新设置仍已保存，将在安全空闲后生效。' : '') });
             current.confirmed = true;
         } else if (!current.settled) {
             warn('引导消息尚未确认送达，请在原生控制窗口查看；不会自动重复发送。');
@@ -127,7 +128,9 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
             usageByMessage.set(m.id, usage);
             if (usageByMessage.size > 256) usageByMessage.delete(usageByMessage.keys().next().value!);
         }
+        const hadTasks = tasks.active;
         tasks.observe(raw);
+        if (hadTasks && !tasks.active) schedule();
         const content = (raw as any).message?.content;
         if (raw.type === 'user' && typeof content === 'string' && /^<(?:local-command|command-name)/.test(content.trim())) {
             if (pending.length && normalizeClaudeGoalEcho(content).trim() === pendingText.trim()) {
@@ -363,7 +366,11 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
                 const serial = turnSerial;
                 const refusal = () => {
                     if (stopped || leaving || phase !== 'busy' || turnSerial !== serial || interruptRevision !== null || pending.length) return 'idle';
-                    if (refresh?.pending || runtimeHash(item.mode) !== runtimeHash(settings) || runtimeHash(session.getNativeMode()) !== runtimeHash(settings)
+                    if (refresh?.blocksSteering) return 'refreshing';
+                    // Ordinary Enter queues input for this running Claude.
+                    // Model/effort changes wait for its next safe boundary;
+                    // permissions, tools, prompts and roles must still match.
+                    if (policyHash(item.mode) !== policyHash(settings) || policyHash(session.getNativeMode()) !== policyHash(settings)
                         || turnIsHub !== isHub(session.client.getMetadata())) return 'settings';
                     if (permissions.hasPendingRequests()) return 'refused';
                     return null;
@@ -375,7 +382,8 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
                 const bytes = encodeNativeInput({ type: 'text', text: item.message });
                 let resolve!: NativeGuidance['resolve'];
                 const receipt = new Promise<SteerResult>(r => { resolve = r; });
-                const current: NativeGuidance = { text: item.message, startedAt: Date.now(), written: false, writing: true, submitted: false, settled: false, confirmed: false, resolve };
+                const current: NativeGuidance = { text: item.message, startedAt: Date.now(), written: false, writing: true, submitted: false, settled: false, confirmed: false,
+                    modelDeferred: runtimeHash(item.mode) !== runtimeHash(settings) || runtimeHash(session.getNativeMode()) !== runtimeHash(settings), resolve };
                 guidance = current;
                 try {
                     await process!.settled();

@@ -27,4 +27,25 @@ describe('native background lifecycle', () => {
         expect(parseNativeTaskNotification({ type: 'queue-operation', operation: 'remove', content })).toBeNull();
         expect(parseNativeTaskNotification({ type: 'queue-operation', operation: 'enqueue', content: content.replace('completed', 'running') })).toBeNull();
     });
+    it('releases a successful TaskStop even when no internal terminal notification arrives', () => {
+        const tasks = new NativeBackgroundTasks();
+        tasks.observe({ type: 'user', toolUseResult: { backgroundTaskId: 'task-1' }, message: { content: [{ type: 'tool_result', tool_use_id: 'start' }] } });
+        tasks.observe({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'stop', name: 'TaskStop', input: { task_id: 'task-1' } }] } });
+        tasks.observe({ type: 'user', toolUseResult: { message: 'Successfully stopped task: task-1', task_id: 'task-1', task_type: 'local_bash' }, message: { content: [{ type: 'tool_result', tool_use_id: 'stop' }] } });
+        tasks.endTurn(); expect(tasks.active).toBe(false);
+    });
+    it.each(['running', 'completed', 'failed', 'killed', 'stopped'])('uses authoritative TaskOutput status (%s) without depending on an internal notification', status => {
+        const tasks = new NativeBackgroundTasks();
+        tasks.observe({ type: 'user', toolUseResult: { isAsync: true, agentId: 'agent-1' }, message: { content: [{ type: 'tool_result', tool_use_id: 'agent-start' }] } });
+        tasks.observe({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'output', name: 'TaskOutput', input: { task_id: 'agent-1' } }] } });
+        tasks.observe({ type: 'user', toolUseResult: { retrieval_status: 'success', task: { task_id: 'agent-1', status } }, message: { content: [{ type: 'tool_result', tool_use_id: 'output' }] } });
+        expect(tasks.active).toBe(status === 'running');
+    });
+    it.each(['unknown-tool', 'error', 'mismatched-task'])('keeps real work when a purported TaskStop is not confirmed (%s)', reason => {
+        const tasks = new NativeBackgroundTasks();
+        tasks.observe({ type: 'user', toolUseResult: { backgroundTaskId: 'task-1' }, message: { content: [{ type: 'tool_result', tool_use_id: 'start' }] } });
+        if (reason !== 'unknown-tool') tasks.observe({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'stop', name: 'TaskStop', input: { task_id: 'task-1' } }] } });
+        tasks.observe({ type: 'user', toolUseResult: { message: 'Successfully stopped task: task-1', task_id: reason === 'mismatched-task' ? 'other-task' : 'task-1' }, message: { content: [{ type: 'tool_result', tool_use_id: 'stop', is_error: reason === 'error' }] } });
+        expect(tasks.active).toBe(true);
+    });
 });

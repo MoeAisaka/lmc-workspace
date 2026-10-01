@@ -3,13 +3,13 @@ import { MessageQueue2 } from '@/utils/MessageQueue2';
 import { NativeTerminalRelay } from './terminalRelay';
 import type { EnhancedMode } from '../loop';
 import { LMC_OPTIONS_SYSTEM_PROMPT } from 'lmc-wire';
-const fixture = vi.hoisted(() => ({ options: null as any, process: null as any, scanner: null as any, activate: vi.fn() }));
+const fixture = vi.hoisted(() => ({ options: null as any, process: null as any, scanner: null as any, refresh: null as any, activate: vi.fn() }));
 vi.mock('./interactiveProcess', () => ({ startNativeInteractiveProcess: vi.fn(async (options: any) => { fixture.options = options; return fixture.process; }) }));
 vi.mock('@/runtime/managedRuntime', () => ({ claudeExecutable: () => '/fixture/claude', engineCapabilities: () => ({ turnQueue: true }), runtimeVersion: async () => ({ version: '2.1.286' }) }));
 vi.mock('../utils/sessionScanner', () => ({ createSessionScanner: vi.fn(async (options: any) => { fixture.scanner = options; return { cleanup: async () => {}, flush: async () => {}, onNewSession: fixture.activate }; }) }));
 vi.mock('../utils/permissionHandler', () => ({ PermissionHandler: class { reset() {} async handleModeChange() {} hasPendingRequests() { return false; } } }));
 vi.mock('@/modules/orchestration/workerConfig', () => ({ watchSessionConfiguration: () => () => {} }));
-vi.mock('./refresh', () => ({ nativeRefresh: () => ({ pending: false, drain: async () => {}, cancel: async () => {} }) }));
+vi.mock('./refresh', () => ({ nativeRefresh: () => fixture.refresh }));
 vi.mock('../utils/systemPrompt', () => ({ systemPrompt: 'fixture' }));
 import { claudeNativeLauncher, supportsNativeSteering } from './launcher';
 import { startNativeInteractiveProcess } from './interactiveProcess';
@@ -20,6 +20,7 @@ beforeEach(() => { vi.useFakeTimers(); });
 afterEach(async () => { finish?.({ exitCode: 0 }); await running; vi.useRealTimers(); });
 async function setup(fresh = false) {
     fixture.activate.mockClear();
+    fixture.refresh = { pending: false, blocksSteering: false, drain: async () => {}, cancel: async () => {} };
     let composer = false;
     let inputLine = '$';
     const write = vi.fn();
@@ -67,6 +68,36 @@ describe('native LMC lifecycle', () => {
         await vi.advanceTimersByTimeAsync(500);
         expect(await result).toEqual({ steered: false, reason: reason === 'draft' ? 'refused' : reason });
         expect(f.queue.snapshot().map(item => item.key)).toEqual(['refused']);
+        expect(f.write).not.toHaveBeenCalled();
+    });
+    it.each([false, true])('steers changed model/effort once and keeps them for the next idle boundary (refresh=%s)', async refreshing => {
+        const f = await setup(); f.hook('SessionStart'); f.hook('UserPromptSubmit');
+        const selected = { ...mode, model: 'opus', effort: 'high' as const };
+        f.session.getNativeMode = () => selected;
+        fixture.refresh.pending = refreshing;
+        f.queue.push('guidance after model change', selected, undefined, { key: 'model-change' });
+        const result = f.handlers.get('steer')!({ key: 'model-change' });
+        await vi.advanceTimersByTimeAsync(400);
+        expect(f.write.mock.calls.map(c => c[0])).toEqual(['\x1b[200~guidance after model change\x1b[201~', '\x1b[13;1u']);
+        fixture.scanner.onQueuedMessage({ text: 'guidance after model change', timestamp: Date.now() });
+        expect(await result).toEqual({ steered: true });
+        expect(f.queue.size()).toBe(0);
+        expect(f.session.getNativeMode()).toEqual(selected);
+        expect(f.client.sendSessionEvent.mock.calls.some(c => c[0].message?.includes('当前运行的模型'))).toBe(true);
+        expect(f.client.closeClaudeSessionTurn).not.toHaveBeenCalled();
+        f.hook('Stop'); f.screen(true); await vi.advanceTimersByTimeAsync(500);
+        expect(f.write.mock.calls.slice(2).map(c => c[0])).toEqual(['\x1b[200~/exit\x1b[201~', '\x1b[13;1u']);
+        finish({ exitCode: 0 }); expect(await running).toBe('restart');
+    });
+    it.each(['selected-policy', 'custom-prompt', 'role', 'handoff'])('preserves the queue when a real boundary change blocks steering (%s)', async reason => {
+        const f = await setup(); f.hook('SessionStart'); f.hook('UserPromptSubmit');
+        if (reason === 'selected-policy') f.session.getNativeMode = () => ({ ...mode, permissionMode: 'yolo' });
+        if (reason === 'custom-prompt') f.session.getNativeMode = () => ({ ...mode, appendSystemPrompt: 'Only inspect files.' });
+        if (reason === 'role') f.client.getMetadata = () => ({ orchestration: { role: 'hub' } } as any);
+        if (reason === 'handoff') { fixture.refresh.pending = true; fixture.refresh.blocksSteering = true; }
+        f.queue.push('keep queued', mode, undefined, { key: 'boundary' });
+        expect(await f.handlers.get('steer')!({ key: 'boundary' })).toEqual({ steered: false, reason: reason === 'handoff' ? 'refreshing' : 'settings' });
+        expect(f.queue.snapshot().map(i => i.key)).toEqual(['boundary']);
         expect(f.write).not.toHaveBeenCalled();
     });
     it('does not retry or restore a steer whose native receipt is missing', async () => {
@@ -233,6 +264,18 @@ describe('native LMC lifecycle', () => {
         f.queue.push('requires new policy', { ...mode, permissionMode: 'yolo' });
         await vi.advanceTimersByTimeAsync(500);
         expect(f.write).not.toHaveBeenCalled(); expect(f.queue.size()).toBe(1);
+    });
+    it('wakes the idle boundary after a successful TaskStop without a queue notification', async () => {
+        const f = await setup(); f.hook('SessionStart'); f.screen(true);
+        fixture.scanner.onMessage({ type: 'user', toolUseResult: { backgroundTaskId: 'task-1' }, message: { content: [{ type: 'tool_result', tool_use_id: 'start' }] } });
+        f.session.getNativeMode = () => ({ ...mode, model: 'opus', effort: 'high' });
+        await vi.advanceTimersByTimeAsync(500);
+        expect(f.write).not.toHaveBeenCalled();
+        fixture.scanner.onMessage({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'stop', name: 'TaskStop', input: { task_id: 'task-1' } }] } });
+        fixture.scanner.onMessage({ type: 'user', toolUseResult: { message: 'Successfully stopped task: task-1', task_id: 'task-1' }, message: { content: [{ type: 'tool_result', tool_use_id: 'stop' }] } });
+        await vi.advanceTimersByTimeAsync(500);
+        expect(f.write.mock.calls.map(c => c[0])).toEqual(['\x1b[200~/exit\x1b[201~', '\x1b[13;1u']);
+        finish({ exitCode: 0 }); expect(await running).toBe('restart');
     });
     it('wakes an idle native consumer when promoting a deliverable message ahead of a blocked one', async () => {
         const f = await setup(); f.hook('SessionStart'); f.screen(true);

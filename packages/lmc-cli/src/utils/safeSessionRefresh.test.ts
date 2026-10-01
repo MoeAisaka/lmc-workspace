@@ -14,6 +14,26 @@ it('queues while generating or awaiting permissions and refreshes once at a real
     deps.isIdle.mockReturnValue(true); await refresh.drain(); await refresh.drain();
     expect(deps.prepare).toHaveBeenCalledExactlyOnceWith(42, undefined); expect(deps.exit).toHaveBeenCalledTimes(1);
 });
+it('allows steering during a queued plain refresh, but blocks engine handoff and boundary preparation', async () => {
+    const { deps, refresh } = fixture(); deps.isIdle.mockReturnValue(false);
+    await refresh.request();
+    expect(refresh.blocksSteering).toBe(false);
+    await refresh.cancel(); await refresh.request('codex');
+    expect(refresh.blocksSteering).toBe(true);
+    await refresh.cancel();
+    expect(refresh.blocksSteering).toBe(false);
+    await refresh.request(); refresh.hold();
+    expect(refresh.blocksSteering).toBe(true);
+    await refresh.cancel();
+    let release!: () => void;
+    deps.drain.mockImplementationOnce(() => new Promise<void>(r => { release = r; }));
+    deps.isIdle.mockReturnValue(true);
+    const applying = refresh.request();
+    await vi.waitFor(() => expect(release).toBeDefined());
+    expect(refresh.blocksSteering).toBe(true);
+    release(); await applying;
+    expect(refresh.blocksSteering).toBe(true);
+});
 it('keeps the original process and restores input after failed auth or missing resume identity', async () => {
     for (const reason of ['Authentication required', 'Resume identity missing']) {
         const {deps,refresh}=fixture(); deps.preflight.mockRejectedValue(new Error(reason));

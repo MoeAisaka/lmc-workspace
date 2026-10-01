@@ -16,13 +16,15 @@ export interface CodexEnhancedMode {
 export function hashCodexEnhancedMode(mode: CodexEnhancedMode, purpose: 'queue' | 'steer' = 'queue'): string {
     return hashObject({
         permissionMode: mode.permissionMode,
-        model: mode.model,
+        // turn/steer adds input to the existing turn; it cannot switch that
+        // turn's model or effort. Those preferences remain on queued turns.
+        model: purpose === 'queue' ? mode.model : undefined,
         // App scaffolding is injected when the thread starts, not on follow-up
         // turns. A stale browser tab can carry an older options prompt without
-        // changing the running model, effort or permission policy. Keep the
+        // changing the running permission policy. Keep the
         // full prompt in queue grouping, but never use it to reject a steer.
         appendSystemPrompt: purpose === 'queue' ? mode.appendSystemPrompt : undefined,
-        effort: mode.effort,
+        effort: purpose === 'queue' ? mode.effort : undefined,
     });
 }
 

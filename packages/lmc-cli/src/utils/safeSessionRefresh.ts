@@ -50,6 +50,12 @@ export class SafeSessionRefresh {
     private published: string | null | undefined;
     constructor(private readonly deps: RefreshDependencies, private readonly recheckMs = BOUNDARY_RECHECK_MS) {}
 
+    /** A queued CLI upgrade still accepts current-turn input. Once an engine
+     * switch or its boundary work begins, keep the handoff/cursor frozen. */
+    get blocksSteering(): boolean {
+        return this.applying || this.handedOff || this.held !== undefined || (this.pending && this.target !== undefined);
+    }
+
     private watchForBoundary() {
         if (this.recheck || !this.pending || this.recheckMs <= 0) return;
         this.recheck = setInterval(() => { void this.drain(); }, this.recheckMs);
