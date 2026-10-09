@@ -1,5 +1,6 @@
+import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import { Platform, StyleProp, Text, View, ViewStyle } from 'react-native';
+import { Platform, StyleProp, View, ViewStyle } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';

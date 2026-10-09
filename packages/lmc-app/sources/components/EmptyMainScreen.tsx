@@ -1,5 +1,6 @@
+import { Text } from '@/components/StyledText';
 import React from 'react';
-import { View, Text, Platform, Pressable } from 'react-native';
+import { View, Platform, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
 import { RoundButton } from '@/components/RoundButton';

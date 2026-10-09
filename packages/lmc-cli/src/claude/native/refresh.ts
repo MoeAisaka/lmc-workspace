@@ -1,8 +1,10 @@
 import type { Session } from '../session';
 import { SafeSessionRefresh } from '@/utils/safeSessionRefresh';
 import { checkEngineAuth } from '@/utils/engineAuth';
-import { EngineAuthPreflightError } from '@/utils/refreshErrors';
-import { readFallbackBriefing, readSwitchEngine, readSwitchSettings } from '@/utils/engineSwitchRequest';
+import { EngineAuthPreflightError, RefreshRetryLaterError } from '@/utils/refreshErrors';
+import { NativeExitRefusedError } from './exitGuard';
+import { isRefreshCliRequest, readBackgroundWorkChoice, readFallbackBriefing, readSwitchEngine, readSwitchSettings, type BackgroundWorkChoice } from '@/utils/engineSwitchRequest';
+export type { BackgroundWorkChoice } from '@/utils/engineSwitchRequest';
 import { isPendingState } from '@/utils/refreshState';
 import { prepareDaemonSessionRefresh } from '@/daemon/controlClient';
 import { claudeCheckSession } from '../utils/claudeCheckSession';
@@ -10,12 +12,17 @@ import { applyQueueModeRequest } from '@/utils/sessionQueueControl';
 
 /** Same daemon/cursor contract as the SDK runner; exit only closes our idle PTY. */
 export function nativeRefresh(session: Session, boundary: {
-    blocker(): string | null; flush(): Promise<void>; exit(): Promise<void>;
+    blocker(choice?: BackgroundWorkChoice): string | null; standing?(choice?: BackgroundWorkChoice): boolean;
+    flush(): Promise<void>; exit(choice?: BackgroundWorkChoice): Promise<void>;
+    /** The background work holding the refresh, when that is what holds it. */
+    blockedWork?(): string[] | undefined;
 }) {
     let switchSettings: ReturnType<typeof readSwitchSettings> = {};
+    let backgroundWork: BackgroundWorkChoice | undefined;
     const refresh = new SafeSessionRefresh({
-        isIdle: () => boundary.blocker() === null,
-        idleBlocker: boundary.blocker,
+        isIdle: () => boundary.blocker(backgroundWork) === null,
+        idleBlocker: () => boundary.blocker(backgroundWork),
+        standingBlocker: () => boundary.standing?.(backgroundWork) ?? false,
         pause: () => session.client.pauseIncomingMessages(),
         drain: () => session.client.waitForIncomingDelivery(),
         resume: seq => session.client.resumeIncomingMessagesFrom(seq),
@@ -33,11 +40,21 @@ export function nativeRefresh(session: Session, boundary: {
             const result = await prepareDaemonSessionRefresh(session.client.sessionId, process.pid, { receiveSeq, ...settings });
             if (result.error) throw new Error(result.error);
         },
-        exit: async () => { session.client.markRelaunching(); await boundary.exit(); },
+        exit: async () => {
+            session.client.markRelaunching();
+            try { await boundary.exit(backgroundWork); }
+            catch (error) {
+                session.client.markRelaunching(false);
+                if (backgroundWork === 'wait' && error instanceof NativeExitRefusedError) throw new RefreshRetryLaterError(error.message, error);
+                throw error;
+            }
+        },
         state: async (state, error, kind) => {
             if (state === 'error' || state === 'applied') session.handoff?.disarm();
+            const blockedWork = state === 'queued' || state === 'error' ? boundary.blockedWork?.() : undefined;
             await session.client.updateMetadata(m => ({ ...m,
                 sessionConfigState: state, sessionConfigError: error, sessionConfigErrorKind: kind,
+                sessionConfigBackgroundWork: blockedWork,
                 sessionConfigStage: undefined, sessionConfigUpdatedAt: Date.now(),
                 sessionConfigRequestedAt: state === 'queued' ? (isPendingState(m.sessionConfigState) ? m.sessionConfigRequestedAt : Date.now()) : m.sessionConfigRequestedAt,
             }));
@@ -49,18 +66,22 @@ export function nativeRefresh(session: Session, boundary: {
         if (applyQueueModeRequest(request, session.queue, session.client)) return { status: 'applied' };
         const engine = readSwitchEngine(request);
         if (engine) {
-            switchSettings = readSwitchSettings(request);
+            switchSettings = readSwitchSettings(request); backgroundWork = undefined;
             session.handoff?.arm(readFallbackBriefing(request), engine);
             await refresh.request(engine);
             return { status: 'queued' };
         }
-        if (!request || typeof request !== 'object' || (request as any).refreshCli !== true || Object.keys(request).some(key => key !== 'refreshCli')) throw new Error('模型与思考层级请在模型面板设置');
+        if (!isRefreshCliRequest(request)) throw new Error('模型与思考层级请在模型面板设置');
+        // A plain retry while a `wait` is queued keeps waiting; a new choice replaces the old one.
+        if (refresh.pending && readBackgroundWorkChoice(request) === undefined) return { status: 'queued' };
+        backgroundWork = readBackgroundWorkChoice(request);
+        if (refresh.pending) { await refresh.cancel(); }
         await refresh.request(); return { status: 'queued' };
     });
     session.client.rpcHandlerManager.registerHandler('cancel-session-refresh', async () => {
         const target = await refresh.cancel();
         if (target === undefined) return { status: refresh.pending ? 'too-late' : 'nothing-pending' };
-        switchSettings = {};
+        switchSettings = {}; backgroundWork = undefined;
         if (target) session.client.sendSessionEvent({ type: 'engine-switch-cancelled', target });
         return { status: 'cancelled' };
     });

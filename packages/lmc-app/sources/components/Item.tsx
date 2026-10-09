@@ -1,13 +1,6 @@
+import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import { 
-    View, 
-    Text, 
-    StyleProp, 
-    ViewStyle, 
-    TextStyle,
-    Platform,
-    ActivityIndicator
-} from 'react-native';
+import { View, StyleProp, ViewStyle, TextStyle, Platform, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
 import * as Clipboard from 'expo-clipboard';

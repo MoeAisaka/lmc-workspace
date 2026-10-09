@@ -1,10 +1,12 @@
 import * as z from 'zod';
+import { PersonalizationSchema, personalizationDefaults } from './personalization';
 
 //
 // Schema
 //
 
 export const LocalSettingsSchema = z.object({
+    personalization: PersonalizationSchema.catch(personalizationDefaults),
     // Developer settings (device-specific)
     debugMode: z.boolean().describe('Enable debug logging'),
     devModeEnabled: z.boolean().describe('Enable developer menu in settings'),
@@ -44,6 +46,7 @@ export type LocalSettings = z.infer<typeof LocalSettingsSchema>;
 //
 
 export const localSettingsDefaults: LocalSettings = {
+    personalization: personalizationDefaults,
     debugMode: false,
     devModeEnabled: false,
     voiceUpsellOverride: null,

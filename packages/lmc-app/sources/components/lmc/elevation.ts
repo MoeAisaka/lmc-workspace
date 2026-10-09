@@ -37,7 +37,7 @@ const NATIVE: Record<LmcElevationLevel, { height: number; radius: number; opacit
 
 export function lmcElevation(theme: Theme, level: LmcElevationLevel) {
     if (Platform.OS === 'web') {
-        return { boxShadow: (theme.dark ? DARK : LIGHT)[level] } as any;
+        return { boxShadow: `var(--lmc-elevation, ${(theme.dark ? DARK : LIGHT)[level]})` } as any;
     }
     const spec = NATIVE[level];
     return {
@@ -51,5 +51,6 @@ export function lmcElevation(theme: Theme, level: LmcElevationLevel) {
 
 /** Hairline that keeps a raised surface legible where a shadow cannot carry the edge. */
 export function lmcSurfaceBorder(theme: Theme) {
-    return { borderWidth: 1, borderColor: theme.dark ? 'rgba(255,255,255,0.10)' : 'rgba(16,24,40,0.08)' };
+    const color = theme.dark ? 'rgba(255,255,255,0.10)' : 'rgba(16,24,40,0.08)';
+    return { borderWidth: 1, borderColor: Platform.OS === 'web' ? `var(--lmc-surface-border, ${color})` : color };
 }

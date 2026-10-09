@@ -1,5 +1,6 @@
+import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { apiSocket } from '@/sync/apiSocket';
 import { Modal } from '@/modal';

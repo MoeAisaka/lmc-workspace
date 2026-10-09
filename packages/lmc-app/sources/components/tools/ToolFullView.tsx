@@ -1,5 +1,7 @@
+import { Typography } from '@/constants/Typography';
+import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import { Text, View, ScrollView, Platform, useWindowDimensions } from 'react-native';
+import { View, ScrollView, Platform, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { ToolCall, Message } from '@/sync/typesMessage';
 import { CodeView } from '../CodeView';
@@ -18,21 +20,22 @@ interface ToolFullViewProps {
     /** Show only this file, for when the user tapped one diff out of many. */
     focusFile?: string;
     active?: boolean;
+    compact?: boolean;
 }
 
-export function ToolFullView({ tool, metadata, messages = [], focusFile, active }: ToolFullViewProps) {
+export function ToolFullView({ tool, metadata, messages = [], focusFile, active, compact = false }: ToolFullViewProps) {
     // Check if there's a specialized content view for this tool
     const SpecializedFullView = getToolFullViewComponent(tool.name);
     const screenWidth = useWindowDimensions().width;
     const devModeEnabled = (useLocalSetting('devModeEnabled') || __DEV__);
 
     return (
-        <ScrollView style={[styles.container, { paddingHorizontal: screenWidth > 700 ? 16 : 0 }]}>
+        <ScrollView testID="tool-detail-scroll" style={[styles.container, compact && { flexGrow: 0, flexBasis: 'auto', flexShrink: 1 }, { paddingHorizontal: compact ? 12 : screenWidth > 700 ? 16 : 0 }]} contentContainerStyle={{ paddingBottom: 12 }}>
             <View style={styles.contentWrapper}>
-                <ToolTimelineTiming tool={tool} active={active} />
+                <ToolTimelineTiming tool={tool} active={active} compact={compact} />
                 {/* Tool-specific content or generic fallback */}
                 {SpecializedFullView ? (
-                    <SpecializedFullView tool={tool} metadata={metadata || null} messages={messages} focusFile={focusFile} />
+                    <SpecializedFullView tool={tool} metadata={metadata || null} messages={messages} focusFile={focusFile} compact={compact} />
                 ) : (
                     <>
                     {/* Generic fallback for tools without specialized views */}
@@ -162,7 +165,7 @@ const styles = StyleSheet.create((theme) => ({
     },
     toolId: {
         fontSize: 12,
-        fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
+        ...Typography.mono(),
         color: theme.colors.textSecondary,
     },
     errorContainer: {

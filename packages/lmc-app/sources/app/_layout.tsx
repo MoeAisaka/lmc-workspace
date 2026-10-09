@@ -6,6 +6,8 @@ import * as Fonts from 'expo-font';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { AuthCredentials, TokenStorage } from '@/auth/tokenStorage';
+import { PersonalizationRuntime } from '@/components/lmc/PersonalizationRuntime';
+import { ModuleSwitcher } from '@/components/lmc/ModuleSwitcher';
 import { AuthProvider } from '@/auth/AuthContext';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
@@ -266,6 +268,8 @@ export default function RootLayout() {
 
     return (
         <>
+            <PersonalizationRuntime />
+            <ModuleSwitcher />
             <FaviconPermissionIndicator />
             {providers}
         </>

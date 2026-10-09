@@ -5,6 +5,7 @@ import { decryptWithDataKey, encryptWithDataKey } from '@/api/encryption';
 import { decodeBase64, encodeBase64 } from '@/api/encryption';
 import { logger } from '@/ui/logger';
 import { parseEnvelope } from '@/modules/orchestration/envelope';
+import { AGENT_MAIL_RECEIPT_PROTOCOL } from 'lmc-wire';
 
 /**
  * Agent-to-agent mail.
@@ -27,6 +28,8 @@ export interface AgentDescriptor {
     path?: string;
 }
 
+const PROTOCOL_RECHECK_MS = 10 * 60_000;
+
 export interface AgentMailMessage {
     id: string;
     fromSessionId: string;
@@ -34,6 +37,7 @@ export interface AgentMailMessage {
     text: string;
     hop: number;
     createdAt: number;
+    invalid?: boolean;
 }
 
 export interface DirectoryEntry {
@@ -59,6 +63,7 @@ export class AgentMailClient {
     private key: Uint8Array | null = null;
     private keyFailedAt = 0;
     private mailProtocol = 1;
+    private protocolCheckedAt = 0;
 
     constructor(private readonly token: string, private readonly sessionId: string) { }
 
@@ -72,7 +77,18 @@ export class AgentMailClient {
      * failure is not retried in a tight loop.
      */
     private async channelKey(): Promise<Uint8Array | null> {
-        if (this.key) return this.key;
+        if (this.key) {
+            // A center can be upgraded under a long-lived session. Learn a newer
+            // protocol without a restart; never step down inside one process.
+            if (this.mailProtocol < AGENT_MAIL_RECEIPT_PROTOCOL && Date.now() - this.protocolCheckedAt >= PROTOCOL_RECHECK_MS) {
+                this.protocolCheckedAt = Date.now();
+                try {
+                    const response = await axios.get<{ mailProtocol?: number }>(`${configuration.serverUrl}/v1/lmc/agent/channel-key`, { headers: this.headers(), timeout: 15_000 });
+                    this.mailProtocol = Math.max(this.mailProtocol, response.data.mailProtocol ?? 1);
+                } catch { /* Keep the protocol already negotiated. */ }
+            }
+            return this.key;
+        }
         if (Date.now() - this.keyFailedAt < 60_000) return null;
         try {
             const response = await axios.get<{ key: string; mailProtocol?: number }>(
@@ -81,6 +97,7 @@ export class AgentMailClient {
             );
             this.key = decodeBase64(response.data.key);
             this.mailProtocol = response.data.mailProtocol ?? 1;
+            this.protocolCheckedAt = Date.now();
             return this.key;
         } catch (error) {
             this.keyFailedAt = Date.now();
@@ -152,32 +169,58 @@ export class AgentMailClient {
         }
     }
 
-    /** Takes whatever is waiting. The center marks it delivered as it hands it over. */
+    /** Negotiate before fetching, including when a refresh is pending. */
+    async supportsReceipts(): Promise<boolean> {
+        return !!await this.channelKey() && this.mailProtocol >= AGENT_MAIL_RECEIPT_PROTOCOL;
+    }
+
+    /** v3 leaves rows pending until the recipient has persisted its effects. */
     async receive(): Promise<AgentMailMessage[]> {
         const key = await this.channelKey();
         if (!key) return [];
         try {
             const response = await axios.get<{ mail: { id: string; fromSessionId: string; body: string; hop: number; createdAt: number }[] }>(
                 `${configuration.serverUrl}/v1/lmc/agent/mail`,
-                { headers: this.headers(), params: { sessionId: this.sessionId }, timeout: 15_000 },
+                { headers: this.headers(), params: {
+                    sessionId: this.sessionId,
+                    ...(this.mailProtocol >= AGENT_MAIL_RECEIPT_PROTOCOL ? { mailProtocol: AGENT_MAIL_RECEIPT_PROTOCOL } : {}),
+                }, timeout: 15_000 },
             );
             if (response.data.mail.length === 0) return [];
             const directory = new Map((await this.list()).map((entry) => [entry.sessionId, entry.descriptor]));
             return response.data.mail.flatMap((mail) => {
                 const body = decryptWithDataKey(decodeBase64(mail.body), key) as { text?: string } | null;
-                if (!body?.text) return [];
+                const valid = typeof body?.text === 'string' && body.text.length > 0;
+                if (!valid && this.mailProtocol < AGENT_MAIL_RECEIPT_PROTOCOL) return [];
                 return [{
                     id: mail.id,
                     fromSessionId: mail.fromSessionId,
                     from: directory.get(mail.fromSessionId) ?? null,
-                    text: body.text,
+                    text: valid ? body!.text! : '',
                     hop: mail.hop,
                     createdAt: mail.createdAt,
+                    ...(!valid ? { invalid: true } : {}),
                 }];
             });
         } catch (error) {
             logger.debug('[agent-mail] Could not read mail', error);
             return [];
+        }
+    }
+
+    async acknowledge(ids: string[]): Promise<boolean> {
+        if (ids.length === 0) return true;
+        if (!await this.supportsReceipts()) return false;
+        try {
+            const response = await axios.post<{ acknowledged: string[] }>(
+                `${configuration.serverUrl}/v1/lmc/agent/mail/ack`,
+                { sessionId: this.sessionId, ids },
+                { headers: this.headers(), timeout: 15_000 },
+            );
+            return Array.isArray(response.data.acknowledged) && ids.every(id => response.data.acknowledged.includes(id));
+        } catch {
+            logger.debug('[agent-mail] Acknowledgement unavailable; keep the persisted receipt for the next poll');
+            return false;
         }
     }
 }

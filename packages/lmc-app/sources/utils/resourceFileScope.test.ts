@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isInsideSessionProject } from './resourceFileScope';
 
-const root = '/Volumes/OC-WORK-4T/Work/MacMini Claude';
+const root = '/Users/me/Work/Project One';
 
 describe('session project containment', () => {
     it('accepts files under the project root', () => {
@@ -13,7 +13,7 @@ describe('session project containment', () => {
     it('rejects files the Agent will refuse to read', () => {
         expect(isInsideSessionProject('/tmp/lmc-publish-web-handoff.py', root)).toBe(false);
         // A sibling directory sharing the root's prefix is still outside it.
-        expect(isInsideSessionProject('/Volumes/OC-WORK-4T/Work/MacMini Claude-old/x.md', root)).toBe(false);
+        expect(isInsideSessionProject('/Users/me/Work/Project One-old/x.md', root)).toBe(false);
         expect(isInsideSessionProject('/etc/passwd', root)).toBe(false);
     });
 

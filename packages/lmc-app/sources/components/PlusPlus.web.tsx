@@ -1,5 +1,6 @@
+import { Text } from '@/components/StyledText';
 import React from 'react';
-import { Text, View, ViewStyle } from 'react-native';
+import { View, ViewStyle } from 'react-native';
 import { Typography } from '@/constants/Typography';
 
 interface PlusPlusProps {

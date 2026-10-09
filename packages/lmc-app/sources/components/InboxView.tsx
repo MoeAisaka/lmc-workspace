@@ -1,14 +1,6 @@
+import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import {
-    View,
-    Text,
-    ScrollView,
-    Pressable,
-    ActivityIndicator,
-    NativeScrollEvent,
-    NativeSyntheticEvent,
-    Platform,
-} from 'react-native';
+import { View, ScrollView, Pressable, ActivityIndicator, NativeScrollEvent, NativeSyntheticEvent, Platform } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useAcceptedFriends, useFriendRequests, useRequestedFriends, useFeedItems, useFeedLoaded, useFriendsLoaded, useRealtimeStatus } from '@/sync/storage';
 import { UserCard } from '@/components/UserCard';

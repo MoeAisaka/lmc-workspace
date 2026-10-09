@@ -13,8 +13,16 @@ export const RESOURCE_LIMIT = 32 * 1024 * 1024;
  * the operator. Regular-file and size checks remain — those prevent accidents,
  * not attacks.
  */
+/**
+ * A scheme is a URL, never a file. One letter followed by a separator is a
+ * Windows drive (`D:\\dir\\a.png`, `D:/dir/a.png`), which is how every absolute
+ * path on a Windows host begins; refusing it hid all images there.
+ */
+export function isUrlLike(target: string): boolean {
+    return /^[a-z]+:/i.test(target) && !/^[a-z]:[\\/]/i.test(target);
+}
 export async function resolveResourceFile(root: string, target: string): Promise<string> {
-    if (typeof target !== 'string' || !target || target.length > 4096 || target.includes('\0') || /^[a-z]+:/i.test(target)) throw new Error('无效的文件路径');
+    if (typeof target !== 'string' || !target || target.length > 4096 || target.includes('\0') || isUrlLike(target)) throw new Error('无效的文件路径');
     const path = await realpath(resolve(await realpath(root), target));
     if (!(await stat(path)).isFile()) throw new Error('仅支持普通文件');
     return path;

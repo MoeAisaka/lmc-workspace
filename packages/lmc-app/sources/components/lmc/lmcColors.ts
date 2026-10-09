@@ -16,7 +16,7 @@ export function lmcColors(theme: Theme) {
         rowSelected: dark ? 'rgba(255,255,255,0.08)' : '#ECECEC',
         subtle: dark ? 'rgba(255,255,255,0.06)' : '#F3F3F3',
         border: dark ? 'rgba(255,255,255,0.12)' : '#E5E5E5',
-        brand: '#0060F0',
+        brand: theme.colors.textLink,
         inverse: dark ? '#FFFFFF' : '#0D0D0D',
         onInverse: dark ? '#0D0D0D' : '#FFFFFF',
         tertiary: dark ? '#9A9A9F' : '#8F8F8F',

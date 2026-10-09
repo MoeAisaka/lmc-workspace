@@ -11,6 +11,7 @@ import { ENVELOPE_LIMITS, formatReportEnvelope, formatReviewEnvelope, formatTask
 import { boardUpdate, boardOf } from './board';
 import { relationTo } from './roles';
 import { formatConfigMail, hasConfig, type WorkerConfig } from './workerConfig';
+import type { DelegationRecord } from 'lmc-wire';
 
 /**
  * The hub-and-workers tools, behind a port so they can run in either engine's
@@ -89,6 +90,9 @@ export function workerTitle(duty: string, name: string | undefined, directory: s
 export async function spawnWorker(port: OrchestrationPort, args: SpawnWorkerArgs): Promise<ToolResult> {
     if (!args.model || /\s|·/.test(args.model) || args.model === 'default' || !args.effort || /\s|·/.test(args.effort)) return fail('DIRECT is the default. Delegation requires an explicit model and effort; no inherited model.');
     const metadata = port.metadata();
+    if ((metadata as Metadata & { delegationMigration?: unknown } | null)?.delegationMigration !== undefined) {
+        return fail('Hub migration is pending. Preserve its ledger and finish the migration before delegating.');
+    }
     if (metadata?.orchestration?.role === 'worker') return fail('You are a worker, not a hub; workers do not start workers. Ask your hub.');
     // A standing team, not a worker per task: with a live worker of this duty
     // the answer is to assign, not to hire.
@@ -183,16 +187,24 @@ export async function assignTask(port: OrchestrationPort, args: AssignTaskArgs):
     // the latest metadata; unknown delivery can retry only the same identity.
     try {
         await port.updateMetadata(m => {
+            if ((m as Metadata & { delegationMigration?: unknown }).delegationMigration !== undefined) throw new Error('Hub migration is pending; no new task may be dispatched.');
             if (relationTo(m.orchestration, args.sessionId) !== 'worker') throw new Error('Worker binding changed.');
             const ledger = m.delegationLedger ?? {};
-            const old = ledger[args.id];
+            const old = ledger[args.id] as DelegationRecord | undefined;
+            if (old?.conflicted) throw new Error('Conflicting task ownership was preserved during migration; continue DIRECT.');
             const row = entryOf(m, args.id);
             const lastAttempt = Math.max(old?.attempt ?? 0, row?.attempt ?? 0);
-            const lastState = row && row.attempt === lastAttempt && (!old || row.dispatchId === old.dispatch) ? row.state : old?.state;
+            const lastState = row && row.attempt === lastAttempt && (!old || (row.dispatchId === old.dispatch && row.counterpart === old.worker)) ? row.state : old?.state;
             const retry = ['rejected', 'failed', 'blocked'].includes(lastState ?? '');
             const expected = lastAttempt ? lastAttempt + (retry ? 1 : 0) : 1;
             if (attempt !== expected || expected > 2) throw new Error('Attempt cannot reset or skip; after one return the hub must take over DIRECT.');
-            if ((old?.worker ?? row?.counterpart ?? args.sessionId) !== args.sessionId) throw new Error('One task has one worker. Hub takeover required; do not replace the executor.');
+            if ((old?.worker ?? row?.counterpart ?? args.sessionId) !== args.sessionId) {
+                const quota = old?.quotaReport;
+                if (!old || lastState !== 'blocked' || old.state !== 'blocked' || !quota
+                    || quota.worker !== old.worker || quota.attempt !== old.attempt || quota.dispatch !== old.dispatch) {
+                    throw new Error('One task has one worker. Replacement requires its latest report to be blocked: quota.');
+                }
+            }
             if (old && old.budgetMinutes !== args.budget_minutes) throw new Error('The original task budget cannot be extended on retry.');
             if (!old && Object.keys(ledger).length >= 256) throw new Error('Delegation ledger full; continue DIRECT. Limits are not silently evicted.');
             const now = port.now?.() ?? Date.now();
@@ -202,7 +214,7 @@ export async function assignTask(port: OrchestrationPort, args: AssignTaskArgs):
                 && !['done', 'accepted'].includes(lastState ?? '')) throw new Error('A different assignment is already pending for this task. Do not start duplicate work.');
             return { ...m, delegationLedger: { ...ledger, [args.id]: {
                 worker: args.sessionId, attempt, deadline, budgetMinutes: args.budget_minutes!, dispatch: task.fields.dispatch!,
-                state: old?.dispatch === task.fields.dispatch && old.attempt === attempt ? (lastState ?? old.state) : 'dispatched',
+                state: old && old.dispatch === task.fields.dispatch && old.attempt === attempt ? (lastState ?? old.state) : 'dispatched',
             } } };
         });
     } catch (error) { return fail(error instanceof Error ? error.message : 'Could not reserve delegation; no task sent.'); }

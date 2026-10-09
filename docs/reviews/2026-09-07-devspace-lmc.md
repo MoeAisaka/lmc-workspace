@@ -20,7 +20,7 @@ LMC 基线 6c548d0；DevSpace 基线 fb5e2ebbc7234d00fa15e94334d0be94895aac63。
 
 ## MacBook 现场证据
 
-SSH 通道可用。2026-09-07，在 yukina 用户 SSH 环境中：
+SSH 通道可用。2026-09-07，在普通用户 SSH 环境中：
 - ~/.local/bin/claude：2.1.263；auth status --json 返回 loggedIn=false、authMethod=none、apiProvider=firstParty，退出码1。
 - ~/.lmc/agent-releases/264176f/node_modules/@anthropic-ai/claude-agent-sdk-darwin-arm64/claude：2.1.179；同样返回未登录。
 - 活动 LMC SDK Claude 的父进程 PID 66033；对应 2026-09-06-21-56-44-pid-66033.log 中找到8条 Not logged in 结果。

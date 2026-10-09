@@ -47,4 +47,14 @@ describe('attachment inbox', () => {
         expect(looksLikeImage(new Uint8Array([0xff, 0xd8, 0xff, 0]))).toBe(true);
         expect(looksLikeImage(new TextEncoder().encode('%PDF'))).toBe(false);
     });
+
+    it('keeps same-named attachments from different messages saved in the same second', async () => {
+        const dir = await project();
+        const saved = await Promise.all(['first image', 'second image'].map(text => saveAttachmentsToInbox([
+            { data: new TextEncoder().encode(text), mimeType: 'image/jpeg', name: 'image.jpg' },
+        ], { projectPath: dir, sessionId: 's', now })));
+        expect(saved.map(items => items.length)).toEqual([1, 1]);
+        expect(saved[0][0].path).not.toBe(saved[1][0].path);
+        expect(await Promise.all(saved.map(items => readFile(items[0].path, 'utf8')))).toEqual(['first image', 'second image']);
+    });
 });

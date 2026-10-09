@@ -1,3 +1,4 @@
+import { Text } from '@/components/StyledText';
 import { TurnElapsedLabel } from './TurnElapsedLabel';
 import type { TurnElapsed } from '@/utils/turnElapsed';
 import { CHAT_WIDE_WIDTH, useChatMaxWidth } from './ChatWidthContext';
@@ -5,7 +6,7 @@ import { PickerMenuDivider, PickerMenuEmpty, PickerMenuRow, PickerMenuTitle } fr
 import { Ionicons, Octicons } from '@expo/vector-icons';
 import Svg, { Circle } from 'react-native-svg';
 import * as React from 'react';
-import { Keyboard, View, Platform, useWindowDimensions, Text, ActivityIndicator, Pressable, TouchableWithoutFeedback, LayoutChangeEvent } from 'react-native';
+import { Keyboard, View, Platform, useWindowDimensions, ActivityIndicator, Pressable, TouchableWithoutFeedback, LayoutChangeEvent } from 'react-native';
 import { Image } from 'expo-image';
 import { AgentInputAttachmentStrip } from './AgentInputAttachmentStrip';
 import { useComposerFileTransfer } from '@/hooks/useComposerFileTransfer';
@@ -20,14 +21,16 @@ import { EffortLevel } from './modelModeOptions';
 import { hapticsLight, hapticsError } from './haptics';
 import { Shaker, ShakeInstance } from './Shaker';
 import { StatusDot } from './StatusDot';
-import { useActiveWord } from './autocomplete/useActiveWord';
+import { useComposerInputState } from './autocomplete/useComposerInputState';
 import { useActiveSuggestions } from './autocomplete/useActiveSuggestions';
 import { AgentInputAutocomplete } from './AgentInputAutocomplete';
 import { FloatingOverlay } from './FloatingOverlay';
-import { TextInputState, MultiTextInputHandle } from './MultiTextInput';
+import { MultiTextInputHandle } from './MultiTextInput';
 import { applySuggestion } from './autocomplete/applySuggestion';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { useSetting } from '@/sync/storage';
+import { useMachine, useSession, useSetting } from '@/sync/storage';
+import { useRouter } from 'expo-router';
+import { formatBytes, formatMemoryUsage, sessionMemoryFigure } from '@/utils/lmc/machineResources';
 import { hackMode, hackModes } from '@/sync/modeHacks';
 import { getPermissionModeMenuLabel, getPermissionModeShortLabel } from '@/utils/permissionModeLabels';
 import { lmcElevation } from '@/components/lmc/elevation';
@@ -57,6 +60,17 @@ import { shouldUseExpoNativeSettingsMenu } from './glassInteractionPolicy';
 import { ComposerModelPanel } from './lmc/ComposerModelPanel';
 import { engineForModelKey, engineModelGroups } from '@/sync/engineModelCatalog';
 import type { SwitchableEngine } from '@/sync/engineSwitch';
+
+// A touch synthesizes mousedown before click. Moving focus to Send dismisses
+// the keyboard and can move the button out from under that pending click.
+// Cancel only focus transfer, retaining the browser's normal click/keyboard
+// activation (canceling pointerdown also suppresses compatibility events).
+const webSendFocusProps = Platform.OS === 'web' ? {
+    onMouseDown: (event: React.MouseEvent<HTMLElement>) => {
+        if (event.button === 0 && event.currentTarget.getAttribute('aria-label') === 'Send'
+            && document.activeElement?.matches('textarea[data-lmc-text-input]')) event.preventDefault();
+    },
+} : {};
 
 interface AgentInputProps {
     // `initialValue` seeds the uncontrolled textarea once; keystrokes never
@@ -767,7 +781,12 @@ function ContextGaugeIcon(props: { percent: number }) {
     );
 }
 
+/** Machine memory above the tight line (D27): the same amber the device page uses for caution. */
+const MEMORY_TIGHT_COLOR = '#FF9500';
+
 type UsageRowProps = {
+    /** The session whose memory (and its machine's) sits in the middle of the row. */
+    sessionId?: string;
     turnElapsed?: TurnElapsed | null;
     contextStatus: { percent: number; detailText: string; color: string } | null;
     /** Keep the row's height even before it has anything to show. */
@@ -781,7 +800,12 @@ export const AgentInputUsageRow = React.memo(function AgentInputUsageRow(p: Usag
     const { theme } = useUnistyles();
     const compact = useWindowDimensions().width < 500 && !!p.turnElapsed;
     const [showPreciseContext, setShowPreciseContext] = React.useState(false);
-    const hasFigures = !!p.contextStatus || !!p.turnElapsed;
+    const wide = useWindowDimensions().width >= 500;
+    const router = useRouter();
+    const memorySession = useSession(p.sessionId ?? '');
+    const memoryMachine = useMachine(memorySession?.metadata?.machineId ?? '');
+    const memory = sessionMemoryFigure(memorySession, memoryMachine);
+    const hasFigures = !!p.contextStatus || !!p.turnElapsed || !!memory;
     // Compaction leaves the session with no context figure for a moment.
     // Unmounting the row for those
     // frames shortens the bottom-anchored dock, so the whole composer drops by
@@ -806,10 +830,34 @@ export const AgentInputUsageRow = React.memo(function AgentInputUsageRow(p: Usag
             // reserved row is exactly as tall as one with figures.
             minHeight: 24,
         }}>
-            {p.turnElapsed && <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0 }}>
-                <TurnElapsedLabel timing={p.turnElapsed} compact={compact} />
+            {/* With a memory figure the row has three cells: equal-width sides keep
+                the figure on the row's true centre (D27). Without one the row is
+                laid out exactly as before. */}
+            {(p.turnElapsed || memory) && <View style={memory ? { flexBasis: 0, flexGrow: 1, flexShrink: 1, minWidth: 0 } : { flexGrow: 1, flexShrink: 1, minWidth: 0 }}>
+                {p.turnElapsed && <TurnElapsedLabel timing={p.turnElapsed} compact={compact || (!!memory && !wide)} />}
             </View>}
-            <View testID="agent-input-usage-figures" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: compact ? 8 : 10, flexShrink: 1, maxWidth: compact ? '72%' : undefined }}>
+            {memory && (
+                <Pressable
+                    testID="agent-input-memory"
+                    accessibilityRole="button"
+                    accessibilityLabel={t('agentInput.context.memoryLabel', { name: memory.machineName })}
+                    onPress={() => router.push(`/machine/${memory.machineId}`)}
+                    hitSlop={{ top: 12, bottom: 14, left: 8, right: 8 }}
+                    style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 0 }}
+                >
+                    <Text numberOfLines={1} style={{ fontSize: 11, color: theme.colors.textSecondary, ...Typography.default() }}>
+                        {memory.sessionBytes !== null && `${wide ? t('agentInput.context.memorySession', { size: formatBytes(memory.sessionBytes) }) : formatBytes(memory.sessionBytes)} · `}
+                        <Text testID="agent-input-memory-machine" style={{ color: memory.tight ? MEMORY_TIGHT_COLOR : theme.colors.textSecondary }}>
+                            {wide
+                                ? t('agentInput.context.memoryMachine', { name: memory.machineName, usage: formatMemoryUsage(memory.usedBytes, memory.totalBytes) })
+                                : t('agentInput.context.memoryThisMachine', { usage: formatMemoryUsage(memory.usedBytes, memory.totalBytes) })}
+                        </Text>
+                    </Text>
+                </Pressable>
+            )}
+            <View testID="agent-input-usage-figures" style={memory
+                ? { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexBasis: 0, flexGrow: 1, flexShrink: 1, minWidth: 0 }
+                : { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: compact ? 8 : 10, flexShrink: 1, maxWidth: compact ? '72%' : undefined }}>
                 {p.contextStatus && (
                     <Pressable
                         testID="agent-input-context"
@@ -1049,16 +1097,13 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     React.useImperativeHandle(ref, () => inputRef.current!, []);
 
     // Paste and drop, shared with the new-session composer.
-    useComposerFileTransfer(props.onAddImages, props.selectedImages?.length ?? 0);
+    const transferScopeRef = React.useRef<View>(null);
+    useComposerFileTransfer(props.onAddImages, props.selectedImages?.length ?? 0, transferScopeRef);
     const clipboardImage = useClipboardImage(props.onAddImages);
 
-    // Autocomplete state — text + selection. Updated via startTransition so
-    // typing renders the character immediately and the autocomplete pipeline
-    // catches up on the next idle frame instead of blocking input.
-    const [inputState, setInputState] = React.useState<TextInputState>(() => ({
-        text: props.initialValue,
-        selection: { start: props.initialValue.length, end: props.initialValue.length }
-    }));
+    const { inputState, activeWord, handleInputStateChange } = useComposerInputState(
+        props.initialValue, props.autocompletePrefixes,
+    );
 
     const onActionAreaOffsetChange = props.onActionAreaOffsetChange;
     const handleActionAreaLayout = React.useCallback((event: LayoutChangeEvent) => {
@@ -1077,14 +1122,6 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
         onChangeTextProp?.(text);
     }, [onChangeTextProp]);
 
-    const handleInputStateChange = React.useCallback((newState: TextInputState) => {
-        React.startTransition(() => {
-            setInputState(newState);
-        });
-    }, []);
-
-    // Use the tracked selection from inputState
-    const activeWord = useActiveWord(inputState.text, inputState.selection, props.autocompletePrefixes);
     // Using default options: clampSelection=true, autoSelectFirst=true, wrapAround=true
     // To customize: useActiveSuggestions(activeWord, props.autocompleteSuggestions, { clampSelection: false, wrapAround: false })
     const [suggestions, selected, moveUp, moveDown] = useActiveSuggestions(activeWord, props.autocompleteSuggestions, { clampSelection: true, wrapAround: true });
@@ -1109,8 +1146,8 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
 
         // Apply the suggestion
         const result = applySuggestion(
-            inputState.text,
-            inputState.selection,
+            inputState.current.text,
+            inputState.current.selection,
             suggestion.text,
             props.autocompletePrefixes,
             true // add space after
@@ -1449,7 +1486,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             } else if (event.key === 'ArrowDown') {
                 moveDown();
                 return true;
-            } else if ((event.key === 'Enter' || (event.key === 'Tab' && !event.shiftKey))) {
+            } else if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey) {
                 // Both Enter and Tab select the current suggestion
                 // If none selected (selected === -1), select the first one
                 const indexToSelect = selected >= 0 ? selected : 0;
@@ -1458,8 +1495,8 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             } else if (event.key === 'Escape') {
                 // Clear suggestions by collapsing selection (triggers activeWord to clear)
                 if (inputRef.current) {
-                    const cursorPos = inputState.selection.start;
-                    inputRef.current.setTextAndSelection(inputState.text, {
+                    const cursorPos = inputState.current.selection.start;
+                    inputRef.current.setTextAndSelection(inputState.current.text, {
                         start: cursorPos,
                         end: cursorPos
                     });
@@ -1476,12 +1513,9 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
 
         // Original key handling
         if (Platform.OS === 'web') {
-            // On mobile web (touch devices), Enter should insert a newline since
-            // there's no Shift key available. Users send via the send button instead.
-            // Use pointer:coarse media query instead of ontouchstart/maxTouchPoints
-            // to avoid false positives on Windows touch-screen laptops with keyboards.
-            const isTouchDevice = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
-            if (agentInputEnterToSend && event.key === 'Enter' && !event.shiftKey && !isTouchDevice) {
+            // The preference applies to touch browsers and attached keyboards
+            // too. Shift+Enter remains a newline; MultiTextInput guards IME Enter.
+            if (agentInputEnterToSend && event.key === 'Enter' && !event.shiftKey) {
                 // Read live text from the textarea — `hasText` is debounced via
                 // startTransition and would lag behind a quick type-then-Enter.
                 const liveText = inputRef.current?.getText() ?? '';
@@ -1608,6 +1642,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                             })}
                             hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
                             onPress={handleSendPress}
+                            {...webSendFocusProps}
                             disabled={!desktopCanPressSendButton}
                             accessibilityRole="button"
                             accessibilityLabel={!hasComposerContent && props.onMicPress && !props.isMicActive ? 'Voice' : 'Send'}
@@ -1705,7 +1740,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
 
 
     return (
-        <View style={[
+        <View ref={transferScopeRef} style={[
             styles.container,
             // Wide mode centres nothing, so this gutter would sit the composer
             // 12pt inside the transcript's own 16pt inset. Narrow mode absorbs
@@ -1797,6 +1832,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                         compactMobileComposer && styles.mobileUnifiedPanelShadow,
                     ]}>
                         <MobileGlassSurface
+                            {...(Platform.OS === 'web' ? {dataSet: {lmcSurface: 'panel'}} : {})}
                             enabled={compactMobileComposer}
                             nativeEffect
                             material="frosted"
@@ -1999,6 +2035,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                     })}
                                     hitSlop={6}
                                     onPress={handleMobilePrimaryPress}
+                                    {...webSendFocusProps}
                                     disabled={!canPressSendButton}
                                     accessibilityRole="button"
                                     accessibilityLabel={shouldShowStopButton ? 'Stop'
@@ -2063,6 +2100,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                 <View onLayout={onBottomSpacingChange ? handleUsageLayout : undefined}>
                     <AnimatedFade visible={props.showStatusDetails !== false}>
                         <AgentInputUsageRow
+                            sessionId={props.sessionId}
                             turnElapsed={props.turnElapsed}
                             contextStatus={contextStatus}
                             alwaysReserve={props.reserveUsageRow}

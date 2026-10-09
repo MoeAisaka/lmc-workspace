@@ -1,5 +1,6 @@
+import { Text } from '@/components/StyledText';
 import React, { useState, useCallback } from 'react';
-import { View, Text, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform, FlatList } from 'react-native';
+import { View, TextInput, ActivityIndicator, KeyboardAvoidingView, Platform, FlatList } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { UserSearchResult } from '@/components/UserSearchResult';
 import { searchUsersByUsername, sendFriendRequest } from '@/sync/apiFriends';

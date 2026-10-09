@@ -44,3 +44,31 @@ describe('quotaDisplay', () => {
         expect(weeklyResetLabel(d, true)).toBe('9/30 周三 22:00');
     });
 });
+
+
+describe('supplemental pool', () => {
+    it('keeps zero distinct from unavailable and does not borrow a newer main sample', async () => {
+        const { supplementalRemaining } = await import('./quotaDisplay');
+        const now = 1_790_000_000_000;
+        const provider = { capturedAt: now, supplemental: { remaining: 0, capturedAt: now, pending: true, resetsAt: now - 1, stale: false } } as any;
+        expect(supplementalRemaining(provider, now)).toBe(0);
+        provider.supplemental.remaining = 100;
+        expect(supplementalRemaining(provider, now)).toBe(100);
+        provider.supplemental.capturedAt = now - 66 * 60000;
+        expect(supplementalRemaining(provider, now)).toBeNull();
+        expect(supplementalRemaining(undefined, now)).toBeNull();
+    });
+});
+
+describe('credit amount label', () => {
+    it('formats actual credits, zero/unlimited/unknown and independent sample freshness', async () => {
+        const { usageCreditLabel } = await import('./quotaDisplay');
+        const now = 1790000000000;
+        const p = { supplemental: { remaining: 100 }, usageCredits: { balance: 53480.07237, unlimited: false, capturedAt: now, stale: false } } as any;
+        expect(usageCreditLabel(p, now)).toBe('53,480.07');
+        p.usageCredits.balance = 0; expect(usageCreditLabel(p, now)).toBe('0');
+        p.usageCredits.unlimited = true; expect(usageCreditLabel(p, now)).toBe('∞');
+        expect(usageCreditLabel(p, now + 6 * 60000)).toBe('—');
+        expect(usageCreditLabel({ supplemental: { remaining: 100 } } as any, now)).toBe('—');
+    });
+});

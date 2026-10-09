@@ -1,5 +1,7 @@
+import { Text } from '@/components/StyledText';
+import { dialogAppearance } from './dialogAppearance';
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, KeyboardTypeOptions, Platform } from 'react-native';
+import { View, TextInput, Pressable, StyleSheet, KeyboardTypeOptions, Platform } from 'react-native';
 import { BaseModal } from './BaseModal';
 import { PromptModalConfig } from '../types';
 import { Typography } from '@/constants/Typography';
@@ -46,6 +48,7 @@ export function WebPromptModal({ config, onClose, onConfirm }: WebPromptModalPro
         }
     };
 
+    const appearance = dialogAppearance(theme);
     const styles = StyleSheet.create({
         container: {
             backgroundColor: Platform.select({
@@ -66,26 +69,30 @@ export function WebPromptModal({ config, onClose, onConfirm }: WebPromptModalPro
             },
             shadowOpacity: 0.25,
             shadowRadius: 4,
-            elevation: 5
+            elevation: 5,
+            ...appearance.container
         },
         content: {
             paddingHorizontal: 16,
             paddingTop: 20,
             paddingBottom: 16,
-            alignItems: 'center'
+            alignItems: 'center',
+            ...appearance.content
         },
         title: {
             fontSize: 17,
             textAlign: 'center',
             color: theme.colors.text,
-            marginBottom: 4
+            marginBottom: 4,
+            ...appearance.title
         },
         message: {
             fontSize: 13,
             textAlign: 'center',
             color: theme.colors.text,
             marginTop: 4,
-            lineHeight: 18
+            lineHeight: 18,
+            ...appearance.message
         },
         input: {
             width: '100%',
@@ -97,29 +104,34 @@ export function WebPromptModal({ config, onClose, onConfirm }: WebPromptModalPro
             marginTop: 16,
             fontSize: 14,
             color: theme.colors.text,
-            backgroundColor: theme.colors.input.background
+            backgroundColor: theme.colors.input.background,
+            ...appearance.input
         },
         buttonContainer: {
             borderTopWidth: 1,
             borderTopColor: theme.colors.divider,
-            flexDirection: 'row'
+            flexDirection: 'row',
+            ...appearance.buttonContainer
         },
         button: {
             flex: 1,
             paddingVertical: 11,
             alignItems: 'center',
-            justifyContent: 'center'
+            justifyContent: 'center',
+            ...appearance.button
         },
         buttonPressed: {
             backgroundColor: theme.colors.divider
         },
         buttonSeparator: {
             width: 1,
-            backgroundColor: theme.colors.divider
+            backgroundColor: theme.colors.divider,
+            ...appearance.buttonSeparator
         },
         buttonText: {
             fontSize: 17,
-            color: theme.colors.textLink
+            color: theme.colors.textLink,
+            ...appearance.buttonText
         },
         cancelText: {
             fontWeight: '400'
@@ -163,7 +175,7 @@ export function WebPromptModal({ config, onClose, onConfirm }: WebPromptModalPro
                 </View>
                 
                 <View style={styles.buttonContainer}>
-                    <Pressable
+                    <Pressable accessibilityRole="button"
                         style={({ pressed }) => [
                             styles.button,
                             pressed && styles.buttonPressed
@@ -179,7 +191,7 @@ export function WebPromptModal({ config, onClose, onConfirm }: WebPromptModalPro
                         </Text>
                     </Pressable>
                     <View style={styles.buttonSeparator} />
-                    <Pressable
+                    <Pressable accessibilityRole="button"
                         style={({ pressed }) => [
                             styles.button,
                             pressed && styles.buttonPressed

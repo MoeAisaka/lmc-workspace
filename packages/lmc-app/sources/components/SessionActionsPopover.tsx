@@ -1,5 +1,6 @@
+import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import { Pressable, ScrollView, Modal as RNModal, Platform, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, ScrollView, Modal as RNModal, Platform, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { lmcElevation, lmcSurfaceBorder } from './lmc/elevation';

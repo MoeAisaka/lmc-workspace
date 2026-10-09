@@ -16,17 +16,17 @@ import { lmcElevation, lmcSurfaceBorder } from './elevation';
 import { t } from '@/text';
 
 const styles = StyleSheet.create((theme) => ({
-    layer: { position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center' },
+    layer: { position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center', paddingHorizontal: 12, paddingBottom: 12 },
     card: {
         width: '100%',
         flex: 1,
         minHeight: 0,
-        marginHorizontal: 16,
-        marginBottom: 12,
         borderRadius: 20,
         backgroundColor: theme.colors.surface,
         overflow: 'hidden',
     },
+    compactCard: { flexGrow: 0, flexBasis: 'auto', flexShrink: 1, maxHeight: '75%' },
+    compactBody: { flexGrow: 0, flexBasis: 'auto', flexShrink: 1, minHeight: 0 },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -71,7 +71,7 @@ export const SessionToolOverlay = React.memo(({ sessionId, messageId, filePath, 
 
     return (
         <View style={[styles.layer, { top }]} pointerEvents="box-none">
-            <Animated.View style={[styles.card, style, { maxWidth: chatMaxWidth }, lmcSurfaceBorder(theme), lmcElevation(theme, 3)]}>
+            <Animated.View testID="session-tool-overlay" style={[styles.card, !filePath && styles.compactCard, style, { maxWidth: chatMaxWidth }, lmcSurfaceBorder(theme), lmcElevation(theme, 3)]}>
                 <View style={styles.header}>
                     <View style={{ flex: 1, minWidth: 0 }}>
                         {filePath
@@ -90,7 +90,7 @@ export const SessionToolOverlay = React.memo(({ sessionId, messageId, filePath, 
                         <Ionicons name="close" size={18} color={theme.colors.text} />
                     </Pressable>
                 </View>
-                <View style={styles.body}>
+                <View style={[styles.body, !filePath && styles.compactBody]}>
                     {filePath ? (
                         <FileViewPanel sessionId={sessionId} filePath={filePath} onHeaderRightSlotChange={() => {}} />
                     ) : !message ? (
@@ -98,7 +98,7 @@ export const SessionToolOverlay = React.memo(({ sessionId, messageId, filePath, 
                             <ActivityIndicator size="small" color={theme.colors.textSecondary} />
                         </View>
                     ) : message.kind === 'tool-call' ? (
-                        <ToolFullView tool={message.tool} messages={message.children} active={active} />
+                        <ToolFullView tool={message.tool} messages={message.children} active={active} compact />
                     ) : message.kind === 'agent-text' || message.kind === 'user-text' ? (
                         <ScrollView contentContainerStyle={{ padding: 16 }}>
                             <Text style={{ fontSize: 15, lineHeight: 24, color: theme.colors.text, ...Typography.default() }}>{message.text}</Text>

@@ -1,5 +1,6 @@
+import { Text } from '@/components/StyledText';
 import React from 'react';
-import { View, Text } from 'react-native';
+import { View } from 'react-native';
 import { Octicons } from '@expo/vector-icons';
 import { useSessionGitStatus } from '@/sync/storage';
 import { GitStatus } from '@/sync/storageTypes';

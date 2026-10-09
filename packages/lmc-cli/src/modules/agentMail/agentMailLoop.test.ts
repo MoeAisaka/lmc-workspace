@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/ui/logger', () => ({ logger: { debug: vi.fn() } }));
 vi.mock('./agentMail', () => ({
-    AgentMailClient: class { publish = vi.fn(); list = vi.fn(async () => [{ sessionId: 'H' }]); receive = vi.fn(async () => []); send = vi.fn(async () => ({ ok: true })); },
+    AgentMailClient: class { supportsReceipts = vi.fn(async () => false); acknowledge = vi.fn(async () => true); publish = vi.fn(); list = vi.fn(async () => [{ sessionId: 'H' }]); receive = vi.fn(async () => []); send = vi.fn(async () => ({ ok: true })); },
     formatIncomingMail: (mail: any) => mail.text,
 }));
 
@@ -158,5 +158,72 @@ describe('agent mail while a session is being handed over', () => {
         await new Promise((resolve) => setTimeout(resolve, 1300));
         expect((mail.mail as any).receive).not.toHaveBeenCalled();
         mail.stop();
+    });
+});
+
+describe('v3 mail handover in the common Claude/Codex loop', () => {
+    it.each([
+        ['claude', 'queued'], ['claude', 'refreshing'],
+        ['codex', 'queued'], ['codex', 'refreshing'],
+    ])('keeps receiving and acknowledging on %s while %s', async (flavor, state) => {
+        vi.useFakeTimers();
+        const session = sessionWith({ flavor, sessionConfigState: state, orchestration: { role: 'hub', workers: [{ sessionId: 'W', by: 'auto', boundAt: 1 }] } });
+        const loop = startAgentMail(session, 'token', () => ({ machine: 'm', engine: flavor, title: 'hub' }));
+        (loop.mail as any).supportsReceipts.mockResolvedValue(true);
+        (loop.mail as any).receive.mockResolvedValueOnce([{ id: 'report', fromSessionId: 'W', text: '[report t · attempt 1 · done]\nsummary  complete', hop: 1, createdAt: 1 }]);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(session.getMetadata().orchestration.board[0].state).toBe('done');
+        expect(session.sendUserTextMessage).toHaveBeenCalledTimes(1);
+        expect((loop.mail as any).acknowledge).toHaveBeenCalledWith(['report']);
+        expect(session.getMetadata().agentMailInbox.report.phase).toBe('acked');
+        loop.stop();
+    });
+    it.each(['claude', 'codex'])('retries confirmation after restart without another %s turn', async flavor => {
+        vi.useFakeTimers();
+        const first = sessionWith({ flavor });
+        const loop = startAgentMail(first, 'token', () => ({ machine: 'm', engine: flavor, title: 't' }));
+        (loop.mail as any).supportsReceipts.mockResolvedValue(true);
+        (loop.mail as any).acknowledge.mockResolvedValue(false);
+        const letter = { id: 'same', fromSessionId: 'H', text: 'Please inspect the fixture', hop: 1, createdAt: 1 };
+        (loop.mail as any).receive.mockResolvedValueOnce([letter]);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(first.sendUserTextMessage).toHaveBeenCalledTimes(1);
+        loop.stop();
+        const second = sessionWith(JSON.parse(JSON.stringify(first.getMetadata())));
+        const restarted = startAgentMail(second, 'token', () => ({ machine: 'm', engine: flavor, title: 't' }));
+        (restarted.mail as any).supportsReceipts.mockResolvedValue(true);
+        (restarted.mail as any).receive.mockResolvedValueOnce([letter]);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(second.sendUserTextMessage).not.toHaveBeenCalled();
+        expect((restarted.mail as any).acknowledge).toHaveBeenCalledWith(['same']);
+        restarted.stop();
+    });
+    it('leaves failed projections unacknowledged while delivering the rest of a v3 batch', async () => {
+        vi.useFakeTimers();
+        const session = sessionWith({});
+        const update = session.updateMetadata;
+        session.updateMetadata = vi.fn().mockRejectedValueOnce(new Error('storage unavailable')).mockImplementation(update);
+        const loop = startAgentMail(session, 'token', () => ({ machine: 'm', engine: 'claude', title: 't' }));
+        (loop.mail as any).supportsReceipts.mockResolvedValue(true);
+        (loop.mail as any).receive.mockResolvedValueOnce(['one', 'two'].map(id => ({ id, fromSessionId: 'H', text: id, hop: 1, createdAt: 1 })));
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(session.sendUserTextMessage).toHaveBeenCalledTimes(1);
+        expect((loop.mail as any).acknowledge).toHaveBeenCalledWith(['two']);
+        expect(session.getMetadata().agentMailInbox.one).toBeUndefined();
+        loop.stop();
+    });
+    it('does not deliver a response arriving after this process stops', async () => {
+        vi.useFakeTimers();
+        const session = sessionWith({});
+        const loop = startAgentMail(session, 'token', () => ({ machine: 'm', engine: 'claude', title: 't' }));
+        (loop.mail as any).supportsReceipts.mockResolvedValue(true);
+        let release!: (messages: any[]) => void;
+        (loop.mail as any).receive.mockImplementation(async () => new Promise(resolve => { release = resolve; }));
+        await vi.advanceTimersByTimeAsync(1000);
+        loop.stop();
+        release([{ id: 'late', fromSessionId: 'H', text: 'late', hop: 1, createdAt: 1 }]);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(session.sendUserTextMessage).not.toHaveBeenCalled();
+        expect((loop.mail as any).acknowledge).not.toHaveBeenCalled();
     });
 });

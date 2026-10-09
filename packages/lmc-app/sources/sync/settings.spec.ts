@@ -207,6 +207,7 @@ describe('settings', () => {
                 voiceCustomAgentId: null,
                 voiceBypassToken: false,
                 preferredLanguage: null,
+                interactiveAnswers: 'auto',
                 recentMachinePaths: [],
                 lastUsedAgent: null,
                 lastUsedPermissionMode: null,

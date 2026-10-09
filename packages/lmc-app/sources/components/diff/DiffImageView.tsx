@@ -1,3 +1,4 @@
+import { Text } from '@/components/StyledText';
 /**
  * Before/after view for image files.
  *
@@ -9,7 +10,7 @@
 
 import * as React from 'react';
 import { Image } from 'expo-image';
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 import { useDiffPalette } from './DiffPalette';

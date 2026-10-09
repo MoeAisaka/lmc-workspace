@@ -336,14 +336,18 @@ export function writeDaemonState(state: DaemonLocallyPersistedState): void {
 /**
  * Clean up daemon state file and lock file
  */
-export async function clearDaemonState(): Promise<void> {
+export async function clearDaemonState(expectedPid?: number): Promise<void> {
   if (existsSync(configuration.daemonStateFile)) {
-    await unlink(configuration.daemonStateFile);
+    // A replaced daemon must never erase its successor's state during shutdown.
+    if (expectedPid !== undefined && JSON.parse(readFileSync(configuration.daemonStateFile, 'utf-8')).pid !== expectedPid) return;
+    unlinkSync(configuration.daemonStateFile);
   }
   // Also clean up lock file if it exists (for stale cleanup)
   if (existsSync(configuration.daemonLockFile)) {
     try {
-      await unlink(configuration.daemonLockFile);
+      if (expectedPid === undefined || Number(readFileSync(configuration.daemonLockFile, 'utf-8').trim()) === expectedPid) {
+        unlinkSync(configuration.daemonLockFile);
+      }
     } catch {
       // Lock file might be held by running daemon, ignore error
     }
@@ -425,7 +429,7 @@ export async function releaseDaemonLock(lockHandle: FileHandle, lockFile: string
   } catch { }
 
   try {
-    if (existsSync(lockFile)) {
+    if (existsSync(lockFile) && Number(readFileSync(lockFile, 'utf-8').trim()) === process.pid) {
       unlinkSync(lockFile);
     }
   } catch { }

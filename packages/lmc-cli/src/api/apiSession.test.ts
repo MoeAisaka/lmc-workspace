@@ -310,6 +310,62 @@ describe('ApiSessionClient v3 messages API migration', () => {
         await client.close();
     });
 
+    it('waits for matching durable mail identity rather than just enqueueing in memory', async () => {
+        const client = new ApiSessionClient('fake-token', session);
+        let respond!: (value: unknown) => void;
+        mockAxiosPost.mockImplementationOnce(() => new Promise(resolve => { respond = resolve; }));
+        let finished = false;
+        const pending = client.sendUserTextMessage('mail', undefined, { localId: 'mail-stable' })!;
+        pending.then(() => { finished = true; });
+        await waitForCheck(() => expect(mockAxiosPost).toHaveBeenCalledTimes(1));
+        expect(finished).toBe(false);
+        expect(mockAxiosPost.mock.calls[0][1].messages[0].localId).toBe('mail-stable');
+        respond({ data: { messages: [{ id: 'stored', localId: 'mail-stable', seq: 1 }] } });
+        await pending;
+        expect(finished).toBe(true);
+        expect((client as any).pendingOutbox).toHaveLength(0);
+        await client.close();
+    });
+
+    it('retains a timed-out mail write and coalesces same-process persistence waits without another write', async () => {
+        vi.useFakeTimers();
+        const client = new ApiSessionClient('fake-token', session);
+        let respond!: (value: unknown) => void;
+        mockAxiosPost.mockImplementationOnce(() => new Promise(resolve => { respond = resolve; }));
+        const first = client.sendSessionEvent({ type: 'message', message: 'config' }, 'mail-stable', { localId: 'mail-stable', timeoutMs: 5 })!;
+        const failure = expect(first).rejects.toThrow('unconfirmed');
+        await vi.advanceTimersByTimeAsync(10);
+        await failure;
+        const second = client.sendSessionEvent({ type: 'message', message: 'config' }, 'mail-stable', { localId: 'mail-stable' })!;
+        expect(mockAxiosPost).toHaveBeenCalledTimes(1);
+        expect((client as any).pendingOutbox).toHaveLength(1);
+        respond({ data: { messages: [{ id: 'stored', localId: 'mail-stable', seq: 1 }] } });
+        await second;
+        expect((client as any).pendingOutbox).toHaveLength(0);
+        await client.close();
+    });
+
+    it('reuses the localId after a lost HTTP response and after recreating the API client', async () => {
+        const durable = new Map<string, unknown>();
+        let failFirst = true;
+        mockAxiosPost.mockImplementation(async (_url, payload) => {
+            const stored = payload.messages.map((m: any) => {
+                if (!durable.has(m.localId)) durable.set(m.localId, m.content);
+                return { id: m.localId, localId: m.localId, seq: 1 };
+            });
+            if (failFirst) { failFirst = false; throw new Error('response lost after insert'); }
+            return { data: { messages: stored } };
+        });
+        const first = new ApiSessionClient('fake-token', session);
+        await first.sendUserTextMessage('one task', undefined, { localId: 'mail-stable' });
+        await first.close();
+        const second = new ApiSessionClient('fake-token', session);
+        await second.sendUserTextMessage('one task', undefined, { localId: 'mail-stable' });
+        expect(durable.size).toBe(1);
+        expect(mockAxiosPost.mock.calls.every(([, payload]) => payload.messages[0].localId === 'mail-stable')).toBe(true);
+        await second.close();
+    });
+
     it('queues codex message to v3 outbox, sends once, and drains outbox', async () => {
         const client = new ApiSessionClient('fake-token', session);
         mockAxiosPost.mockResolvedValueOnce({

@@ -43,3 +43,25 @@ it('returns a disconnected host error without retries or session mutation', asyn
     await expect(readSessionResource('s', { path: 'p.png', action: 'download' })).rejects.toThrow('RPC method not available');
     expect(machineRPC).toHaveBeenCalledTimes(1);
 });
+it('asks the Windows host once when an older session process refuses a drive path', async () => {
+    state.sessions.s = { metadata: { machineId: 'win-host', path: 'D:\\AgentWork\\project' } };
+    const refusal = { success: false, error: '无效的文件路径' };
+    sessionRPC.mockResolvedValue(refusal);
+    machineRPC.mockResolvedValueOnce({ success: true, content: 'AQ==' });
+    await expect(readSessionResource('s', { path: 'D:/out/shot.png', action: 'download' })).resolves.toMatchObject({ success: true });
+    expect(machineRPC).toHaveBeenCalledWith('win-host', 'resource-file', { path: 'D:/out/shot.png', action: 'download' });
+    // The host being unreachable leaves the session's own answer in place.
+    machineRPC.mockRejectedValueOnce(new Error('RPC target disconnected'));
+    expect(await readSessionResource('s', { path: 'D:/out/shot.png', action: 'download' })).toEqual(refusal);
+    // Not a drive path: the refusal stands and nothing else is asked.
+    machineRPC.mockClear();
+    expect(await readSessionResource('s', { path: 'https://example.com/a.png', action: 'download' })).toEqual(refusal);
+    expect(machineRPC).not.toHaveBeenCalled();
+});
+it('resolves a relative path against a Windows project directory when the session is gone', async () => {
+    state.sessions.s = { metadata: { machineId: 'win-host', path: 'D:\\AgentWork\\project' } };
+    sessionRPC.mockRejectedValue(new Error('RPC target disconnected'));
+    machineRPC.mockResolvedValue({ success: true, content: 'AQ==' });
+    await readSessionResource('s', { path: 'out/shot.png', action: 'download' });
+    expect(machineRPC).toHaveBeenCalledWith('win-host', 'resource-file', { path: 'D:\\AgentWork\\project/out/shot.png', action: 'download' });
+});

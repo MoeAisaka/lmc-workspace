@@ -1,12 +1,6 @@
+import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import {
-    View,
-    Text,
-    StyleProp,
-    ViewStyle,
-    TextStyle,
-    Platform
-} from 'react-native';
+import { View, StyleProp, ViewStyle, TextStyle, Platform } from 'react-native';
 import { Typography } from '@/constants/Typography';
 import { layout } from './layout';
 import { StyleSheet } from 'react-native-unistyles';
@@ -120,7 +114,7 @@ export const ItemGroup = React.memo<ItemGroupProps>((props) => {
                 )}
 
                 {/* Content Container */}
-                <View style={[styles.contentContainer, flat && styles.flatContent, containerStyle]}>
+                <View {...(Platform.OS === 'web' && !flat ? {dataSet: {lmcSurface: 'panel'}} : {})} style={[styles.contentContainer, flat && styles.flatContent, containerStyle]}>
                     {React.Children.map(children, (child, index) => {
                         if (React.isValidElement<ItemChildProps>(child)) {
                             // Don't add props to React.Fragment

@@ -1,3 +1,4 @@
+import { conversationFontSize, conversationLineHeight } from '@/constants/PersonalizationStyles';
 import { MarkdownBlock, MarkdownSpan, parseMarkdown } from './parseMarkdown';
 import * as React from 'react';
 import { ActivityIndicator, Image, Pressable, View, Platform } from 'react-native';
@@ -15,6 +16,7 @@ import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import * as WebBrowser from 'expo-web-browser';
 import { MermaidRenderer } from './MermaidRenderer';
+import { InteractiveBlock } from './InteractiveBlock';
 import { t } from '@/text';
 import { isHttpMarkdownLink, parseFileReference } from './linkUtils';
 import { chooseSessionFile } from '@/utils/lmc/sessionFileActions';
@@ -28,6 +30,8 @@ import { parseMarkdownImageSource } from '@/utils/markdownImage';
 // Option type for callback
 export type Option = {
     title: string;
+    /** Follow-up actions show a short label and send the complete prompt. */
+    prompt?: string;
 };
 
 export const MarkdownView = React.memo((props: { 
@@ -36,6 +40,8 @@ export const MarkdownView = React.memo((props: {
     /** Recover brief answer lists in assistant prose, never in documents/tool output. */
     inferOptions?: boolean;
     sessionId?: string;
+    /** Reading presets apply to replies/documents, while user bubbles stay compact. */
+    presentation?: 'prose' | 'plain';
     /**
      * The parent owns long-press copy (see LongPressCopyable). Suppresses native
      * selection and the built-in copy gesture so only one of them fires.
@@ -43,7 +49,7 @@ export const MarkdownView = React.memo((props: {
     externalCopyHandler?: boolean;
 }) => {
     const blocks = React.useMemo(() => {
-        const parsed = parseMarkdown(props.markdown);
+        const parsed = parseMarkdown(props.markdown, { followups: props.inferOptions });
         return props.inferOptions ? inferQuestionOptions(parsed) : parsed;
     }, [props.markdown, props.inferOptions]);
     
@@ -87,14 +93,18 @@ export const MarkdownView = React.memo((props: {
     }, [props.markdown, router]);
     const renderContent = () => {
         return (
-            <View style={{ width: '100%' }}>
+            <View {...{ dataSet: { lmcProse: props.presentation ?? 'prose' } }} style={{ width: '100%', minWidth: 0 }}>
                 {blocks.map((block, index) => {
                     if (block.type === 'text') {
                         return <RenderTextBlock spans={block.content} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} onLinkPress={handleLinkPress} />;
                     } else if (block.type === 'header') {
                         return <RenderHeaderBlock level={block.level} spans={block.content} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} onLinkPress={handleLinkPress} />;
                     } else if (block.type === 'horizontal-rule') {
-                        return <View style={style.horizontalRule} key={index} />;
+                        return <View {...{ dataSet: { lmcBlock: 'rule' } }} style={style.horizontalRule} key={index} />;
+                    } else if (block.type === 'quote') {
+                        return <View {...{ dataSet: { lmcBlock: 'quote' } }} style={style.quote} key={index}>
+                            <MarkdownView markdown={block.content} sessionId={props.sessionId} presentation={props.presentation} externalCopyHandler={props.externalCopyHandler || markdownCopyV2} />
+                        </View>;
                     } else if (block.type === 'list') {
                         return <RenderListBlock items={block.items} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} onLinkPress={handleLinkPress} />;
                     } else if (block.type === 'numbered-list') {
@@ -103,7 +113,9 @@ export const MarkdownView = React.memo((props: {
                         return <RenderCodeBlock content={block.content} language={block.language} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} />;
                     } else if (block.type === 'mermaid') {
                         return <MermaidRenderer content={block.content} key={index} />;
-                    } else if (block.type === 'options') {
+                    } else if (block.type === 'interactive') {
+                        return <InteractiveBlock block={block} sessionId={props.sessionId} key={index} />;
+                    } else if (block.type === 'options' || block.type === 'followups') {
                         return <RenderOptionsBlock items={block.items} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} onOptionPress={props.onOptionPress} />;
                     } else if (block.type === 'table') {
                         return <RenderTableBlock headers={block.headers} rows={block.rows} onLinkPress={handleLinkPress} selectable={selectable} key={index} first={index === 0} last={index === blocks.length - 1} />;
@@ -111,7 +123,7 @@ export const MarkdownView = React.memo((props: {
                         return <RenderImageBlock url={block.url} alt={block.alt} sessionId={props.sessionId} key={index} first={index === 0} last={index === blocks.length - 1} />;
                     } else if (block.type === 'details') {
                         return <RenderDetailsBlock block={block} key={index}>
-                            <MarkdownView markdown={block.content} sessionId={props.sessionId} onOptionPress={props.onOptionPress} externalCopyHandler={props.externalCopyHandler || markdownCopyV2} />
+                            <MarkdownView markdown={block.content} sessionId={props.sessionId} presentation={props.presentation} inferOptions={props.inferOptions} onOptionPress={props.onOptionPress} externalCopyHandler={props.externalCopyHandler || markdownCopyV2} />
                         </RenderDetailsBlock>;
                     } else {
                         return null;
@@ -185,13 +197,13 @@ function RenderDetailsBlock({ block, children }: {
 }
 
 function RenderTextBlock(props: { spans: MarkdownSpan[], first: boolean, last: boolean, selectable: boolean, onLinkPress: (url: string) => void }) {
-    return <Text selectable={props.selectable} style={[style.text, props.first && style.first, props.last && style.last]}><RenderSpans spans={props.spans} baseStyle={style.text} selectable={props.selectable} onLinkPress={props.onLinkPress} /></Text>;
+    return <Text {...{ dataSet: { lmcBlock: 'paragraph' } }} selectable={props.selectable} style={[style.text, props.first && style.first, props.last && style.last]}><RenderSpans spans={props.spans} baseStyle={style.text} selectable={props.selectable} onLinkPress={props.onLinkPress} /></Text>;
 }
 
 function RenderHeaderBlock(props: { level: 1 | 2 | 3 | 4 | 5 | 6, spans: MarkdownSpan[], first: boolean, last: boolean, selectable: boolean, onLinkPress: (url: string) => void }) {
     const s = (style as any)[`header${props.level}`];
     const headerStyle = [style.header, s, props.first && style.first, props.last && style.last];
-    return <Text selectable={props.selectable} style={headerStyle}><RenderSpans spans={props.spans} baseStyle={headerStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} /></Text>;
+    return <Text accessibilityRole="header" aria-level={props.level} {...{ dataSet: { lmcHeading: String(props.level) } }} selectable={props.selectable} style={headerStyle}><RenderSpans spans={props.spans} baseStyle={headerStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} /></Text>;
 }
 
 const BULLETS = ['•', '◦', '▪'] as const;
@@ -199,11 +211,11 @@ const BULLETS = ['•', '◦', '▪'] as const;
 function RenderListBlock(props: { items: { depth: number, spans: MarkdownSpan[] }[], first: boolean, last: boolean, selectable: boolean, onLinkPress: (url: string) => void }) {
     const listStyle = [style.text, style.list];
     return (
-        <View style={{ flexDirection: 'column', marginBottom: 8, gap: 6 }}>
+        <View {...{ dataSet: { lmcBlock: 'list' } }} style={style.listContainer}>
             {props.items.map((item, index) => (
                 <View key={index} style={{ flexDirection: 'row', alignItems: 'flex-start', paddingLeft: item.depth * 16 }}>
-                    <Text selectable={false} style={[listStyle, { marginRight: 8, marginTop: 1 }]}>{BULLETS[Math.min(item.depth, BULLETS.length - 1)]}</Text>
-                    <Text selectable={props.selectable} style={[listStyle, { flex: 1 }]}><RenderSpans spans={item.spans} baseStyle={listStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} /></Text>
+                    <Text {...{ dataSet: { lmcListText: 'marker' } }} selectable={false} style={[listStyle, { marginRight: 8, marginTop: 1 }]}>{BULLETS[Math.min(item.depth, BULLETS.length - 1)]}</Text>
+                    <Text {...{ dataSet: { lmcListText: 'body' } }} selectable={props.selectable} style={[listStyle, { flex: 1, minWidth: 0 }]}><RenderSpans spans={item.spans} baseStyle={listStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} /></Text>
                 </View>
             ))}
         </View>
@@ -213,11 +225,11 @@ function RenderListBlock(props: { items: { depth: number, spans: MarkdownSpan[] 
 function RenderNumberedListBlock(props: { items: { number: number, depth: number, spans: MarkdownSpan[] }[], first: boolean, last: boolean, selectable: boolean, onLinkPress: (url: string) => void }) {
     const listStyle = [style.text, style.list];
     return (
-        <View style={{ flexDirection: 'column', marginBottom: 8, gap: 6 }}>
+        <View {...{ dataSet: { lmcBlock: 'list' } }} style={style.listContainer}>
             {props.items.map((item, index) => (
                 <View key={index} style={{ flexDirection: 'row', alignItems: 'flex-start', paddingLeft: item.depth * 16 }}>
-                    <Text selectable={false} style={[listStyle, { marginRight: 8, marginTop: 1 }]}>{item.number}.</Text>
-                    <Text selectable={props.selectable} style={[listStyle, { flex: 1 }]}><RenderSpans spans={item.spans} baseStyle={listStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} /></Text>
+                    <Text {...{ dataSet: { lmcListText: 'marker' } }} selectable={false} style={[listStyle, { marginRight: 8, marginTop: 1 }]}>{item.number}.</Text>
+                    <Text {...{ dataSet: { lmcListText: 'body' } }} selectable={props.selectable} style={[listStyle, { flex: 1, minWidth: 0 }]}><RenderSpans spans={item.spans} baseStyle={listStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} /></Text>
                 </View>
             ))}
         </View>
@@ -299,7 +311,7 @@ function RenderImageBlock(props: { url: string, alt: string, sessionId?: string,
 }
 
 function RenderOptionsBlock(props: { 
-    items: string[], 
+    items: (string | Option)[],
     first: boolean, 
     last: boolean, 
     selectable: boolean,
@@ -308,26 +320,30 @@ function RenderOptionsBlock(props: {
     return (
         <View style={[style.optionsContainer, props.first && style.first, props.last && style.last]}>
             {props.items.map((item, index) => {
+                const option = typeof item === 'string' ? { title: item } : item;
                 if (props.onOptionPress) {
                     return (
                         <Pressable
                             key={index}
                             accessibilityRole="button"
-                            accessibilityLabel={item}
+                            accessibilityLabel={option.title}
+                            accessibilityHint={option.prompt}
                             style={({ pressed }) => [
                                 style.optionPressable,
                                 style.optionButton,
                                 pressed && style.optionButtonPressed
                             ]}
-                            onPress={() => props.onOptionPress?.({ title: item })}
+                            onPress={() => props.onOptionPress?.(option)}
                         >
-                            <Text selectable={props.selectable} style={style.optionButtonText}>{item}</Text>
+                            <Text selectable={props.selectable} style={style.optionButtonText}>{option.title}</Text>
+                            {option.prompt && <Text selectable={props.selectable} style={style.optionDescription}>{option.prompt}</Text>}
                         </Pressable>
                     );
                 } else {
                     return (
                         <View key={index} style={style.optionItem}>
-                            <Text selectable={props.selectable} style={style.optionText}>{item}</Text>
+                            <Text selectable={props.selectable} style={style.optionText}>{option.title}</Text>
+                            {option.prompt && <Text selectable={props.selectable} style={style.optionDescription}>{option.prompt}</Text>}
                         </View>
                     );
                 }
@@ -348,7 +364,7 @@ function RenderSpans(props: RenderSpanProps) {
                         key={index}
                         selectable={props.selectable}
                         accessibilityRole={followable ? 'link' : undefined}
-                        style={[props.baseStyle, followable && style.link, span.styles.map(s => style[s])]}
+                        style={[Platform.OS !== 'web' && props.baseStyle, followable && style.link, span.styles.map(s => style[s])]}
                         {...(followable && Platform.OS === 'web' ? { onClick: () => props.onLinkPress(span.url!) } as any : {})}
                         onPress={followable && Platform.OS !== 'web'
                             ? () => props.onLinkPress(span.url!)
@@ -358,7 +374,7 @@ function RenderSpans(props: RenderSpanProps) {
                     </Text>
                 );
             } else {
-                return <Text key={index} selectable={props.selectable} style={[props.baseStyle, span.styles.map(s => style[s])]}>{span.text}</Text>
+                return <Text key={index} selectable={props.selectable} style={[Platform.OS !== 'web' && props.baseStyle, span.styles.map(s => style[s])]}>{span.text}</Text>
             }
         })}
     </>)
@@ -477,8 +493,8 @@ const style = StyleSheet.create((theme) => ({
 
     text: {
         ...Typography.default(),
-        fontSize: 16,
-        lineHeight: 25,
+        fontSize: conversationFontSize(16),
+        lineHeight: conversationLineHeight(25),
         marginTop: 8,
         marginBottom: 10,
         color: theme.colors.text,
@@ -498,8 +514,8 @@ const style = StyleSheet.create((theme) => ({
     },
     code: {
         ...Typography.mono(),
-        fontSize: 16,
-        lineHeight: 24,
+        fontSize: conversationFontSize(16),
+        lineHeight: conversationLineHeight(24),
         color: theme.colors.text,
     },
     link: {
@@ -517,41 +533,41 @@ const style = StyleSheet.create((theme) => ({
         color: theme.colors.text,
     },
     header1: {
-        fontSize: 16,
-        lineHeight: 24,  // Reduced from 36 to 24
-        fontWeight: '900',
+        fontSize: conversationFontSize(24),
+        lineHeight: conversationLineHeight(32),
+        fontWeight: '700',
         marginTop: 16,
         marginBottom: 8
     },
     header2: {
-        fontSize: 20,
-        lineHeight: 24,  // Reduced from 36 to 32
+        fontSize: conversationFontSize(20),
+        lineHeight: conversationLineHeight(28),
         fontWeight: '600',
         marginTop: 16,
         marginBottom: 8
     },
     header3: {
-        fontSize: 16,
-        lineHeight: 28,  // Reduced from 32 to 28
+        fontSize: conversationFontSize(18),
+        lineHeight: conversationLineHeight(26),
         fontWeight: '600',
         marginTop: 16,
         marginBottom: 8,
     },
     header4: {
-        fontSize: 16,
-        lineHeight: 24,
+        fontSize: conversationFontSize(16),
+        lineHeight: conversationLineHeight(24),
         fontWeight: '600',
         marginTop: 8,
         marginBottom: 8,
     },
     header5: {
-        fontSize: 16,
-        lineHeight: 24,  // Reduced from 28 to 24
+        fontSize: conversationFontSize(16),
+        lineHeight: conversationLineHeight(24),  // Reduced from 28 to 24
         fontWeight: '600'
     },
     header6: {
-        fontSize: 16,
-        lineHeight: 24, // Reduced from 28 to 24
+        fontSize: conversationFontSize(16),
+        lineHeight: conversationLineHeight(24), // Reduced from 28 to 24
         fontWeight: '600'
     },
 
@@ -565,6 +581,8 @@ const style = StyleSheet.create((theme) => ({
         marginTop: 0,
         marginBottom: 0,
     },
+    listContainer: { flexDirection: 'column', marginBottom: 8, gap: 6 },
+    quote: { borderLeftWidth: 3, borderLeftColor: theme.colors.divider, paddingHorizontal: 16, paddingVertical: 4, marginVertical: 12 },
 
     //
     // Common
@@ -598,8 +616,8 @@ const style = StyleSheet.create((theme) => ({
     },
     detailsTitle: {
         ...Typography.default(),
-        fontSize: 16,
-        lineHeight: 24,
+        fontSize: conversationFontSize(16),
+        lineHeight: conversationLineHeight(24),
         color: theme.colors.textSecondary,
         flex: 1,
         minWidth: 0,
@@ -633,7 +651,7 @@ const style = StyleSheet.create((theme) => ({
     codeLanguage: {
         ...Typography.mono(),
         color: theme.colors.textSecondary,
-        fontSize: 12,
+        fontSize: conversationFontSize(12),
         marginTop: 8,
         paddingHorizontal: 16,
         marginBottom: 0,
@@ -641,8 +659,8 @@ const style = StyleSheet.create((theme) => ({
     codeText: {
         ...Typography.mono(),
         color: theme.colors.text,
-        fontSize: 14,
-        lineHeight: 20,
+        fontSize: conversationFontSize(14),
+        lineHeight: conversationLineHeight(20),
     },
     horizontalRule: {
         height: 1,
@@ -669,8 +687,8 @@ const style = StyleSheet.create((theme) => ({
     },
     imageCaption: {
         ...Typography.default(),
-        fontSize: 14,
-        lineHeight: 20,
+        fontSize: conversationFontSize(14),
+        lineHeight: conversationLineHeight(20),
         color: theme.colors.textSecondary,
     },
     copyButtonContainer: {
@@ -704,8 +722,8 @@ const style = StyleSheet.create((theme) => ({
     copyButtonText: {
         ...Typography.default(),
         color: theme.colors.text,
-        fontSize: 12,
-        lineHeight: 16,
+        fontSize: conversationFontSize(12),
+        lineHeight: conversationLineHeight(16),
     },
 
     //
@@ -735,9 +753,16 @@ const style = StyleSheet.create((theme) => ({
     },
     optionText: {
         ...Typography.default(),
-        fontSize: 16,
-        lineHeight: 24,
+        fontSize: conversationFontSize(16),
+        lineHeight: conversationLineHeight(24),
         color: theme.colors.text,
+    },
+    optionDescription: {
+        ...Typography.default(),
+        color: theme.colors.textSecondary,
+        fontSize: conversationFontSize(14),
+        lineHeight: conversationLineHeight(21),
+        marginTop: 4,
     },
     // Tapping an option sends it as your message. Full-width rows in the
     // composer send button's resting grey — flat, no border.
@@ -753,8 +778,8 @@ const style = StyleSheet.create((theme) => ({
     },
     optionButtonText: {
         ...Typography.default(),
-        fontSize: 16,
-        lineHeight: 24,
+        fontSize: conversationFontSize(16),
+        lineHeight: conversationLineHeight(24),
         color: theme.colors.text,
     },
 
@@ -804,8 +829,8 @@ const style = StyleSheet.create((theme) => ({
         ...(Platform.OS === 'web' ? ({ wordBreak: 'break-word' } as object) : {}),
         ...Typography.default('semiBold'),
         color: theme.colors.text,
-        fontSize: 16,
-        lineHeight: 24,
+        fontSize: conversationFontSize(16),
+        lineHeight: conversationLineHeight(24),
     },
     tableCellText: {
         // A path or URL has no spaces to wrap at; without this the whole
@@ -813,8 +838,8 @@ const style = StyleSheet.create((theme) => ({
         ...(Platform.OS === 'web' ? ({ wordBreak: 'break-word' } as object) : {}),
         ...Typography.default(),
         color: theme.colors.text,
-        fontSize: 16,
-        lineHeight: 24,
+        fontSize: conversationFontSize(16),
+        lineHeight: conversationLineHeight(24),
     },
 
     // Add global style for Web platform (Unistyles supports this via compiler plugin)

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
+import { installBrowserLayoutSizing } from '@/utils/browserLayoutViewport';
 import { isTauri } from '@/utils/isTauri';
 
 export const DEFAULT_APP_ZOOM = 1.0;
@@ -29,7 +30,9 @@ export function useTauriZoom() {
         if (!inTauri) {
             root.style.setProperty('--lmc-app-zoom', getBrowserAppZoomValue());
             root.classList.add(WEB_ZOOM_CLASS);
+            const stopSizing = installBrowserLayoutSizing();
             return () => {
+                stopSizing();
                 root.classList.remove(WEB_ZOOM_CLASS);
                 root.style.removeProperty('--lmc-app-zoom');
             };

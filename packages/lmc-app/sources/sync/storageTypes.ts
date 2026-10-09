@@ -1,4 +1,4 @@
-import { ModelCatalogsSchema } from 'lmc-wire';
+import { ModelCatalogsSchema, EngineDiagnosticsSchema, MachineSystemDiagnosticsSchema } from 'lmc-wire';
 import { z } from "zod";
 
 //
@@ -49,7 +49,7 @@ export const MetadataSchema = z.object({
     agentBuild: z.string().optional(),
     claudeNativeActive: z.boolean().optional(),
     engineRuntime: z.object({engine:z.string(),version:z.string(),packageVersion:z.string().optional(),source:z.string(),path:z.string()}).optional(),
-    sessionCapabilities: z.object({ nativeComputer: z.boolean().optional(), automaticGoals: z.boolean().optional(), authenticationRecovery: z.boolean().optional(), modelDiscovery: z.boolean().optional(), refresh: z.boolean(), authentication: z.boolean(), runtimeConfiguration: z.boolean(), resourceFiles: z.boolean().optional(), resourceSearch: z.boolean().optional(), fileInbox: z.boolean().optional(), resume:z.boolean().optional(), model:z.boolean().optional(),effort:z.boolean().optional(),context:z.boolean().optional(),serviceTier:z.boolean().optional(), cancelRefresh: z.boolean().optional(), turnQueue: z.boolean().optional(), turnSteer: z.boolean().optional(), turnQueueLifecycle: z.boolean().optional() }).optional(),
+    sessionCapabilities: z.object({ largeFiles: z.boolean().optional(), nativeComputer: z.boolean().optional(), automaticGoals: z.boolean().optional(), authenticationRecovery: z.boolean().optional(), modelDiscovery: z.boolean().optional(), refresh: z.boolean(), authentication: z.boolean(), runtimeConfiguration: z.boolean(), resourceFiles: z.boolean().optional(), resourceSearch: z.boolean().optional(), fileInbox: z.boolean().optional(), resume:z.boolean().optional(), model:z.boolean().optional(),effort:z.boolean().optional(),context:z.boolean().optional(),serviceTier:z.boolean().optional(), cancelRefresh: z.boolean().optional(), turnQueue: z.boolean().optional(), turnSteer: z.boolean().optional(), turnQueueLifecycle: z.boolean().optional() }).optional(),
     engineAuth: z.object({ status: z.enum(['ready', 'required', 'unknown']), checkedAt: z.number() }).optional(),
     sessionConfiguration: z.boolean().optional(),
     sessionConfigState: z.enum(['queued', 'applied', 'error', 'refreshing', 'verifying']).optional(),
@@ -63,6 +63,9 @@ export const MetadataSchema = z.object({
     sessionConfigErrorKind: z.enum(['auth', 'preflight', 'relaunch', 'verify']).optional(),
     // When the refresh entered the queue, stamped by the runner so every device measures the same duration.
     sessionConfigRequestedAt: z.number().optional(),
+    // Claude's own background work (scheduled tasks, background shells) holding a refresh,
+    // as Claude listed it when it declined to exit. Present while queued behind or failed on it.
+    sessionConfigBackgroundWork: z.array(z.string()).optional(),
     models: z.array(z.object({
         code: z.string(),
         value: z.string(),
@@ -424,6 +427,7 @@ export type AgentQuestionAnswer = z.infer<typeof AgentQuestionAnswerSchema>;
 export type CompletedAgentCommunication = z.infer<typeof CompletedAgentCommunicationSchema>;
 
 export const AgentStateSchema = z.object({
+    engineDiagnostics: EngineDiagnosticsSchema.optional().catch(undefined),
     runtime: z.object({phase:z.enum(['working','idle']),pid:z.number(),updatedAt:z.number()}).optional(),
     controlledByUser: z.boolean().nullish(),
     // Ephemeral runtime state. A malformed snapshot must not invalidate
@@ -542,6 +546,7 @@ export interface DecryptedMessage {
 //
 
 export const MachineMetadataSchema = z.object({
+    systemDiagnostics: MachineSystemDiagnosticsSchema.optional().catch(undefined),
     accountQuota: z.boolean().optional(),
     engineLogin: z.object({claude: z.boolean(), codex: z.boolean()}).optional(),
     modelDiscovery: z.boolean().optional(),

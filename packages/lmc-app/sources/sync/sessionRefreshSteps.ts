@@ -34,9 +34,9 @@ export interface RefreshStep {
 
 export type RefreshSteps =
     | { phase: 'idle' }
-    | { phase: 'running'; steps: RefreshStep[]; elapsedMs: number; slow: boolean; cancellable: boolean }
+    | { phase: 'running'; steps: RefreshStep[]; elapsedMs: number; slow: boolean; cancellable: boolean; backgroundWork: string[] | null }
     | { phase: 'complete'; tookMs: number | null; finishedAt: number }
-    | { phase: 'failed'; steps: RefreshStep[]; elapsedMs: number; error: string | null; stalled: boolean; notLoggedIn: boolean };
+    | { phase: 'failed'; steps: RefreshStep[]; elapsedMs: number; error: string | null; stalled: boolean; notLoggedIn: boolean; backgroundWork: string[] | null };
 
 const ORDER: RefreshStepKey[] = ['turn', 'preflight', 'restart', 'verify'];
 const SLOW_MS = 30_000;
@@ -61,7 +61,12 @@ export function sessionRefreshSteps(input: RefreshStepsInput): RefreshSteps {
     const state = meta?.sessionConfigState;
     if (!meta || !state || (state === 'applied' && !meta.sessionConfigUpdatedAt)) return { phase: 'idle' };
     const startedAt = meta.sessionConfigRequestedAt ?? input.observedAt ?? meta.sessionConfigUpdatedAt ?? input.now;
-    const elapsedMs = Math.max(0, input.now - startedAt);
+    // A terminal failure is a receipt, not a running stopwatch. Reloading the
+    // page hours later must not make the same failed attempt look still busy.
+    const endedAt = state === 'error' ? meta.sessionConfigUpdatedAt ?? input.now : input.now;
+    // The UI clock may be paused while idle; use the runner's paired stamps
+    // even when the failure arrives after the last local timer tick.
+    const elapsedMs = Math.max(0, endedAt - startedAt);
     const sinceUpdate = meta.sessionConfigUpdatedAt ? Math.max(0, input.now - meta.sessionConfigUpdatedAt) : 0;
 
     if (state === 'applied') {
@@ -95,15 +100,18 @@ export function sessionRefreshSteps(input: RefreshStepsInput): RefreshSteps {
         return { key, tone: failedAt === key ? 'failed' : 'active', detail };
     });
 
+    // Claude's own background work in the way: the runner names it (or just
+    // its existence, as an empty list) so the card can offer a way through.
+    const backgroundWork = meta.sessionConfigBackgroundWork ?? null;
     if (state === 'error') {
-        return { phase: 'failed', steps: build(active), elapsedMs, error: meta.sessionConfigError ?? null, stalled: false, notLoggedIn: meta.sessionConfigErrorKind === 'auth' };
+        return { phase: 'failed', steps: build(active), elapsedMs, error: meta.sessionConfigError ?? null, stalled: false, notLoggedIn: meta.sessionConfigErrorKind === 'auth', backgroundWork };
     }
     // The old process has left and nothing has reported for a long while: not
     // an error anyone wrote, but not progress either.
     const stalled = (state === 'refreshing' || state === 'verifying') && sinceUpdate >= STALLED_MS;
     if (stalled) {
         const steps = build(active).map((step) => step.tone === 'failed' ? { ...step, detail: { kind: 'stalled' as const } } : step);
-        return { phase: 'failed', steps, elapsedMs, error: null, stalled: true, notLoggedIn: false };
+        return { phase: 'failed', steps, elapsedMs, error: null, stalled: true, notLoggedIn: false, backgroundWork: null };
     }
     return {
         phase: 'running',
@@ -111,5 +119,6 @@ export function sessionRefreshSteps(input: RefreshStepsInput): RefreshSteps {
         elapsedMs,
         slow: elapsedMs >= SLOW_MS,
         cancellable: state === 'queued' && meta.sessionCapabilities?.cancelRefresh === true,
+        backgroundWork: state === 'queued' ? backgroundWork : null,
     };
 }

@@ -1,5 +1,7 @@
+import { Typography } from '@/constants/Typography';
+import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import { Text, View, StyleSheet, Platform } from 'react-native';
+import { View, StyleSheet, Platform } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 
 interface CommandViewProps {
@@ -40,47 +42,58 @@ export const CommandView = React.memo<CommandViewProps>(({
             justifyContent: 'flex-start',
         },
         line: {
+            width: '100%',
+            minWidth: 0,
             alignItems: 'baseline',
             flexDirection: 'row',
             flexWrap: 'wrap',
         },
         promptText: {
-            fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
+            ...Typography.mono(),
             fontSize: 14,
             lineHeight: 20,
             color: theme.colors.terminal.prompt,
             fontWeight: '600',
         },
         commandText: {
-            fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
+            minWidth: 0,
+            maxWidth: '100%',
+            ...Platform.select({ web: { overflowWrap: 'anywhere' } as any }),
+            ...Typography.mono(),
             fontSize: 14,
             color: theme.colors.terminal.command,
             lineHeight: 20,
             flex: 1,
         },
         stdout: {
-            fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
+            maxWidth: '100%',
+            ...Platform.select({ web: { overflowWrap: 'anywhere' } as any }),
+            ...Typography.mono(),
             fontSize: 13,
             color: theme.colors.terminal.stdout,
             lineHeight: 18,
             marginTop: 8,
         },
         stderr: {
-            fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
+            maxWidth: '100%',
+            ...Platform.select({ web: { overflowWrap: 'anywhere' } as any }),
+            ...Typography.mono(),
             fontSize: 13,
             color: theme.colors.terminal.stderr,
             lineHeight: 18,
             marginTop: 8,
         },
         error: {
-            fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
+            maxWidth: '100%',
+            ...Platform.select({ web: { overflowWrap: 'anywhere' } as any }),
+            ...Typography.mono(),
             fontSize: 13,
             color: theme.colors.terminal.error,
             lineHeight: 18,
             marginTop: 8,
         },
         emptyOutput: {
-            fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
+            ...Typography.mono(),
             fontSize: 13,
             color: theme.colors.terminal.emptyOutput,
             lineHeight: 18,

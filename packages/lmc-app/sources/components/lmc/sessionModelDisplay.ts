@@ -16,7 +16,7 @@ export function resolveSessionModelDisplay(
     session = { ...session, metadata: withModelCatalogs(session.metadata, machine) ?? session.metadata };
     const flavor = session.metadata?.flavor;
     if (flavor !== 'claude' && flavor !== 'codex') return { modelName: null, effortName: null };
-    const defaults = resolveAgentDefaultConfig(overrides, flavor, session.metadata?.version);
+    const defaults = resolveAgentDefaultConfig(overrides, flavor, session.metadata?.version, session.metadata?.modelCatalogs);
     const selectedModel = session.modelMode ?? session.metadata?.modelMode;
     const models = getAvailableModels(flavor, session.metadata, translate, selectedModel ?? defaults.modelMode);
     const model = resolveCurrentOption(models, [selectedModel, defaults.modelMode, session.metadata?.currentModelCode]);

@@ -1,3 +1,4 @@
+import { Text } from '@/components/StyledText';
 /**
  * Renders one file's diff.
  *
@@ -16,7 +17,7 @@
  */
 
 import * as React from 'react';
-import { LayoutChangeEvent, Platform, Pressable, Text, View } from 'react-native';
+import { LayoutChangeEvent, Platform, Pressable, View } from 'react-native';
 import { HorizontalScrollView } from '@/components/HorizontalScrollView';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';

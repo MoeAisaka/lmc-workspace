@@ -84,7 +84,10 @@ export function registerQueueControlHandlers<T>(
         // Enqueue the durable receipt before publishing removal. No await here:
         // the consumer cannot take this key between the check and the removal.
         client.sendSessionEvent({ type: 'queue-withdrawn', key });
-        return { removed: queue.removeByKey(key) };
+        const removed = queue.removeByKey(key);
+        // Withdrawing the head can make the next prompt deliverable.
+        if (removed) opts.wake?.();
+        return { removed };
     });
     client.rpcHandlerManager.registerHandler('promote', async (request: unknown) => {
         const key = readQueueKey(request);

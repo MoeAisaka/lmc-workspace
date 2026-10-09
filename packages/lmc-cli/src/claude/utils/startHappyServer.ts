@@ -8,6 +8,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { renderTranscript, type TranscriptEntry } from '@/utils/sessionTranscript';
+import { recallInteractiveBlock, type TranscriptReader } from '@/modules/interactive/interactiveBlocks';
 import { relationTo, type Relation } from '@/modules/orchestration/roles';
 import { boardUpdate } from '@/modules/orchestration/board';
 import { ORCHESTRATION_TOOL_DEFS, ORCHESTRATION_TOOL_NAMES } from '@/modules/orchestration/toolSchemas';
@@ -19,7 +20,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { AddressInfo } from "node:net";
 import { z } from "zod";
 import { logger } from "@/ui/logger";
-import { ApiSessionClient } from "@/api/apiSession";
+import { ApiSessionClient, hubTitleFixed } from "@/api/apiSession";
 import { AGENT_MAIL_MAX_HOPS, type AgentMailClient } from "@/modules/agentMail/agentMail";
 import { randomUUID } from "node:crypto";
 
@@ -36,7 +37,7 @@ export interface HandoffPort {
 
 /** Full capability set; the registration test keeps this aligned with the actual server. */
 export const HAPPY_MCP_TOOL_NAMES = [
-    'change_title', 'list_sessions', 'send_to_session', 'submit_handoff', 'read_session_transcript',
+    'change_title', 'list_sessions', 'send_to_session', 'submit_handoff', 'read_session_transcript', 'recall_interactive_block',
     ...ORCHESTRATION_TOOL_NAMES,
 ] as const;
 
@@ -48,6 +49,8 @@ export function createMcpServer(
     relation: (otherSessionId: string) => Relation = () => null,
     onBoard: ((update: (m: import('@/api/types').Metadata) => import('@/api/types').Metadata) => Promise<void>) | null = null,
     orchestration: OrchestrationPort | null = null,
+    /** Reads another session's transcript when this machine holds its key; null when it does not. */
+    transcriptOf: ((sessionId: string) => TranscriptReader | null) | null = null,
 ): McpServer {
     const mcp = new McpServer({
         name: "Happy MCP",
@@ -78,6 +81,27 @@ export function createMcpServer(
                 return { content: [{ type: 'text', text: rendered.text + footer }], isError: false };
             } catch (error) {
                 return { content: [{ type: 'text', text: `Could not read the transcript: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+            }
+        });
+    }
+
+    if (transcript) {
+        mcp.registerTool('recall_interactive_block', {
+            description: 'Fetch the HTML source of an interactive answer (an ```lmc-ui``` block) written earlier, by its id, so you can show it again with a ref or write a changed version. Defaults to this session; pass session_id for a block from another session on this machine (nmem notes carry both ids).',
+            title: 'Recall Interactive Block',
+            inputSchema: {
+                id: z.string().min(1).max(40).describe('The block id from its fence (id=...).'),
+                session_id: z.string().optional().describe('Another session on this machine; omit for this one.'),
+            },
+        }, async (args) => {
+            try {
+                const reader = args.session_id ? transcriptOf?.(args.session_id) ?? null : transcript;
+                if (!reader) return { content: [{ type: 'text', text: `Session ${args.session_id} is not held on this machine, so its record cannot be read here.` }], isError: true };
+                const block = await recallInteractiveBlock(reader, args.id);
+                if (!block) return { content: [{ type: 'text', text: `No complete interactive block with id "${args.id}" was found.` }], isError: true };
+                return { content: [{ type: 'text', text: `Block ${block.id}${block.title ? ` (${block.title})` : ''}, ${block.html.length} characters. Show it again with a ref block, or write a new block with a new id.\n\n${block.html}` }], isError: false };
+            } catch (error) {
+                return { content: [{ type: 'text', text: `Could not recall the block: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
             }
         });
     }
@@ -207,6 +231,7 @@ export async function startHappyServer(client: ApiSessionClient, mail: AgentMail
 
     const handler = async (title: string) => {
         logger.debug('[happyMCP] Changing title to:', title);
+        if (hubTitleFixed(client.getMetadata())) return { success: false, error: 'This is a hub session and its title is its fixed name. It was not changed; do not call change_title again. Only the person renames a hub, in the app.' };
         try {
             client.sendClaudeSessionMessage({
                 type: 'summary',
@@ -233,7 +258,7 @@ export async function startHappyServer(client: ApiSessionClient, mail: AgentMail
         meter: host.meter,
     } : null;
     const server = createServer(async (req, res) => {
-        const mcp = createMcpServer(handler, mail, handoff, (opts) => client.readTranscript(opts), (other) => relationTo(client.getMetadata()?.orchestration, other), (update) => client.updateMetadata(update, { strict: true }), orchestration);
+        const mcp = createMcpServer(handler, mail, handoff, (opts) => client.readTranscript(opts), (other) => relationTo(client.getMetadata()?.orchestration, other), (update) => client.updateMetadata(update, { strict: true }), orchestration, (other) => client.transcriptReaderFor(other));
         try {
             const transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: undefined

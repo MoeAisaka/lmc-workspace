@@ -1,7 +1,8 @@
+import { Text } from '@/components/StyledText';
 import * as React from 'react';
 import { Header } from './navigation/Header';
 import { useSocketStatus } from '@/sync/storage';
-import { Platform, Pressable, Text, View } from 'react-native';
+import { Platform, Pressable, View } from 'react-native';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from './StatusDot';
 import { Ionicons } from '@expo/vector-icons';

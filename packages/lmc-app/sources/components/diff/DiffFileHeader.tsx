@@ -1,7 +1,8 @@
+import { Text } from '@/components/StyledText';
 /** Shared file header: icon, path, change badge, +/- counts, collapse chevron. */
 
 import * as React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { FileIcon } from '@/components/FileIcon';
 import { Typography } from '@/constants/Typography';

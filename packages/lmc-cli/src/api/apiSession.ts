@@ -1,3 +1,5 @@
+import { writeAttachmentParts } from '@/modules/common/attachmentParts';
+import type { PendingAttachment } from '@/utils/MessageQueue2';
 import { ResourceReview } from '@/modules/common/resourceReview';
 import { searchSessionResources } from '@/modules/common/resourceSearch';
 import { join as joinResourcePath } from 'node:path';
@@ -6,10 +8,12 @@ import { EventEmitter } from 'node:events'
 import { io, Socket } from 'socket.io-client'
 import { AgentState, ClientToServerEvents, FileEventMessage, FileEventMessageSchema, Metadata, ServerToClientEvents, Session, Update, UserMessage, UserMessageSchema, Usage } from './types'
 import { decodeBase64, decryptBlob, decrypt, encodeBase64, encrypt, encryptBlob } from './encryption';
+import { createBlockRegistrar } from '@/modules/interactive/interactiveBlocks';
+import { readPersistedSessions } from '@/persistence';
 import { backoff, delay } from '@/utils/time';
 import { configuration } from '@/configuration';
 import { RawJSONLines } from '@/claude/types';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { AsyncLock } from '@/utils/lock';
 import { deriveKey } from '@/utils/deriveKey';
 import { RpcHandlerManager } from './rpc/RpcHandlerManager';
@@ -24,6 +28,7 @@ import {
 } from '@/claude/utils/sessionProtocolMapper';
 import { InvalidateSync } from '@/utils/sync';
 import axios from 'axios';
+import { UsageOutbox, claudeUsageRecord } from './usageAnalytics';
 
 /**
  * ACP (Agent Communication Protocol) message data types.
@@ -51,6 +56,9 @@ export type ACPMessageData =
     | { type: 'token_count';[key: string]: unknown };
 
 export type ACPProvider = 'gemini' | 'codex' | 'claude' | 'opencode';
+
+/** Mail uses a stable identity and waits for storage, never for a model turn. */
+export interface SessionMessageDelivery { localId: string; timeoutMs?: number }
 
 type V3SessionMessage = {
     id: string;
@@ -213,7 +221,7 @@ export class ApiSessionClient extends EventEmitter {
      * null on failure), so per-message ownership is intrinsic — there is no
      * shared push-array between batches that a late download could leak into.
      */
-    private pendingDownloads: Promise<{ data: Uint8Array; mimeType: string; name: string } | null>[] = [];
+    private pendingDownloads: Promise<PendingAttachment | null>[] = [];
     readonly rpcHandlerManager: RpcHandlerManager;
     private agentStateLock = new AsyncLock();
     private metadataLock = new AsyncLock();
@@ -253,8 +261,10 @@ export class ApiSessionClient extends EventEmitter {
     private lastReceivedSeq = 0;
     private incomingPaused = false;
     private pendingOutbox: Array<{ content: string; localId: string }> = [];
+    private messagePersistence = new Map<string, { promise: Promise<void>; resolve: () => void; reject: (error: Error) => void }>();
     private readonly sendSync: InvalidateSync;
     private readonly receiveSync: InvalidateSync;
+    private readonly usageOutbox: UsageOutbox;
 
     constructor(token: string, session: Session) {
         super()
@@ -303,6 +313,15 @@ export class ApiSessionClient extends EventEmitter {
             withCredentials: true,
             autoConnect: false
         });
+        this.usageOutbox = new UsageOutbox(joinResourcePath(configuration.lmcHomeDir, 'usage-outbox',
+            createHash('sha256').update(configuration.serverUrl).digest('hex').slice(0, 16), `${encodeURIComponent(this.sessionId)}.json`),
+            async record => {
+                if (!this.socket.connected) return false;
+                try {
+                    const result = await this.socket.timeout(10_000).emitWithAck('usage-report-v2', record);
+                    return result?.success === true;
+                } catch { return false; }
+            }, () => logger.warn('[USAGE] 用量记录暂未保存，将在后续连接重试'));
 
         //
         // Handlers
@@ -321,6 +340,7 @@ export class ApiSessionClient extends EventEmitter {
             }
             this.rpcHandlerManager.onSocketConnect(this.socket);
             this.receiveSync.invalidate();
+            void this.usageOutbox.flush();
         })
 
         // Set up global RPC request handler
@@ -551,9 +571,22 @@ export class ApiSessionClient extends EventEmitter {
             responseType: 'arraybuffer',
             timeout: 60000,
             maxRedirects: 5,
-            maxContentLength: 10 * 1024 * 1024,
+            // The center accepts single blobs up to 50MB; a lower cap here
+            // silently dropped every file between the two limits.
+            maxContentLength: 64 * 1024 * 1024,
         });
         return new Uint8Array(response.data);
+    }
+
+    /**
+     * A large file arrives as ordered, separately encrypted pieces. Each is
+     * written as it is decrypted, so memory holds one piece rather than the
+     * file. Any missing piece or a size that does not add up removes the
+     * partial file: half a file must never look like the whole one.
+     */
+    async downloadAttachmentPartsToFile(parts: string[], path: string, expectedSize: number): Promise<number> {
+        const key = await this.getBlobKey();
+        return writeAttachmentParts(parts, path, expectedSize, async ref => decryptBlob(await this.downloadAttachment(ref), key));
     }
 
     /**
@@ -574,7 +607,7 @@ export class ApiSessionClient extends EventEmitter {
      * events that arrive after the swap go into a fresh bucket bound to the
      * next user-text message.
      */
-    trackAttachmentDownload(promise: Promise<{ data: Uint8Array; mimeType: string; name: string } | null>): void {
+    trackAttachmentDownload(promise: Promise<PendingAttachment | null>): void {
         this.pendingDownloads.push(promise);
     }
 
@@ -583,12 +616,12 @@ export class ApiSessionClient extends EventEmitter {
      * to resolve, and return the successful ones. The swap-then-await order
      * guarantees that a late-arriving file event cannot leak into this batch.
      */
-    async drainAttachmentsForUserMessage(): Promise<Array<{ data: Uint8Array; mimeType: string; name: string }>> {
+    async drainAttachmentsForUserMessage(): Promise<PendingAttachment[]> {
         const downloads = this.pendingDownloads;
         this.pendingDownloads = [];
         if (downloads.length === 0) return [];
         const results = await Promise.all(downloads);
-        return results.filter((x): x is { data: Uint8Array; mimeType: string; name: string } => x !== null);
+        return results.filter((x): x is PendingAttachment => x !== null);
     }
 
     private authHeaders() {
@@ -703,13 +736,37 @@ export class ApiSessionClient extends EventEmitter {
      * (or from the present), decrypted. For the engine's own reading of the
      * session's record; see utils/sessionTranscript for what it becomes.
      */
+    /** Interactive answers get a note in nmem once they are complete (D30, layer 3). */
+    private noteInteractiveBlocks = createBlockRegistrar(() => ({
+        sessionId: this.sessionId,
+        sessionTitle: this.metadata?.summary?.text ?? this.metadata?.name ?? null,
+        machine: this.metadata?.host ?? this.metadata?.machineId ?? null,
+    }));
+
+    /**
+     * A reader for another session's record, when this machine started it and
+     * still holds its key. Keys live in the daemon's session store; a session
+     * from another machine, or an old one, has no reader here.
+     */
+    transcriptReaderFor(sessionId: string): ((opts: { limit: number; beforeSeq?: number }) => Promise<{ entries: { seq: number; body: unknown }[]; hasMore: boolean }>) | null {
+        if (sessionId === this.sessionId) return (opts) => this.readTranscript(opts);
+        const persisted = readPersistedSessions()[sessionId];
+        if (!persisted) return null;
+        const key = decodeBase64(persisted.encryptionKey);
+        return (opts) => this.readTranscriptWith(sessionId, key, persisted.encryptionVariant, opts);
+    }
+
     async readTranscript(opts: { limit: number; beforeSeq?: number }): Promise<{ entries: { seq: number; body: unknown }[]; hasMore: boolean }> {
+        return this.readTranscriptWith(this.sessionId, this.encryptionKey, this.encryptionVariant, opts);
+    }
+
+    private async readTranscriptWith(sessionId: string, key: Uint8Array, variant: 'legacy' | 'dataKey', opts: { limit: number; beforeSeq?: number }): Promise<{ entries: { seq: number; body: unknown }[]; hasMore: boolean }> {
         const limit = Math.max(1, Math.min(200, Math.floor(opts.limit)));
         // The cursor is where this process has read to; anything newer is in
         // flight and will be there next time. Absent a cursor, ask from the top.
-        const beforeSeq = opts.beforeSeq ?? (this.lastReceivedSeq > 0 ? this.lastReceivedSeq + 1 : 2 ** 31 - 1);
+        const beforeSeq = opts.beforeSeq ?? (sessionId === this.sessionId && this.lastReceivedSeq > 0 ? this.lastReceivedSeq + 1 : 2 ** 31 - 1);
         const response = await axios.get<V3GetSessionMessagesResponse>(
-            `${configuration.serverUrl}/v3/sessions/${encodeURIComponent(this.sessionId)}/messages`,
+            `${configuration.serverUrl}/v3/sessions/${encodeURIComponent(sessionId)}/messages`,
             { params: { before_seq: beforeSeq, limit }, headers: this.authHeaders(), timeout: 30000 },
         );
         const messages = Array.isArray(response.data.messages) ? response.data.messages : [];
@@ -717,7 +774,7 @@ export class ApiSessionClient extends EventEmitter {
         for (const message of messages) {
             if (message.content?.t !== 'encrypted') continue;
             try {
-                entries.push({ seq: message.seq, body: decrypt(this.encryptionKey, this.encryptionVariant, decodeBase64(message.content.c)) });
+                entries.push({ seq: message.seq, body: decrypt(key, variant, decodeBase64(message.content.c)) });
             } catch {
                 // A frame this key cannot open is not part of the record this reader can have.
             }
@@ -752,19 +809,45 @@ export class ApiSessionClient extends EventEmitter {
             // how a new session lost the first prompt. Our own messages come
             // back over the socket like everyone else's and move the cursor
             // then, once they have actually been seen.
+            const stored = new Set(response.data.messages?.map(message => message.localId) ?? []);
+            if (batch.some(message => this.messagePersistence.has(message.localId) && !stored.has(message.localId))) {
+                throw new Error('Session storage did not confirm the mail message identity');
+            }
             this.pendingOutbox.splice(batchStart, batch.length);
+            for (const message of batch) {
+                this.messagePersistence.get(message.localId)?.resolve();
+                this.messagePersistence.delete(message.localId);
+            }
         }
     }
 
-    private enqueueMessage(content: unknown, invalidate: boolean = true) {
+    private enqueueMessage(content: unknown, invalidate: boolean = true, delivery?: SessionMessageDelivery): void | Promise<void> {
+        if (delivery && this.closed) return Promise.reject(new Error('Session is closed'));
+        const prior = delivery && this.messagePersistence.get(delivery.localId);
+        if (prior) return this.waitForMessagePersistence(prior.promise, delivery!);
         const encrypted = encodeBase64(encrypt(this.encryptionKey, this.encryptionVariant, content));
+        let persistence: Promise<void> | undefined;
+        if (delivery) {
+            let resolve!: () => void;
+            let reject!: (error: Error) => void;
+            persistence = new Promise<void>((ok, fail) => { resolve = ok; reject = fail; });
+            this.messagePersistence.set(delivery.localId, { promise: persistence, resolve, reject });
+        }
         this.pendingOutbox.push({
             content: encrypted,
-            localId: randomUUID()
+            localId: delivery?.localId ?? randomUUID()
         });
         if (invalidate) {
             this.sendSync.invalidate();
         }
+        if (persistence) return this.waitForMessagePersistence(persistence, delivery!);
+    }
+
+    private waitForMessagePersistence(promise: Promise<void>, delivery: SessionMessageDelivery): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error('Session message storage is unconfirmed; mail remains pending')), delivery.timeoutMs ?? 15_000);
+            promise.then(() => { clearTimeout(timer); resolve(); }, error => { clearTimeout(timer); reject(error); });
+        });
     }
 
     private enqueueSessionProtocolEnvelopes(envelopes: SessionEnvelope[], invalidate: boolean = true) {
@@ -777,7 +860,8 @@ export class ApiSessionClient extends EventEmitter {
         // Track usage from assistant messages
         if (body.type === 'assistant' && body.message?.usage) {
             try {
-                this.sendUsageData(body.message.usage, body.message.model);
+                const machineId = this.metadata?.machineId;
+                if (machineId) this.usageOutbox.enqueue(() => claudeUsageRecord(body, { sessionId: this.sessionId, machineId }));
             } catch (error) {
                 logger.debug('[SOCKET] Failed to send usage data:', error);
             }
@@ -785,7 +869,7 @@ export class ApiSessionClient extends EventEmitter {
 
         // Update metadata with summary if this is a summary message
         if (body.type === 'summary' && 'summary' in body && 'leafUuid' in body) {
-            this.updateMetadata((metadata) => ({
+            this.updateMetadata((metadata) => hubTitleFixed(metadata) ? metadata : ({
                 ...metadata,
                 summary: {
                     text: keepDutyPrefix(metadata, String(body.summary)),
@@ -804,12 +888,12 @@ export class ApiSessionClient extends EventEmitter {
      * message comes back over the socket like any other, so the transcript,
      * the web app and `onUserMessage` all see one message, not two paths.
      */
-    sendUserTextMessage(text: string, meta?: { displayText?: string; model?: string; effort?: string; permissionMode?: string }) {
+    sendUserTextMessage(text: string, meta?: { displayText?: string; model?: string; effort?: string; permissionMode?: string }, delivery?: SessionMessageDelivery) {
         // `meta.displayText` lets the engine receive the full text while the
         // transcript shows a line about it — used by a handoff, where the whole
         // briefing is for the engine and a paragraph of it in the user's own
         // voice is not what happened.
-        this.enqueueMessage({ role: 'user', content: { type: 'text', text }, ...(meta ? { meta } : {}) });
+        return this.enqueueMessage({ role: 'user', content: { type: 'text', text }, ...(meta ? { meta } : {}) }, true, delivery);
     }
 
     /**
@@ -866,6 +950,7 @@ export class ApiSessionClient extends EventEmitter {
     }
 
     sendCodexMessage(body: any) {
+        if (body?.type === 'agent_message' && typeof body.message === 'string') this.noteInteractiveBlocks(body.message);
         let content = {
             role: 'agent',
             content: {
@@ -879,8 +964,14 @@ export class ApiSessionClient extends EventEmitter {
         this.enqueueMessage(content);
     }
 
+    recordCodexUsage(message: unknown, model: string | null, activeTurn: boolean) {
+        const machineId = this.metadata?.machineId;
+        if (machineId) this.usageOutbox.enqueue(collector => collector.codex(message, { sessionId: this.sessionId, machineId }, model, activeTurn));
+    }
+
     private enqueueSessionProtocolEnvelope(envelope: SessionEnvelope, invalidate: boolean = true) {
         void this.resourceReview.observe(envelope).catch(()=>logger.warn('[RESOURCES] 无法保存文件变更索引'));
+        if (envelope.role === 'agent' && envelope.ev.t === 'text' && envelope.ev.thinking !== true) this.noteInteractiveBlocks(envelope.ev.text);
         const content = {
             role: 'session',
             content: envelope,
@@ -949,7 +1040,7 @@ export class ApiSessionClient extends EventEmitter {
     } | {
         /** A queued switch was called off before the relaunch; the session stays where it was. */
         type: 'engine-switch-cancelled', target: 'claude' | 'codex'
-    }, id?: string) {
+    }, id?: string, delivery?: SessionMessageDelivery) {
         let content = {
             role: 'agent',
             content: {
@@ -958,13 +1049,14 @@ export class ApiSessionClient extends EventEmitter {
                 data: event
             }
         };
-        this.enqueueMessage(content);
+        return this.enqueueMessage(content, true, delivery);
     }
 
     /**
      * Send a ping message to keep the connection alive
      */
     keepAlive(thinking: boolean, mode: 'local' | 'remote') {
+        void this.usageOutbox.flush();
         this.desiredWorking = thinking;
         if (!this.runtimeWrite && this.persistedWorking !== thinking) {
             this.runtimeWrite = (async () => {
@@ -991,8 +1083,8 @@ export class ApiSessionClient extends EventEmitter {
      * death: the session is about to be more alive than it is now.
      */
     private relaunching = false;
-    markRelaunching() {
-        this.relaunching = true;
+    markRelaunching(relaunching = true) {
+        this.relaunching = relaunching;
     }
 
     /**
@@ -1186,6 +1278,7 @@ export class ApiSessionClient extends EventEmitter {
      * Wait for socket buffer to flush
      */
     async flush(): Promise<void> {
+        await Promise.race([this.usageOutbox.flush(), delay(10_000)]);
         await Promise.race([
             this.sendSync.invalidateAndAwait(),
             delay(10000)
@@ -1207,6 +1300,8 @@ export class ApiSessionClient extends EventEmitter {
         if (this.closed) return;
         // Set this before awaiting I/O: concurrent close calls must be idempotent.
         this.closed = true;
+        for (const pending of this.messagePersistence.values()) pending.reject(new Error('Session closed before message storage was confirmed'));
+        this.messagePersistence.clear();
         await this.resourceReview.flush();
         logger.debug('[API] socket.close() called');
         this.sendSync.stop();
@@ -1256,6 +1351,15 @@ export class ApiSessionClient extends EventEmitter {
  * quietly drop it; the prefix survives unless the new title brings one of its
  * own — that is how a hub reassigns a duty.
  */
+/**
+ * A hub's title is its name: workers, the list and the person find it by that
+ * name across tasks and engine handoffs. Once it has one, an engine does not
+ * retitle it; the person renames it in the app, which writes metadata itself.
+ */
+export function hubTitleFixed(metadata: Metadata | null | undefined): boolean {
+    return metadata?.orchestration?.role === 'hub' && !!metadata.summary?.text?.trim();
+}
+
 export function keepDutyPrefix(metadata: Metadata | null, title: string): string {
     if (!metadata?.orchestration) return title;
     const previous = /^【[^】]+】/.exec(metadata.summary?.text ?? '')?.[0];

@@ -1,4 +1,4 @@
-import { nativeRefresh } from './refresh';
+import { nativeRefresh, type BackgroundWorkChoice } from './refresh';
 import { nativePermissionHook } from './permissions';
 import { PermissionHandler } from '../utils/permissionHandler';
 import { watchSessionConfiguration } from '@/modules/orchestration/workerConfig';
@@ -18,11 +18,15 @@ import { systemPrompt } from '../utils/systemPrompt';
 import { registerQueueControlHandlers } from '@/utils/sessionQueueControl';
 import { saveAttachmentsToInbox, formatInboxNote } from '@/modules/common/attachmentInbox';
 import { NativeBackgroundTasks } from './backgroundTasks';
+import { NativeExitGuard, nativeExitConfirmation, type NativeExitChoice } from './exitGuard';
+export { nativeExitConfirmation, NATIVE_EXIT_REFUSED } from './exitGuard';
 import { hashObject } from '@/utils/deterministicJson';
 import { startNativeInteractiveProcess } from './interactiveProcess';
-import { encodeNativeInput, type NativeInputRequest } from './terminalRelay';
+import { encodeNativeInput, nativeComposerHasDraft, sanitizeNativeText, unwrapNativePaste, NATIVE_TEXT_LIMIT, type NativeInputRequest } from './terminalRelay';
 import { LMC_OPTIONS_SYSTEM_PROMPT } from 'lmc-wire';
 import { isHub } from '@/modules/orchestration/hubGuard';
+import { publishEngineDiagnostic, startSessionProgressMonitor } from '@/modules/diagnostics/noProgress';
+import { detectSystemPrompt, systemPromptHint } from '@/modules/diagnostics/systemDiagnostics';
 
 // The native enqueue receipt and ordinary Enter path were verified on 2.1.286.
 // Unknown/older runtimes must not advertise a transport they cannot acknowledge.
@@ -31,8 +35,12 @@ export function supportsNativeSteering(version: string | undefined): boolean {
     return !!parts && (parts[0] > 2 || (parts[0] === 2 && (parts[1] > 1 || (parts[1] === 1 && parts[2] >= 286))));
 }
 
+/** How long a refused exit keeps LMC from asking again. */
+const EXIT_REFUSAL_HOLD_MS = 10 * 60_000;
+
 type SteerResult = { steered: boolean; reason?: string; restore?: boolean };
 type NativeGuidance = {
+    key: string; outputRevision: number;
     text: string; startedAt: number; writing: boolean; submitted: boolean; written: boolean;
     settled: boolean; confirmed: boolean; modelDeferred: boolean; resolve: (result: SteerResult) => void;
     timer?: ReturnType<typeof setTimeout>;
@@ -45,7 +53,7 @@ function nativeRuntimeMode(mode: EnhancedMode): EnhancedMode {
         // The app attaches this exact built-in prompt to ordinary messages.
         // It is already installed at native startup, including after refresh.
         // Any custom append remains a real runtime policy change.
-        appendSystemPrompt: mode.appendSystemPrompt === LMC_OPTIONS_SYSTEM_PROMPT ? undefined : mode.appendSystemPrompt,
+        appendSystemPrompt: mode.appendSystemPrompt?.startsWith(LMC_OPTIONS_SYSTEM_PROMPT) ? (mode.appendSystemPrompt.slice(LMC_OPTIONS_SYSTEM_PROMPT.length).trim() || undefined) : mode.appendSystemPrompt,
     };
 }
 
@@ -54,10 +62,12 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
     session.nativeUnwritten = !resume;
     const id = session.sessionId ?? randomUUID();
     const settings = nativeRuntimeMode(session.queue.queue[0]?.mode ?? session.getNativeMode());
-    let phase: 'starting' | 'idle' | 'busy' | 'stopping' | 'sending' | 'unconfirmed' | 'exited' = 'starting';
+    let phase: 'starting' | 'idle' | 'busy' | 'stopping' | 'sending' | 'unconfirmed' | 'unresponsive' | 'exited' = 'starting';
     let turnStatus: 'completed' | 'failed' = 'completed';
-    let leaving = false;
+    let exitRefusedAt = 0;
+    let exitRefusedWork: string[] = [];
     let exitPurpose: 'switch' | 'restart' | 'refresh' = 'switch';
+    let retainedPurpose: 'switch' | 'restart' | 'refresh' = exitPurpose;
     const permissions = new PermissionHandler(session);
     permissions.reset('Previous Claude transport exited');
     await permissions.handleModeChange(normalizeRemotePermissionMode(settings.permissionMode));
@@ -65,10 +75,19 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
     let refresh: ReturnType<typeof nativeRefresh> | undefined;
     let stopped = false;
     let pending: TakenItem<EnhancedMode>[] = [];
+    // A prepared attachment can move to the next bounded batch. Keep its note
+    // until consumed/withdrawn so it is not saved again (or lost to a filename
+    // collision) merely because the preceding prompt filled the terminal.
+    const attachmentNotes = new Map<string, string>();
     let pendingText = '';
+    let deliveryStartedAt = 0;
+    let deliveryOutputRevision = 0;
+    let deliveryGeneration = 0;
     let deliveryTimer: ReturnType<typeof setTimeout> | undefined;
     let deliveryBlocked = false;
+    let blockedKey: string | null = null;
     let interruptRevision: number | null = null;
+    let draftClears = 0;
     let turnSerial = 0;
     let turnIsHub = isHub(session.client.getMetadata());
     let guidance: NativeGuidance | undefined;
@@ -94,29 +113,51 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
     let chain = Promise.resolve();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let process: Awaited<ReturnType<typeof startNativeInteractiveProcess>> | undefined;
+    const progress = startSessionProgressMonitor(session.client, () => process?.pid);
+    publishEngineDiagnostic(session.client, 'delivery', undefined);
     let lastWarning = '';
     const warn = (message: string) => { if (lastWarning !== message) { lastWarning = message; session.client.sendSessionEvent({ type: 'message', message }); } };
-    const finishGuidance = (current: NativeGuidance, confirmed: boolean) => {
+    const reportDelivery = async (kind: 'guidance' | 'message', keys: string[], since: number, reason: 'unresponsive' | 'unconfirmed', stillPending: () => boolean) => {
+        const generation = ++deliveryGeneration;
+        publishEngineDiagnostic(session.client, 'delivery', { kind, keys, since, reason, systemPrompt: { status: 'unknown', checkedAt: Date.now() } });
+        const diagnostic = await detectSystemPrompt();
+        if (generation !== deliveryGeneration || !stillPending() || stopped) return;
+        publishEngineDiagnostic(session.client, 'delivery', { kind, keys, since, reason, systemPrompt: diagnostic });
+        const noun = kind === 'guidance' ? '引导消息' : '消息';
+        warn((reason === 'unresponsive'
+            ? `引擎进程没有响应，${noun}输入已在终端缓冲中，进程恢复后会自行提交；不会重发，也不会恢复进队列。`
+            : `${noun}尚未确认送达，请在原生控制窗口查看；不会自动重复发送。`)
+            + systemPromptHint(diagnostic, session.client.getMetadata()?.host));
+    };
+    const clearDelivery = () => { deliveryGeneration++; publishEngineDiagnostic(session.client, 'delivery', undefined); };
+    const finishGuidance = (current: NativeGuidance, confirmed: boolean, timedOut = false) => {
         if (current.timer) clearTimeout(current.timer);
         if (confirmed) {
-            if (guidance === current) guidance = undefined;
+            if (guidance === current) { guidance = undefined; clearDelivery(); }
             if (!current.confirmed) session.client.sendSessionEvent({ type: 'message', message: 'Claude 已接收引导，将在工具步骤结束后读取；若本轮已结束，会在下一轮处理。'
                 + (current.modelDeferred ? '本条使用当前运行的模型与思考层级；新设置仍已保存，将在安全空闲后生效。' : '') });
             current.confirmed = true;
-        } else if (!current.settled) {
-            warn('引导消息尚未确认送达，请在原生控制窗口查看；不会自动重复发送。');
         }
         if (!current.settled) {
+            const reason = timedOut && current.submitted && process?.relay.outputRevision === current.outputRevision ? 'unresponsive' : 'unconfirmed';
             current.settled = true;
-            current.resolve(confirmed ? { steered: true } : { steered: false, reason: 'unconfirmed', restore: false });
+            if (!confirmed && !stopped) void reportDelivery('guidance', [current.key], current.startedAt, reason, () => guidance === current && !current.confirmed).catch(() => {});
+            current.resolve(confirmed ? { steered: true } : { steered: false, reason, restore: false });
         }
         schedule();
     };
     const scanner = await createSessionScanner({ sessionId: resume ? id : null, workingDirectory: session.path, onTranscriptEvent: session.onNativeTranscriptEvent, hydrateGoalStatus: true,
+        onActivity: () => progress.progress(),
         onQueuedMessage: event => {
-            if (guidance?.submitted && event.text === guidance.text && event.timestamp >= guidance.startedAt) finishGuidance(guidance, true);
+            progress.progress();
+            if (guidance?.submitted && unwrapNativePaste(event.text) === guidance.text.trim() && event.timestamp >= guidance.startedAt) finishGuidance(guidance, true);
+            if (pending.length && unwrapNativePaste(event.text) === pendingText.trim() && event.timestamp >= deliveryStartedAt) {
+                acknowledge();
+                if (phase === 'unresponsive' || phase === 'unconfirmed') phase = 'sending';
+            }
         },
-        onTaskNotification: event => { tasks.complete(event); schedule(); }, onMessage: raw => {
+        onTaskNotification: event => { progress.progress(); tasks.complete(event); schedule(); }, onMessage: raw => {
+        progress.progress();
         const failure = claudeTurnFailure(raw as any); if (failure) session.onTurnFailure?.(failure);
         const m = (raw as any).message;
         if (raw.type === 'assistant' && m?.id && m.usage) {
@@ -132,6 +173,23 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
         tasks.observe(raw);
         if (hadTasks && !tasks.active) schedule();
         const content = (raw as any).message?.content;
+        // Bang commands skip UserPromptSubmit: their exact, fresh transcript
+        // input is the receipt. It confirms delivery, not command success or
+        // turn completion; Claude still runs the command and answers afterwards.
+        const bash = raw.type === 'user' && typeof content === 'string'
+            ? /^<bash-input>([\s\S]*)<\/bash-input>$/.exec(content.trim()) : null;
+        if (bash && pending.length && /^\s*!/.test(pendingText)
+            && bash[1].trim() === pendingText.trim().slice(1).trim()
+            && typeof raw.timestamp === 'string' && Date.parse(raw.timestamp) >= deliveryStartedAt) {
+            acknowledge();
+            if (phase === 'sending' || phase === 'unconfirmed' || phase === 'unresponsive') {
+                turnSerial++; turnIsHub = isHub(session.client.getMetadata());
+                interruptRevision = null; turnStatus = 'completed';
+                phase = 'busy'; session.onThinkingChange(true); progress.setBusy(true);
+            }
+            // A delayed scanner receipt must not undo an already observed Stop.
+            schedule();
+        }
         if (raw.type === 'user' && typeof content === 'string' && /^<(?:local-command|command-name)/.test(content.trim())) {
             if (pending.length && normalizeClaudeGoalEcho(content).trim() === pendingText.trim()) {
                 acknowledge();
@@ -139,33 +197,57 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
             }
             return;
         }
-        const echo = raw.type === 'user' && typeof content === 'string' ? echoes.indexOf(content.trim()) : -1;
+        const echo = bash ? echoes.findIndex(text => /^\s*!/.test(text) && text.trim().slice(1).trim() === bash[1].trim())
+            : raw.type === 'user' && typeof content === 'string' ? echoes.indexOf(unwrapNativePaste(content)) : -1;
         if (echo >= 0) { echoes.splice(echo, 1); return; }
+        // Text typed or pasted in the native window itself: show it without the tag.
+        if (raw.type === 'user' && typeof content === 'string' && unwrapNativePaste(content) !== content.trim()) raw = { ...raw, message: { ...m, content: unwrapNativePaste(content) } } as typeof raw;
         if (raw.type !== 'summary') chain = chain.then(() => session.client.sendClaudeSessionMessageFromLocalTranscript(raw)).catch(() => warn('原生会话记录同步暂时失败，请保留当前会话。'));
     } });
     const acknowledge = () => {
         session.nativeUnwritten = false;
         if (deliveryTimer) clearTimeout(deliveryTimer);
         if (pending.length) {
+            clearDelivery();
             echoes.push(pendingText.trim()); if (echoes.length > 32) echoes.shift();
             session.client.sendSessionEvent({ type: 'queue-released', keys: pending.map(item => item.key) });
+            for (const item of pending) attachmentNotes.delete(item.key);
             pending = []; pendingText = '';
         }
     };
-    const boundaryBlocker = () => {
+    // `stop` is the person's choice to end Claude's own background work: the
+    // exit then goes ahead and Claude's menu is answered "Exit and stop".
+    const boundaryBlocker = (choice?: BackgroundWorkChoice) => {
         if (permissions.hasPendingRequests()) return '等权限请求处理完成';
         if (guidance) return '等引导消息确认或在原生窗口处理未提交的输入';
-        if (tasks.active) return '等原生后台任务确认结束（可在原生窗口查看 /tasks）';
+        if (tasks.active && choice !== 'stop') return '等原生后台任务确认结束（可在原生窗口查看 /tasks）';
+        if (exitRefused() && choice !== 'stop') return exitRefusedWork.length
+            ? `原生 Claude 里有后台工作在运行（${exitRefusedWork.join('；')}），退出会停掉它`
+            : '原生 Claude 里有定时任务或后台工作在运行，退出会停掉它';
         if (pending.length || phase !== 'idle' || !process?.relay.snapshot().composer) return '等原生回合或提示处理完成';
-        if (leaving) return '会话正在退出';
+        if (exitGuard.active) return '会话正在退出';
         return null;
     };
-    const leave = async (purpose: typeof exitPurpose) => {
-        if (!process || leaving) return;
-        exitPurpose = purpose; leaving = true;
-        process.write(encodeNativeInput({ type: 'text', text: '/exit' }));
-        await new Promise(resolve => setTimeout(resolve, 120));
-        process.write(encodeNativeInput({ type: 'key', key: 'enter' }));
+    // Claude asks before an exit that would stop its own scheduled or
+    // background work. LMC does not track every kind of that work, so the
+    // question is the signal: answer "Stay", keep the session as it was, and
+    // let the caller say the exit did not happen. Never choose for the person
+    // that their work should stop.
+    const exitRefused = () => exitRefusedAt !== 0 && Date.now() - exitRefusedAt < EXIT_REFUSAL_HOLD_MS;
+    const exitGuard = new NativeExitGuard({
+        snapshot: () => process!.relay.snapshot(), settled: () => process!.settled(), write: bytes => process!.write(bytes),
+        retained: work => {
+            exitPurpose = retainedPurpose; exitRefusedAt = Date.now(); exitRefusedWork = work;
+            publishEngineDiagnostic(session.client, 'nativeExit', undefined);
+            schedule();
+        },
+        uncertain: since => publishEngineDiagnostic(session.client, 'nativeExit', { since }),
+    });
+    publishEngineDiagnostic(session.client, 'nativeExit', undefined);
+    const leave = async (purpose: typeof exitPurpose, choice: NativeExitChoice = 'stay') => {
+        if (!process) throw new Error('原生进程尚未就绪');
+        if (!exitGuard.active) { retainedPurpose = exitPurpose; exitPurpose = purpose; }
+        await exitGuard.leave(choice);
     };
     function schedule() {
         if (timer) clearTimeout(timer);
@@ -179,7 +261,18 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
             await process.settled();
             const screen = process.relay.snapshot();
             if (screen.revision > interruptRevision && screen.composer) {
-                phase = 'stopping'; interruptRevision = null;
+                phase = 'stopping'; interruptRevision = null; draftClears = 0;
+            } else if (screen.revision > interruptRevision && draftClears < 3 && nativeComposerHasDraft(screen.lines, screen.cursor)) {
+                // Claude restored the interrupted prompt into the composer. It is
+                // already in the transcript and was interrupted on purpose, so
+                // clear it (Escape twice) — otherwise this turn never closes and
+                // nothing queued behind it is ever delivered.
+                draftClears++;
+                process.write(encodeNativeInput({ type: 'key', key: 'escape' }));
+                await new Promise(resolve => setTimeout(resolve, 60));
+                process.write(encodeNativeInput({ type: 'key', key: 'escape' }));
+                interruptRevision = process.relay.snapshot().revision;
+                setTimeout(schedule, 600);
             }
         }
         if (process && phase === 'stopping' && !finishingTurn) {
@@ -190,7 +283,7 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
             try {
                 await scanner.flush(); await chain;
                 session.client.closeClaudeSessionTurn(turnStatus);
-                phase = 'idle'; session.onThinkingChange(false); tasks.endTurn();
+                phase = 'idle'; session.onThinkingChange(false); progress.setBusy(false); tasks.endTurn();
             } finally { finishingTurn = false; }
         }
         // After an uncertain write, leave the native draft available for manual
@@ -198,19 +291,28 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
         // release the guard, never put the already-written prompt back in LMC.
         if (process && phase === 'idle' && guidance?.settled && !guidance.writing) {
             await process.settled();
-            if (process.relay.snapshot().composer) guidance = undefined;
+            if (process.relay.snapshot().composer) { guidance = undefined; clearDelivery(); }
         }
         if (refresh?.pending) await refresh.drain();
-        if (!process || stopped || leaving || phase !== 'idle' || deliveryBlocked || pending.length || guidance) return;
+        // One message the terminal cannot take must not hold everything behind
+        // it for the life of the process: once it is withdrawn, deliver again.
+        if (deliveryBlocked && session.queue.queue[0]?.key !== blockedKey) { deliveryBlocked = false; blockedKey = null; }
+        if (!process || stopped || exitGuard.active || phase !== 'idle' || deliveryBlocked || pending.length || guidance) return;
+        const queuedKeys = new Set(session.queue.queue.map(item => item.key));
+        for (const key of attachmentNotes.keys()) if (!queuedKeys.has(key)) attachmentNotes.delete(key);
         await process.settled();
         if (phase !== 'idle' || !process.relay.snapshot().composer) return;
         const head = session.queue.queue[0];
         let mode = head?.mode ?? session.getNativeMode();
         if (runtimeHash(mode) !== runtimeHash(settings)) {
-            if (!boundaryBlocker()) { await leave('restart'); return; }
+            if (!boundaryBlocker()) {
+                try { await leave('restart'); }
+                catch (error) { if (!stopped) { warn(error instanceof Error ? error.message : String(error)); schedule(); } }
+                return;
+            }
             // Keep chatting on the running model while its background tasks
             // finish. Never defer permission, tool or system-prompt changes.
-            if (tasks.active && head && !head.isolate && !permissions.hasPendingRequests() && policyHash(mode) === policyHash(settings)) {
+            if ((tasks.active || exitRefused()) && head && !head.isolate && !permissions.hasPendingRequests() && policyHash(mode) === policyHash(settings)) {
                 warn('后台任务仍在运行，这条消息先使用当前运行的模型；所选模型与思考层级将在后台任务结束后应用。');
                 mode = settings;
             } else {
@@ -221,46 +323,83 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
         if (!head) return;
         phase = 'sending';
         const batch = [head];
-        if (session.queue.getQueueMode() === 'batch' && !head.isolate) {
+        // Never turn an adjacent chat message into part of a shell command (or
+        // turn a queued shell command into ordinary chat through batching).
+        // Bound the combined paste, not just each message. A backlog of valid
+        // mails otherwise exceeds the encoder limit and locks the entire queue.
+        // Attachment notes are accounted for after saving, below.
+        let batchChars = sanitizeNativeText(head.message).length;
+        if (session.queue.getQueueMode() === 'batch' && !head.isolate && !/^\s*!/.test(head.message)) {
             for (const item of session.queue.queue.slice(1)) {
-                if (item.isolate || runtimeHash(item.mode) !== runtimeHash(head.mode)) break;
+                if (item.isolate || /^\s*!/.test(item.message) || runtimeHash(item.mode) !== runtimeHash(head.mode)) break;
+                const nextChars = batchChars + 2 + sanitizeNativeText(item.message).length;
+                if (nextChars > NATIVE_TEXT_LIMIT) break;
                 batch.push(item);
+                batchChars = nextChars;
             }
         }
         pending = batch.map(item => session.queue.takeByKey(item.key)!).filter(Boolean);
         let pasted = false;
         try {
-            const attachments = pending.flatMap(item => item.attachments ?? []);
-            const note = attachments.length ? formatInboxNote(await saveAttachmentsToInbox(attachments, { projectPath: session.path, sessionId: session.client.sessionId })) : '';
+            const parts: string[] = [];
+            let chars = 0;
+            for (let i = 0; i < pending.length; i++) {
+                const item = pending[i];
+                if (item.attachments?.length && !attachmentNotes.has(item.key)) {
+                    attachmentNotes.set(item.key, formatInboxNote(await saveAttachmentsToInbox(item.attachments, { projectPath: session.path, sessionId: session.client.sessionId })));
+                }
+                const part = sanitizeNativeText(item.message + (attachmentNotes.get(item.key) ?? ''));
+                const nextChars = chars + (parts.length ? 2 : 0) + part.length;
+                if (parts.length && nextChars > NATIVE_TEXT_LIMIT) {
+                    for (const deferred of pending.splice(i).reverse()) session.queue.restore(deferred);
+                    break;
+                }
+                parts.push(part); chars = nextChars;
+            }
             const text = pending.map(item => item.message).join('\n\n');
-            const prepared = await session.prepareGoalMessage?.({ message: text + note, mode, goalText: text }, commands);
-            pendingText = typeof prepared?.message === 'string' ? prepared.message : text + note;
-            // Slash commands may acknowledge through their transcript rather
+            const message = parts.join('\n\n');
+            const prepared = await session.prepareGoalMessage?.({ message, mode, goalText: text }, commands);
+            pendingText = sanitizeNativeText(typeof prepared?.message === 'string' ? prepared.message : message);
+            if (!pendingText.trim()) {
+                // Nothing to deliver — typically a message whose attachments never
+                // arrived. Refusing it would block the queue behind an empty line.
+                session.client.sendSessionEvent({ type: 'queue-released', keys: pending.map(item => item.key) });
+                session.client.sendSessionEvent({ type: 'message', message: '收到一条空消息，没有交给 Claude；如果它本来带附件，附件没有上传成功，请重新发送。' });
+                pending = []; pendingText = ''; phase = 'idle'; schedule();
+                return;
+            }
+            // Local commands may acknowledge through their transcript rather
             // than UserPromptSubmit. Watch before writing; never resend a timeout.
-            if (pendingText.startsWith('/goal ')) void scanner.onNewSession(id);
+            if (pendingText.startsWith('/goal ') || /^\s*!/.test(pendingText)) void scanner.onNewSession(id);
             const bytes = encodeNativeInput({ type: 'text', text: pendingText });
-            process.write(bytes);
+            deliveryStartedAt = Date.now();
+            deliveryOutputRevision = process.relay.outputRevision;
+            progress.setBusy(true);
             pasted = true;
+            process.write(bytes);
             // Claude's composer consumes bracketed paste separately from Enter.
             await new Promise(resolve => setTimeout(resolve, 120));
             await process.settled();
             if (!stopped && phase === 'sending') process.write(encodeNativeInput({ type: 'key', key: 'enter' }));
             deliveryTimer = setTimeout(() => {
                 if (phase === 'sending' && pending.length) {
-                    phase = 'unconfirmed';
-                    warn('消息交付尚未确认，请在原生窗口检查并手动提交；不会重复发送。');
+                    const reason = process?.relay.outputRevision === deliveryOutputRevision ? 'unresponsive' : 'unconfirmed';
+                    phase = reason;
+                    void reportDelivery('message', pending.map(item => item.key), deliveryStartedAt, reason, () => pending.length > 0).catch(() => {});
                 }
             }, 5000);
             // Only native submit/command transcript acknowledges consumption. A timeout cannot
             // establish non-delivery, so it must never trigger an automatic retry.
         } catch {
             if (!pasted) {
+                blockedKey = pending[0]?.key ?? null;
                 for (const item of pending.slice().reverse()) session.queue.restore(item);
                 pending = []; pendingText = ''; phase = 'idle'; deliveryBlocked = true;
-                warn('这条消息无法交付到原生终端，已保留在队列。请撤回后退出原生模式再发送。');
+                progress.setBusy(false);
+                warn('排在最前的这条消息无法交付到原生终端（通常是文字过长），已保留在队列。撤回它之后，后面的消息会照常发送。');
             } else {
                 phase = 'unconfirmed';
-                warn('原生消息交付未确认，请打开原生控制窗口检查；不会自动重复发送。');
+                void reportDelivery('message', pending.map(item => item.key), deliveryStartedAt, 'unconfirmed', () => pending.length > 0).catch(() => {});
             }
         }
     };
@@ -282,7 +421,9 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
         if (allowedTools.length) args.push('--allowedTools', allowedTools.join(','));
         process = await startNativeInteractiveProcess({ executable: claudeExecutable(), cwd: session.path, sessionId: id, resume, args, env: session.claudeEnvVars,
             onScreen: schedule,
+            onOutput: () => progress.progress(),
             onHook: async (hook, signal) => {
+                progress.progress();
                 if (hook.event === 'PreToolUse') {
                     if (mapToClaudeMode(session.getNativeMode().permissionMode) !== permission) return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'Permission settings changed. End this turn so LMC can apply the current settings safely.' } };
                 }
@@ -297,9 +438,13 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
                     // first real submission, not SessionStart's 60s timeout.
                     void scanner.onNewSession(id);
                     acknowledge();
-                    phase = 'busy'; session.onThinkingChange(true);
+                    phase = 'busy'; session.onThinkingChange(true); progress.setBusy(true);
                 }
                 if (hook.event === 'Stop' || hook.event === 'StopFailure') {
+                    // A first Bash command may run longer than the missing-file
+                    // watcher deadline; Claude writes that transcript only when
+                    // the command returns. Revive its watcher at the real Stop.
+                    if (pending.length && /^\s*!/.test(pendingText)) void scanner.onNewSession(id);
                     turnStatus = hook.event === 'StopFailure' ? 'failed' : 'completed';
                     phase = 'stopping';
                 }
@@ -319,8 +464,13 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
                 case 'release': process!.relay.release(request.clientId); return { ok: true };
                 case 'input': {
                     if (request.input?.type === 'text' && /^\s*\/(?:clear|resume|fork|model|effort|permissions|plan|worktree)(?:\s|$)/i.test(request.input.text)) throw new Error('请先退出原生模式，再通过 LMC 调整设置或切换会话');
-                    if (phase === 'sending' || guidance?.writing || leaving) throw new Error('正在交付消息，请等待原生界面更新');
+                    if (phase === 'sending' || guidance?.writing || exitGuard.writing) throw new Error('正在交付消息，请等待原生界面更新');
+                    const before = process!.relay.snapshot();
                     const result = process!.relay.input(request as NativeInputRequest);
+                    if (!result.repeated && exitGuard.active && (request.input?.type === 'key' && request.input.key === 'escape'
+                        || request.input?.type === 'choice' && request.input.choice === nativeExitConfirmation(before.lines))) {
+                        exitGuard.cancelledManually(result.revision);
+                    }
                     if (!result.repeated && phase === 'busy' && request.input?.type === 'key' && request.input.key === 'escape') {
                         interruptRevision = result.revision; schedule();
                     }
@@ -328,7 +478,7 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
                 }
                 case 'leave': {
                     process!.relay.assertCurrent(request);
-                    if (leaving) return { ok: true };
+                    if (exitGuard.active) throw new Error('原生退出尚未完成，请先处理原生窗口中的提示');
                     if (tasks.active) throw new Error('原生后台任务尚未确认结束，可在原生窗口查看 /tasks');
                     if (phase !== 'idle' || pending.length || guidance || session.queue.size() || !process!.relay.snapshot().composer) throw new Error('请等待回合、排队消息和后台任务结束后退出原生模式');
                     await leave('switch');
@@ -348,9 +498,14 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
         rpc.registerHandler('abort', interrupt);
         rpc.registerHandler('switch', async () => { throw new Error('请从原生控制窗口退出原生模式'); });
         refresh = nativeRefresh(session, {
-            blocker: () => boundaryBlocker() ?? (session.queue.size() ? '等排队消息处理完成' : null),
+            blocker: choice => boundaryBlocker(choice) ?? (session.queue.size() ? '等排队消息处理完成' : null),
+            // Everything else is settled and only background work remains. A
+            // person who chose to wait for that work is not given up on.
+            standing: choice => choice !== 'wait' && phase === 'idle' && !permissions.hasPendingRequests() && !guidance && !pending.length && !exitGuard.active
+                && (deliveryBlocked || ((tasks.active || exitRefused()) && !session.queue.size())),
             flush: async () => { await scanner.flush(); await chain; },
-            exit: () => leave('refresh'),
+            exit: choice => leave('refresh', choice === 'stop' ? 'stop' : 'stay'),
+            blockedWork: () => tasks.active || exitRefused() ? exitRefusedWork : undefined,
         });
         stopWatchingConfiguration = watchSessionConfiguration(session.client, 'claude', async metadata => {
             if (metadata.permissionMode !== undefined) await permissions.handleModeChange(normalizeRemotePermissionMode(metadata.permissionMode ?? undefined));
@@ -365,7 +520,7 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
                 if (item.isolate || /^\s*[!/]/.test(item.message)) return { steered: false, reason: 'command' };
                 const serial = turnSerial;
                 const refusal = () => {
-                    if (stopped || leaving || phase !== 'busy' || turnSerial !== serial || interruptRevision !== null || pending.length) return 'idle';
+                    if (stopped || exitGuard.active || phase !== 'busy' || turnSerial !== serial || interruptRevision !== null || pending.length) return 'idle';
                     if (refresh?.blocksSteering) return 'refreshing';
                     // Ordinary Enter queues input for this running Claude.
                     // Model/effort changes wait for its next safe boundary;
@@ -377,12 +532,13 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
                 };
                 const initialRefusal = refusal();
                 if (initialRefusal) return { steered: false, reason: initialRefusal };
-                if (!item.message.trim()) return { steered: false, reason: 'refused' };
+                const steerText = sanitizeNativeText(item.message);
+                if (!steerText.trim()) return { steered: false, reason: 'refused' };
                 // Validate before any write: failures here may safely restore.
-                const bytes = encodeNativeInput({ type: 'text', text: item.message });
+                const bytes = encodeNativeInput({ type: 'text', text: steerText });
                 let resolve!: NativeGuidance['resolve'];
                 const receipt = new Promise<SteerResult>(r => { resolve = r; });
-                const current: NativeGuidance = { text: item.message, startedAt: Date.now(), written: false, writing: true, submitted: false, settled: false, confirmed: false,
+                const current: NativeGuidance = { key: item.key, outputRevision: process!.relay.outputRevision, text: steerText, startedAt: Date.now(), written: false, writing: true, submitted: false, settled: false, confirmed: false,
                     modelDeferred: runtimeHash(item.mode) !== runtimeHash(settings) || runtimeHash(session.getNativeMode()) !== runtimeHash(settings), resolve };
                 guidance = current;
                 try {
@@ -398,7 +554,8 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
                     // A write can throw after partially reaching the PTY. From
                     // this point on, even an exception must never restore/retry.
                     current.written = true;
-                    echoes.push(item.message.trim()); if (echoes.length > 32) echoes.shift();
+                    current.outputRevision = process!.relay.outputRevision;
+                    echoes.push(steerText.trim()); if (echoes.length > 32) echoes.shift();
                     process!.write(bytes);
                     await new Promise(r => setTimeout(r, 120));
                     await process!.settled();
@@ -406,7 +563,7 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
                         finishGuidance(current, false);
                     } else {
                         current.submitted = true;
-                        current.timer = setTimeout(() => finishGuidance(current, false), 5000);
+                        current.timer = setTimeout(() => finishGuidance(current, false, true), 5000);
                         process!.write(encodeNativeInput({ type: 'key', key: 'enter' }));
                     }
                     current.writing = false;
@@ -424,6 +581,7 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
         session.queue.setOnMessage(schedule);
         schedule();
         const result = await process.exit;
+        exitGuard.exited(result.exitCode);
         if (result.exitCode !== 0) warn(`原生 Claude 已退出（${result.exitCode}），未自动重发未确认消息。`);
         return result.exitCode === 0 && !pending.length && !guidance ? exitPurpose : 'exit';
     } catch (error) {
@@ -431,8 +589,11 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
         warn('原生进程未能启动，已返回普通模式：' + String(error));
         return 'switch';
     } finally {
-        stopped = true; stopWatchingConfiguration(); permissions.reset();
+        stopped = true; exitGuard.exited(-1); stopWatchingConfiguration(); permissions.reset();
+        publishEngineDiagnostic(session.client, 'nativeExit', undefined);
+        progress.stop();
         if (guidance) finishGuidance(guidance, false);
+        clearDelivery();
         if (refresh?.pending) await refresh.cancel();
         phase = 'exited'; if (timer) clearTimeout(timer); if (deliveryTimer) clearTimeout(deliveryTimer);
         session.queue.setOnMessage(null); session.interruptTurn = null;

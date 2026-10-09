@@ -56,6 +56,18 @@ describe('sessionScanner', () => {
     expect(completed).toEqual(['new']); expect(collectedMessages).toEqual([]);
   })
 
+  it('observes new log bytes even for internal records, without treating repeated scans as progress', async () => {
+    const sessionId = 'activity-session';
+    const sessionFile = join(projectDir, `${sessionId}.jsonl`);
+    await writeFile(sessionFile, '');
+    let activity = 0;
+    scanner = await createSessionScanner({ sessionId, workingDirectory: testDir, onMessage: m => collectedMessages.push(m), onActivity: () => { activity++; } });
+    await scanner.flush(); expect(activity).toBe(0);
+    await appendFile(sessionFile, JSON.stringify({ type: 'file-history-snapshot', sessionId }) + '\n');
+    await scanner.flush(); expect(activity).toBe(1); expect(collectedMessages).toEqual([]);
+    await scanner.flush(); expect(activity).toBe(1);
+  })
+
   it('reports only new native queue receipts from the correct provider transcript', async () => {
     const sessionId = 'steer-session';
     const sessionFile = join(projectDir, `${sessionId}.jsonl`);
@@ -401,6 +413,24 @@ describe('sessionScanner', () => {
 
     expect(collectedMessages).toHaveLength(1)
     expect(collectedMessages[0].type).toBe('user')
+  })
+
+  it('revives the same current session after a slow first local command finally writes its transcript', async () => {
+    const sessionId = 'late-first-bash'
+    scanner = await createSessionScanner({ sessionId: null, workingDirectory: testDir,
+      onMessage: msg => collectedMessages.push(msg), missingFileTimeoutMs: 100 })
+    await scanner.onNewSession(sessionId)
+    await new Promise(resolve => setTimeout(resolve, 1500))
+    await writeFile(join(projectDir, `${sessionId}.jsonl`), JSON.stringify({ type: 'user', uuid: 'late-bash-input',
+      timestamp: new Date().toISOString(), message: { content: '<bash-input> printf receipt</bash-input>' } }) + '\n')
+    await scanner.flush()
+    expect(collectedMessages).toHaveLength(0)
+    await scanner.onNewSession(sessionId)
+    await scanner.flush()
+    expect(collectedMessages).toHaveLength(1)
+    await scanner.onNewSession(sessionId)
+    await scanner.flush()
+    expect(collectedMessages).toHaveLength(1)
   })
 
   it('emits the synthetic assistant message written when the API rejects a turn', async () => {

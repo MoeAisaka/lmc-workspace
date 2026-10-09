@@ -2,7 +2,7 @@ import { claudeTurnFailure } from '@/modules/orchestration/quota';
 import { claudeTurnTotal, claudeTurnUsage } from '@/modules/orchestration/meter';
 import { engineCapabilities } from '@/runtime/managedRuntime';
 import { SafeSessionRefresh } from '@/utils/safeSessionRefresh';
-import { readFallbackBriefing, readSwitchEngine, readSwitchSettings } from '@/utils/engineSwitchRequest';
+import { isRefreshCliRequest, readFallbackBriefing, readSwitchEngine, readSwitchSettings } from '@/utils/engineSwitchRequest';
 import { applyQueueModeRequest, registerQueueControlHandlers } from '@/utils/sessionQueueControl';
 import { checkEngineAuth, isEngineAuthError } from '@/utils/engineAuth';
 import { EngineAuthPreflightError } from '@/utils/refreshErrors';
@@ -172,6 +172,8 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
             if (exitReason) return '会话正在退出';
             return null;
         },
+        standingBlocker: () => backgroundTasks.size > 0 && safeIdle && !pending && !exitReason
+            && session.queue.size() === 0 && !permissionHandler.hasPendingRequests(),
         pause: () => session.client.pauseIncomingMessages(),
         drain: () => session.client.waitForIncomingDelivery(),
         resume: seq => session.client.resumeIncomingMessagesFrom(seq),
@@ -236,8 +238,9 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
             await refresh.request(engine);
             return { status: 'queued' };
         }
-        if (!request || typeof request !== 'object' || (request as any).refreshCli !== true
-            || Object.keys(request).some(key => key !== 'refreshCli')) throw new Error('Claude 仅支持安全刷新；模型与思考层级请在模型面板设置');
+        // `backgroundWork` is accepted for parity with the native runner; the
+        // SDK transport has no exit prompt, so there is nothing to choose.
+        if (!isRefreshCliRequest(request)) throw new Error('Claude 仅支持安全刷新；模型与思考层级请在模型面板设置');
         await refresh.request();
         return { status: 'queued' };
     });

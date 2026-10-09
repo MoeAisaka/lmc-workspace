@@ -122,12 +122,13 @@ function MobileGlassSurfaceBase({
         return animated ? (
             <Animated.View
                 {...props}
+                {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true', ...(props as any).dataSet}} : {})}
                 style={style}
             >
                 {children}
             </Animated.View>
         ) : (
-            <View {...props} style={style}>{children}</View>
+            <View {...props} {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true', ...(props as any).dataSet}} : {})} style={style}>{children}</View>
         );
     }
 

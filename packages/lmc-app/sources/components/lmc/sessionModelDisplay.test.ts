@@ -11,7 +11,7 @@ const session = (flavor: string, metadata: Record<string, unknown> = {}, picks: 
 } as Session);
 
 describe('sidebar model display before any manual selection', () => {
-    it.each([['codex', 'GPT-6 Astra'], ['claude', 'Opus 5']])('shows the %s configured default on first load', (flavor, modelName) => {
+    it.each([['codex', 'GPT-6.1 Sol'], ['claude', 'Opus 5.5']])('shows the %s configured default on first load', (flavor, modelName) => {
         expect(resolveSessionModelDisplay(session(flavor), {}, translate)).toEqual({ modelName, effortName: 'Medium' });
     });
 
@@ -39,7 +39,7 @@ describe('sidebar model display before any manual selection', () => {
         expect(resolveSessionModelDisplay(session('codex', { modelMode: 'my-codex-model', effortLevel: 'high' }), {}, translate).modelName)
             .toBe('my-codex-model');
         expect(resolveSessionModelDisplay(session('codex', {}, { modelMode: 'claude-fable-5-1' }), {}, translate).modelName)
-            .toBe('GPT-6 Astra');
+            .toBe('GPT-6.1 Sol');
     });
 
     it('does not invent a Claude model for an unrelated engine', () => {

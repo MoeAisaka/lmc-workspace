@@ -116,6 +116,7 @@ import { createTracer, traceMessages, TracerState } from "./reducerTracer";
 import { AgentState, TodoItem, TodoItemsSchema } from "../storageTypes";
 import { MessageMeta } from "../typesMessageMeta";
 import { parseMessageAsEvent } from "./messageToEvent";
+import { compareToolCalls } from '@/utils/toolComparison';
 
 type ReducerMessage = {
     serverSeq?: number;
@@ -205,6 +206,56 @@ function mergeToolInputs(existingInput: unknown, nextInput: unknown): unknown {
         return { ...nextInput, ...existingInput };
     }
     return nextInput ?? existingInput;
+}
+
+/** Native PermissionRequest omits tool_use_id. Its UUID is the approval RPC
+ * identity, not a second question. Join only one exact, contemporaneous Claude
+ * question; repeated/ambiguous questions and explicit provider ids stay apart.
+ * This also reconciles history recorded by Agents that only sent the UUID. */
+function nativeQuestionJoins(state: ReducerState, messages: NormalizedMessage[], agentState?: AgentState | null): Map<string, string> {
+    const calls = new Map<string, { input: unknown; createdAt: number; permissionId?: string }>();
+    for (const message of state.messages.values()) {
+        const tool = message.tool;
+        if (message.realID && tool?.name === 'AskUserQuestion' && tool.callId?.startsWith('toolu_')) {
+            calls.set(tool.callId, { input: tool.input, createdAt: tool.startedAt ?? tool.createdAt, permissionId: tool.permission?.id });
+        }
+    }
+    for (const message of messages) {
+        if (message.role !== 'agent') continue;
+        for (const part of message.content) {
+            if (part.type === 'tool-call' && part.name === 'AskUserQuestion' && part.id.startsWith('toolu_') && !calls.has(part.id)) {
+                calls.set(part.id, { input: part.input, createdAt: message.createdAt });
+            }
+        }
+    }
+    const requests = { ...agentState?.requests, ...agentState?.completedRequests };
+    const matches = new Map<string, string>();
+    for (const [id, request] of Object.entries(requests)) {
+        if (request.tool !== 'AskUserQuestion' || request.toolUseId || !/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(id)) continue;
+        const candidates = [...calls].filter(([, call]) => (!call.permissionId || call.permissionId === id)
+            && typeof request.createdAt === 'number' && Math.abs(call.createdAt - request.createdAt) <= 30_000
+            && compareToolCalls({ name: request.tool, arguments: request.arguments }, { name: request.tool, arguments: call.input }));
+        if (candidates.length === 1) matches.set(id, candidates[0][0]);
+    }
+    const joins = new Map<string, string>();
+    for (const [id, callId] of matches) {
+        // Two unbound approvals must never compete for one question.
+        if ([...matches.values()].filter(value => value === callId).length !== 1) continue;
+        const placeholderId = state.toolIdToMessageId.get(id);
+        const actualId = state.toolIdToMessageId.get(callId);
+        if (placeholderId && actualId && placeholderId !== actualId) continue;
+        if (placeholderId && !actualId) {
+            // Keep the same card (and in-progress selections) when the
+            // permission arrived before the transcript tool call.
+            state.toolIdToMessageId.set(callId, placeholderId);
+            state.toolIdToMessageId.delete(id);
+            const placeholder = state.messages.get(placeholderId);
+            if (placeholder?.tool) placeholder.tool.callId = callId;
+            state.permissions.delete(id);
+        }
+        joins.set(id, callId);
+    }
+    return joins;
 }
 
 function getSidechainOwner(state: ReducerState, sidechainId: string): ReducerMessage | null {
@@ -421,6 +472,7 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
     // Phase 0: Process AgentState permissions
     //
 
+    const questionJoins = nativeQuestionJoins(state, nonSidechainMessages, agentState);
     if (ENABLE_LOGGING) {
         console.log(`[REDUCER] Phase 0: Processing AgentState`);
     }
@@ -436,7 +488,7 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
                 // Join key for the tool call: the raw provider tool-use id when
                 // the request id is scoped (claude subagents use
                 // `agentID:toolUseID`), otherwise the request id itself.
-                const joinId = request.toolUseId || permId;
+                const joinId = request.toolUseId || questionJoins.get(permId) || permId;
 
                 // Check if we already have a message for this permission ID
                 const existingMessageId = state.toolIdToMessageId.get(joinId);
@@ -507,7 +559,7 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
         if (agentState.completedRequests) {
             for (const [permId, completed] of Object.entries(agentState.completedRequests)) {
                 // Same join key as pending requests: raw tool-use id when scoped
-                const joinId = completed.toolUseId || permId;
+                const joinId = completed.toolUseId || questionJoins.get(permId) || permId;
                 // The CLI reports the "don't ask again" grant under the RPC's
                 // field name, `allowTools`. Fold both spellings into one value
                 // so the permission footer can recognize which button applied.

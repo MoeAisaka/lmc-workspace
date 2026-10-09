@@ -8,6 +8,7 @@ declare global {
 
         // Usage report data structure
         type UsageReportData = {
+            detail?: import('lmc-wire').UsageRecord;
             tokens: {
                 total: number;
                 [key: string]: number;

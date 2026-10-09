@@ -1,3 +1,4 @@
+import { Text } from '@/components/StyledText';
 /**
  * Monospace metrics for the diff renderer.
  *
@@ -9,7 +10,7 @@
  */
 
 import * as React from 'react';
-import { Platform, Text, View } from 'react-native';
+import { Platform, View } from 'react-native';
 import { Typography } from '@/constants/Typography';
 import { gutterWidthFor } from './layout';
 

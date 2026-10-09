@@ -3,6 +3,22 @@ import { parseMarkdown } from './parseMarkdown';
 
 const spans = (text: string) => text ? [{ styles: [], text, url: null }] : [];
 
+describe('quoted reading blocks', () => {
+    it('keeps paragraphs and lists in one quotation without absorbing surrounding text', () => {
+        expect(parseMarkdown('Before\n\n> **Key idea**\n>\n> - First\n> - Second\n\nAfter')).toEqual([
+            { type: 'text', content: spans('Before') },
+            { type: 'quote', content: '**Key idea**\n\n- First\n- Second' },
+            { type: 'text', content: spans('After') },
+        ]);
+    });
+    it('preserves code literals and peels only one level of nested quotation', () => {
+        expect(parseMarkdown('```sh\n> literal\n```\n\n> > nested\n> outer')).toEqual([
+            { type: 'code-block', language: 'sh', content: '> literal' },
+            { type: 'quote', content: '> nested\nouter' },
+        ]);
+    });
+});
+
 describe('parseMarkdownBlock - table parsing', () => {
 
     it('parses a standard table without blank lines', () => {

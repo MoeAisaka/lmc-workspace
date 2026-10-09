@@ -28,6 +28,7 @@ import { Modal } from '@/modal';
 import { collectMachineChoices } from '@/sync/machineChoices';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { useRouter } from 'expo-router';
+import { newestModelCatalogs } from '@/sync/modelCatalogMetadata';
 
 /** Sentinels for the two menu rows that are not one of the agent's own modes. */
 const INHERIT = '\u0000default';
@@ -66,10 +67,7 @@ export default function AgentsSettingsScreen({ onNavigate }: { onNavigate?: () =
     const machines = useAllMachines({ includeOffline: true });
     const catalogMetadata = React.useMemo(() => ({
         path: '', host: '',
-        modelCatalogs: Object.fromEntries((['claude', 'codex'] as const).map(engine => [engine,
-            machines.map(machine => machine.metadata?.modelDiscovery ? machine.metadata.modelCatalogs?.[engine] : undefined)
-                .filter(catalog => catalog !== undefined).sort((a, b) => b.capturedAt - a.capturedAt)[0],
-        ])),
+        modelCatalogs: newestModelCatalogs(machines.map(machine => machine.metadata)),
     }), [machines]);
     const machineChoices = React.useMemo(() => (
         collectMachineChoices(machines).sort((left, right) => (
@@ -103,7 +101,7 @@ export default function AgentsSettingsScreen({ onNavigate }: { onNavigate?: () =
     }, [updateOverride]);
 
     const renderField = (agent: AgentKey, config: FieldConfig) => {
-        const effectiveDefaults = resolveAgentDefaultConfig(agentDefaultOverrides, agent);
+        const effectiveDefaults = resolveAgentDefaultConfig(agentDefaultOverrides, agent, undefined, catalogMetadata.modelCatalogs);
         const effectiveValue = effectiveDefaults[config.field];
         const overrideValue = getAgentDefaultOverrideValue(agentDefaultOverrides, agent, config.field);
         const hasOverride = hasAgentDefaultOverride(agentDefaultOverrides, agent, config.field);
@@ -211,8 +209,8 @@ export default function AgentsSettingsScreen({ onNavigate }: { onNavigate?: () =
                 </ItemGroup>
 
                 {configurableAgentKeys.map((agent) => {
-                    const codeDefaults = getCodeAgentDefaults(agent);
-                    const effectiveDefaults = resolveAgentDefaultConfig(agentDefaultOverrides, agent);
+                    const codeDefaults = getCodeAgentDefaults(agent, undefined, catalogMetadata.modelCatalogs);
+                    const effectiveDefaults = resolveAgentDefaultConfig(agentDefaultOverrides, agent, undefined, catalogMetadata.modelCatalogs);
                     const permissionOptions = getHardcodedPermissionModes(agent, t);
                     const modelOptions = getAvailableModels(agent, catalogMetadata, t, effectiveDefaults.modelMode).filter((option) => option.key !== 'default');
                     const effortOptions = getEffortLevelsForModel(agent, effectiveDefaults.modelMode, catalogMetadata, t);

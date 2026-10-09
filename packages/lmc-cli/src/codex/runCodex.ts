@@ -1,4 +1,6 @@
+import { isLargeFileEvent, receiveLargeFileEvent } from '@/modules/common/largeFileEvent';
 import { cachedDefaultEffort } from '@/runtime/modelCatalogCache';
+import { startSessionProgressMonitor } from '@/modules/diagnostics/noProgress';
 import { readComputerUseSetup } from '@/runtime/computerUse';
 import { codexUsageLimits } from './usageLimits';
 import { engineCapabilities } from '@/runtime/managedRuntime';
@@ -340,7 +342,7 @@ export async function runCodex(opts: {
             size: ev.size,
             hasMimeType: Boolean(ev.mimeType),
         });
-        session.trackAttachmentDownload(downloadCodexFileEventAttachment(session, fileEvent));
+        session.trackAttachmentDownload(isLargeFileEvent(fileEvent) ? receiveLargeFileEvent(session, fileEvent, process.cwd()) : downloadCodexFileEventAttachment(session, fileEvent));
     });
 
     // Track current overrides to apply per message
@@ -514,10 +516,16 @@ export async function runCodex(opts: {
     let codexCollabReceiverThreadIdsByCall = new Map<string, string[]>();
     let codexCollabToolByCall = new Map<string, string>();
     let activeTurnPermissionMode: PermissionMode | undefined = undefined;
+    const progress = startSessionProgressMonitor({
+        updateAgentState: handler => session.updateAgentState(handler),
+        sendSessionEvent: event => session.sendSessionEvent(event),
+        getMetadata: () => session.getMetadata(),
+    }, () => client?.processId);
     let hubDenialSent = false;
     session.keepAlive(thinking, 'remote');
     // Periodic keep-alive; store handle so we can clear on exit
     const keepAliveInterval = setInterval(() => {
+        progress.setBusy(thinking || activeTurnModeHash !== null);
         session.keepAlive(thinking, 'remote');
     }, 2000);
 
@@ -794,6 +802,7 @@ export async function runCodex(opts: {
     //
 
     client = new CodexAppServerClient(sandboxConfig, contextLimits, serviceTier);
+    client.setActivityHandler(() => progress.progress());
 
     permissionHandler = new CodexPermissionHandler(session);
     // Drop any permission requests left in agent state from a previous CLI
@@ -958,6 +967,7 @@ export async function runCodex(opts: {
 
     // Event handler: same EventMsg types as the legacy MCP server — no changes needed
     client.setEventHandler((msg) => {
+        progress.progress();
         logger.debug(`[Codex] Event: ${JSON.stringify(msg)}`);
         const isSubagentScopedEvent = hasCodexSubagentReference(msg as Record<string, unknown>);
 
@@ -980,6 +990,7 @@ export async function runCodex(opts: {
         } else if (msg.type === 'task_started') {
             messageBuffer.addMessage('Starting task...', 'status');
         } else if (msg.type === 'token_count') {
+            session.recordCodexUsage({ ...msg, threadId: (msg as any).threadId ?? (msg as any).thread_id ?? client.threadId }, activeTurnMode?.model ?? remoteModeState.currentModel ?? null, thinking);
             const usage = codexTurnUsage(msg);
             if (usage) meter.add(usage);
         } else if (msg.type === 'task_complete') {
@@ -1010,6 +1021,7 @@ export async function runCodex(opts: {
             if (!thinking) {
                 logger.debug('thinking started');
                 thinking = true;
+                progress.setBusy(true);
                 session.keepAlive(thinking, 'remote');
                 publishRefreshWait();
             }
@@ -1018,6 +1030,7 @@ export async function runCodex(opts: {
             if (thinking) {
                 logger.debug('thinking completed');
                 thinking = false;
+                progress.setBusy(false);
                 session.keepAlive(thinking, 'remote');
                 publishRefreshWait();
             }
@@ -1511,6 +1524,7 @@ export async function runCodex(opts: {
                 });
 
                 activeTurnModeHash = hashCodexEnhancedMode(message.mode, 'steer');
+                progress.setBusy(true);
                 activeTurnMode = { ...message.mode };
                 const result = await client.sendTurnAndWait(turnPrompt, {
                     model: message.mode.model,
@@ -1561,6 +1575,7 @@ export async function runCodex(opts: {
                 activeTurnIsHub = false;
                 hubDenialSent = false;
                 thinking = false;
+                progress.setBusy(false);
                 session.keepAlive(thinking, 'remote');
                 emitReadyIfIdle({
                     pending,
@@ -1580,6 +1595,8 @@ export async function runCodex(opts: {
         throw error;
     } finally {
         // Clean up resources when main loop exits
+        progress.stop();
+        client.setActivityHandler(null);
         resolveClientReady(false);
         quotaStopped = true;
         if (quotaTimer) clearInterval(quotaTimer);

@@ -1,5 +1,6 @@
+import { Text } from '@/components/StyledText';
 import React from 'react';
-import { Platform, View, Text, TouchableOpacity, ActivityIndicator, Pressable } from 'react-native';
+import { Platform, View, TouchableOpacity, ActivityIndicator, Pressable } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { UserProfile, getDisplayName } from '@/sync/friendTypes';
 import { Avatar } from '@/components/Avatar';

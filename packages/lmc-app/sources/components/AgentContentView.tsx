@@ -6,6 +6,7 @@ import { ScrollView } from 'react-native-gesture-handler';
 import { useKeyboardState } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
+import { installWebComposerViewport } from '@/utils/webComposerViewport';
 
 interface AgentContentViewProps {
     input?: React.ReactNode | null;
@@ -33,6 +34,19 @@ export const AgentContentView: React.FC<AgentContentViewProps> = React.memo(({
     const state = useKeyboardState();
     const keyboardInset = state.isVisible ? Math.max(0, state.height - safeArea.bottom) : 0;
     const [dockHeight, setDockHeight] = React.useState(0);
+    const containerRef = React.useRef<View>(null);
+    const webDock = Platform.OS === 'web' && floatingDock;
+    React.useEffect(() => {
+        if (webDock && containerRef.current) {
+            return installWebComposerViewport(containerRef.current as unknown as HTMLElement);
+        }
+    }, [webDock]);
+    const dockBottom = (extra: number) => webDock
+        ? `calc(var(--lmc-keyboard-inset, 0px) + ${extra}px)` as unknown as number
+        : keyboardInset + extra;
+    // The compact card stays where its field is anchored (owner's choice,
+    // v300): iOS WebKit insists on the caret sitting above the keyboard by a
+    // browser-specific strip, so the card may end that far above the keyboard.
 
     const handleDockLayout = React.useCallback((event: LayoutChangeEvent) => {
         const nextHeight = Math.ceil(event.nativeEvent.layout.height);
@@ -47,9 +61,9 @@ export const AgentContentView: React.FC<AgentContentViewProps> = React.memo(({
 
     if (floatingDock) {
         return (
-            <View style={{ flexBasis: 0, flexGrow: 1 }}>
+            <View ref={containerRef} style={{ flexBasis: 0, flexGrow: 1 }}>
                 {content && (
-                    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+                    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: webDock ? dockBottom(0) : 0 }}>
                         {content}
                     </View>
                 )}
@@ -60,7 +74,7 @@ export const AgentContentView: React.FC<AgentContentViewProps> = React.memo(({
                             top: safeArea.top + headerHeight,
                             left: 0,
                             right: 0,
-                            bottom: dockHeight + keyboardInset + safeArea.bottom,
+                            bottom: dockBottom(dockHeight + safeArea.bottom),
                         }}
                         contentContainerStyle={{ alignItems: 'center', justifyContent: 'center', flex: 1 }}
                         keyboardShouldPersistTaps="handled"
@@ -71,12 +85,13 @@ export const AgentContentView: React.FC<AgentContentViewProps> = React.memo(({
                 )}
                 {dockHeight > 0 && (
                     <View
+                        {...(Platform.OS === 'web' ? {dataSet: {lmcChromeFade: 'true'}} : {})}
                         pointerEvents="none"
                         style={{
                             position: 'absolute',
                             left: 0,
                             right: 0,
-                            bottom: keyboardInset,
+                            bottom: dockBottom(0),
                             height: dockHeight + safeArea.bottom + 28,
                             zIndex: 1,
                         }}
@@ -99,12 +114,31 @@ export const AgentContentView: React.FC<AgentContentViewProps> = React.memo(({
                         position: 'absolute',
                         left: 0,
                         right: 0,
-                        bottom: keyboardInset + safeArea.bottom,
+                        bottom: dockBottom(safeArea.bottom),
                         zIndex: 2,
                     }}
                 >
                     {input}
                 </View>
+                {webDock && (
+                    // iOS WebKit can pan the page past the document end while
+                    // revealing the caret. The dock keeps its document position
+                    // (moving it back down provokes the next reveal); this
+                    // backdrop covers the exposed strip below the body instead.
+                    <View
+                        {...({ dataSet: { lmcDockBackdrop: 'true' } } as object)}
+                        pointerEvents="none"
+                        style={{
+                            position: 'absolute',
+                            left: 0,
+                            right: 0,
+                            top: '100%',
+                            height: 'var(--lmc-dock-extension, 0px)' as unknown as number,
+                            backgroundColor: theme.colors.surface,
+                            zIndex: 1,
+                        }}
+                    />
+                )}
             </View>
         );
     }

@@ -1,10 +1,11 @@
+import { useLayoutWindowDimensions } from '@/hooks/useLayoutWindowDimensions';
 import { installSidebarMotion, runSidebarTransition } from '@/utils/sidebarMotion';
 import { useAuth } from '@/auth/AuthContext';
 import * as React from 'react';
 import { Drawer } from 'expo-router/drawer';
 import { useIsTablet, useHeaderHeight } from '@/utils/responsive';
 import { SidebarView } from './SidebarView';
-import { useWindowDimensions, View, Pressable, Platform } from 'react-native';
+import { View, Pressable, Platform } from 'react-native';
 import { useLocalSetting, useLocalSettingMutable } from '@/sync/storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -21,6 +22,7 @@ import { useBrowserNavigationStore } from '@/navigation/browserNavigationStore';
 import { FloatingSessionDrawer } from './lmc/FloatingSessionDrawer';
 import { AccountMenuLayer } from './lmc/AccountMenu';
 import { ToastLayer } from './lmc/Toast';
+import { resolveDesktopSidebarWidth } from './lmc/sidebarMetrics';
 
 const TAURI_HEADER_CONTROL_LEFT = Math.ceil(92 / DEFAULT_APP_ZOOM);
 
@@ -33,15 +35,12 @@ export const SidebarNavigator = React.memo(() => {
     const isDesktopLayout = auth.isAuthenticated && isTablet;
     const leftSidebarCollapsed = false;
     const showSidebar = isDesktopLayout && !zenMode;
-    const { width: windowWidth } = useWindowDimensions();
+    const { width: windowWidth } = useLayoutWindowDimensions();
 
     // Calculate target drawer width
-    const fullDrawerWidth = React.useMemo(() => {
-        // 360, not 300: rows carry a second line of device, engine and task
-        // state now, and at 300 the title was the first thing to be cut.
-        if (!isDesktopLayout) return 360;
-        return 360;
-    }, [windowWidth, isDesktopLayout]);
+    const fullDrawerWidth = Platform.OS === 'web'
+        ? resolveDesktopSidebarWidth(windowWidth, theme.personalization.sidebarWidth)
+        : 360;
     // Collapsed keeps a rail of icons rather than nothing, so new session,
     // the list and the account stay one click away. Zen mode still hides all.
     const drawerWidth = showSidebar ? fullDrawerWidth : 0;

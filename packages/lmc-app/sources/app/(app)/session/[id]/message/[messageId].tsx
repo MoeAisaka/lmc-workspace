@@ -1,6 +1,7 @@
+import { Text } from '@/components/StyledText';
 import * as React from 'react';
 import { useLocalSearchParams, Stack, useRouter } from "expo-router";
-import { Text, View, ActivityIndicator } from "react-native";
+import { View, ActivityIndicator } from 'react-native';
 import { useMessage, useSession, useSessionMessages } from "@/sync/storage";
 import { sync } from '@/sync/sync';
 import { Deferred } from "@/components/Deferred";

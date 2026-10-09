@@ -1,3 +1,5 @@
+import { usePersonalizationMotion } from '@/hooks/usePersonalizationMotion';
+import { motionDuration } from '@/sync/personalization';
 import * as React from 'react';
 import { Platform, Pressable, ScrollView, View, type LayoutChangeEvent } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -135,19 +137,21 @@ export const SettingsMenuHost = React.memo(({ children }: { children: React.Reac
 function SettingsMenuLayer({ menu, host, onClose }: { menu: OpenMenu; host: { width: number; height: number }; onClose: () => void }) {
     const [menuHeight, setMenuHeight] = React.useState(0);
     const [closing, setClosing] = React.useState(false);
+    const motion = usePersonalizationMotion();
     const progress = useSharedValue(0);
 
     React.useEffect(() => {
-        progress.value = withTiming(1, { duration: 150, easing: Easing.out(Easing.cubic) });
-    }, [progress]);
+        if (closing) return;
+        progress.value = withTiming(1, { duration: motionDuration(motion, 150), easing: Easing.out(Easing.cubic) });
+    }, [progress, motion, closing]);
 
     const dismiss = React.useCallback(() => {
         if (closing) return;
         setClosing(true);
-        progress.value = withTiming(0, { duration: 110, easing: Easing.in(Easing.cubic) }, (done) => {
+        progress.value = withTiming(0, { duration: motionDuration(motion, 110), easing: Easing.in(Easing.cubic) }, (done) => {
             if (done) runOnJS(onClose)();
         });
-    }, [closing, onClose, progress]);
+    }, [closing, onClose, progress, motion]);
 
     // Escape closes it the same way clicking away does.
     React.useEffect(() => {
@@ -173,7 +177,7 @@ function SettingsMenuLayer({ menu, host, onClose }: { menu: OpenMenu; host: { wi
     }));
 
     return (
-        <View style={StyleSheet.absoluteFillObject}>
+        <View testID="settings-select-menu" style={StyleSheet.absoluteFillObject}>
             <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={t('lmc.menu.close')}
@@ -233,7 +237,7 @@ export function SettingsSelect<T>(props: {
             ref={trigger}
             accessibilityRole="button"
             accessibilityState={{ expanded: false, disabled: !!props.disabled }}
-            accessibilityLabel={label}
+            accessibilityLabel={props.title ? `${props.title}: ${label}` : label}
             disabled={props.disabled || !controller}
             {...hoverProps}
             onPress={() => {

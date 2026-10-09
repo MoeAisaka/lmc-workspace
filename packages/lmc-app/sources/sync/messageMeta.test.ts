@@ -13,7 +13,7 @@ describe('resolveMessageModeMeta', () => {
 
         expect(meta).toEqual({
             permissionMode: 'auto',
-            model: 'gpt-6-astra',
+            model: 'gpt-6.1-sol',
             effort: 'medium',
         });
     });
@@ -26,7 +26,7 @@ describe('resolveMessageModeMeta', () => {
             metadata: { flavor: 'codex' },
         } as any);
 
-        expect(meta.model).toBe('gpt-6-astra');
+        expect(meta.model).toBe('gpt-6.1-sol');
         expect(meta.effort).toBe('medium');
     });
 

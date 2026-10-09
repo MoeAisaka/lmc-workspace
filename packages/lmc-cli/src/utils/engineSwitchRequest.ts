@@ -55,3 +55,25 @@ export function readFallbackBriefing(request: unknown): string | null {
     const value = (request as Record<string, unknown>).fallbackBriefing;
     return typeof value === 'string' && value.trim() ? value : null;
 }
+
+/**
+ * What a refresh does about Claude's own background work (scheduled tasks,
+ * background shells) when exiting would stop it. Unset: ask once, keep the
+ * work, report the refusal. `stop`: the person chose to end that work so the
+ * refresh goes through. `wait`: keep the request queued and try again until
+ * the work is gone.
+ */
+export type BackgroundWorkChoice = 'stop' | 'wait';
+
+export function readBackgroundWorkChoice(request: unknown): BackgroundWorkChoice | undefined {
+    const value = request && typeof request === 'object' ? (request as Record<string, unknown>).backgroundWork : undefined;
+    return value === 'stop' || value === 'wait' ? value : undefined;
+}
+
+/** `{refreshCli:true}`, optionally with a `backgroundWork` choice, and nothing else. */
+export function isRefreshCliRequest(request: unknown): boolean {
+    if (!request || typeof request !== 'object' || (request as Record<string, unknown>).refreshCli !== true) return false;
+    if (Object.keys(request).some(key => key !== 'refreshCli' && key !== 'backgroundWork')) return false;
+    const choice = (request as Record<string, unknown>).backgroundWork;
+    return choice === undefined || readBackgroundWorkChoice(request) !== undefined;
+}

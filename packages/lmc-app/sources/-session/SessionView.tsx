@@ -1,3 +1,7 @@
+import { useLayoutWindowDimensions } from '@/hooks/useLayoutWindowDimensions';
+import { useQueueReceiptRecovery } from '@/hooks/useQueueReceiptRecovery';
+import { Typography } from '@/constants/Typography';
+import { Text } from '@/components/StyledText';
 import { resolveTurnElapsed } from '@/utils/turnElapsed';
 import { pendingQueuePrompts } from '@/sync/queuedMessageVisibility';
 import { useMachine } from '@/sync/storage';
@@ -8,6 +12,8 @@ import { CHAT_WIDE_WIDTH, ChatWidthContext, useChatMaxWidth } from '@/components
 import { Ionicons as SidebarIcon } from '@expo/vector-icons';
 import { SessionHeaderActions } from '@/components/SessionHeaderActions';
 import { SessionRefreshBanner } from '@/components/SessionRefreshBanner';
+import { EngineDiagnosticBanner } from '@/components/EngineDiagnosticBanner';
+import { NewVersionNotice } from '@/components/lmc/NewVersionNotice';
 import { isRefreshPending } from '@/sync/sessionRefreshProgress';
 import { resolveMessageModeMeta, UnsupportedPermissionModeError } from '@/sync/messageMeta';
 import { AgentContentView } from '@/components/AgentContentView';
@@ -17,7 +23,7 @@ import { AgentGoalBar, type AgentGoalAction } from '@/components/AgentGoalBar';
 import { AgentQuestionBanner } from '@/components/AgentQuestionBanner';
 import { AgentInput } from '@/components/AgentInput';
 import { useSessionDrawer } from '@/components/lmc/sessionDrawerStore';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { resolveVisibleAgentGoalStatus } from '@/components/agentGoalStatus';
 import type { MultiTextInputHandle } from '@/components/MultiTextInput';
 import { layout } from '@/components/layout';
@@ -71,7 +77,7 @@ import { AllFilesDiffView } from '@/components/AllFilesDiffView';
 import { FileViewPanel } from '@/components/FileViewPanel';
 import { GitFileStatus } from '@/sync/gitStatusFiles';
 import { useOverlayNav } from '@/-session/sessionOverlayNav';
-import { useSidebarMetrics } from '@/components/lmc/sidebarMetrics';
+import { resolveDesktopSidebarWidth, useSidebarMetrics } from '@/components/lmc/sidebarMetrics';
 import { openSessionDrawer } from '@/components/lmc/sessionDrawerStore';
 import { useToolOverlay } from '@/components/lmc/toolOverlayStore';
 import { SessionToolOverlay } from '@/components/lmc/SessionToolOverlay';
@@ -84,7 +90,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as React from 'react';
 import { useMemo } from 'react';
-import { ActivityIndicator, LayoutChangeEvent, Platform, Pressable, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, LayoutChangeEvent, Platform, Pressable, View } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -109,8 +115,6 @@ import {
 import { RigActivityBar } from '@/components/RigActivityBar';
 import { AnimatedFade } from '@/components/AnimatedOverlay';
 
-/** Matches SidebarNavigator's permanent desktop drawer. */
-const DESKTOP_SIDEBAR_WIDTH = 360;
 /** The inset SidebarView gives its cards, top and sides. */
 const STATUS_CARD_INSET = 8;
 /** How much of the gutter a status card may take, and how little is worth it. */
@@ -119,6 +123,7 @@ const STATUS_CARD_MAX_WIDTH = 420;
 
 export const SessionView = React.memo((props: { id: string }) => {
     const sessionId = props.id;
+    const isFocused = useIsFocused();
     const router = useRouter();
     const session = useSession(sessionId);
     const isDataReady = useIsDataReady();
@@ -137,7 +142,7 @@ export const SessionView = React.memo((props: { id: string }) => {
         || (deviceType === 'phone' && !isLandscape);
     const realtimeStatus = useRealtimeStatus();
     const isTablet = useIsTablet();
-    const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+    const { width: windowWidth, height: windowHeight } = useLayoutWindowDimensions();
     const fileDiffsSidebarEnabled = useSetting('fileDiffsSidebar');
     const zenMode = useLocalSetting('zenMode');
     const [headerBackdropVisible, setHeaderBackdropVisible] = React.useState(false);
@@ -425,18 +430,12 @@ export const SessionView = React.memo((props: { id: string }) => {
     // The shared 800pt page width was tuned for settings lists, and reads
     // cramped for a conversation; 910 fills the gutters without losing the
     // centred column. Native phones keep their own screen-derived width.
-    const sessionColumnWidth = Number.isFinite(layout.maxWidth) ? 910 : layout.maxWidth;
+    const sessionColumnWidth = Number.isFinite(layout.maxWidth) ? theme.personalization.contentWidth : layout.maxWidth;
     const showsSessionHeader = !(Platform.OS === 'web' && isTablet);
-    // On tablet web paneActions floats absolutely at right: 12, while the
-    // header's own right slot flows to the same edge — anything the overlay
-    // publishes there (Save, the edit/preview toggle, the close button) would
-    // otherwise sit underneath those glyphs. Reserve their width so the two
-    // groups read as one row instead of overlapping.
-    const PANE_ACTION_SIZE = 36;
-    const PANE_ACTION_GAP = 8;
-    const paneActionCount = (windowWidth >= 900 ? 1 : 0) + (canShowSidebar && !zenMode ? 1 : 0);
-    const floatingPaneActionsWidth = isTablet && Platform.OS === 'web' && paneActionCount > 0
-        ? paneActionCount * PANE_ACTION_SIZE + paneActionCount * PANE_ACTION_GAP
+    // Keep the fixed header inside the chat pane, including personalized drawer
+    // widths and zen mode. Its actions share one row with file edit/close actions.
+    const desktopSidebarWidth = Platform.OS === 'web' && isTablet && !zenMode
+        ? resolveDesktopSidebarWidth(windowWidth, theme.personalization.sidebarWidth)
         : 0;
     const paneActions = (
         <>
@@ -468,7 +467,7 @@ export const SessionView = React.memo((props: { id: string }) => {
     // Only worth putting a card beside the transcript when there is room beside
     // it: the card would otherwise sit on top of the text it reports about. The
     // pane is the window minus the desktop sidebar, which zen mode hides.
-    const paneWidth = windowWidth - (isTablet && Platform.OS === 'web' && !zenMode ? DESKTOP_SIDEBAR_WIDTH : 0);
+    const paneWidth = windowWidth - desktopSidebarWidth;
     const gutter = (paneWidth - sessionColumnWidth) / 2;
     const paneHasGutter = isTablet && Platform.OS === 'web' && !chatWideMode
         && gutter >= STATUS_CARD_MIN_WIDTH + STATUS_CARD_INSET * 2;
@@ -576,6 +575,8 @@ export const SessionView = React.memo((props: { id: string }) => {
                             }),
                     }}
                 >
+                    {/* Without a gutter the banners already sit centred under the header; the notice joins them. */}
+                    {!paneHasGutter && <NewVersionNotice />}
                     <EngineAuthBanner
                         sessionId={sessionId}
                         maxWidth={paneHasGutter ? statusCardWidth : chatColumnWidth}
@@ -586,28 +587,33 @@ export const SessionView = React.memo((props: { id: string }) => {
                         maxWidth={paneHasGutter ? statusCardWidth : chatColumnWidth}
                         minHeight={paneHasGutter ? sidebarCardHeight : undefined}
                     />
+                    <EngineDiagnosticBanner sessionId={sessionId} visible={isFocused} maxWidth={paneHasGutter ? statusCardWidth : chatColumnWidth} />
                 </View>
             )}
 
-            {isTablet && Platform.OS === 'web' && (
-                <View
-                    pointerEvents="box-none"
-                    style={{ position: 'absolute', top: safeArea.top + 6, right: 12, zIndex: 1001, flexDirection: 'row', alignItems: 'center', gap: 8 }}
-                >
-                    {paneActions}
+            {/* A wide pane keeps its banners in the left gutter; the new-version pill still floats at the top of the transcript (D28). */}
+            {session && paneHasGutter && (
+                <View pointerEvents="box-none" style={{ position: 'absolute', zIndex: 90, left: 0, right: 0, alignItems: 'center', paddingHorizontal: 12,
+                    top: safeArea.top + (isTablet ? DESKTOP_HEADER_HEIGHT : mobileHeaderHeight) + 8 }}>
+                    <NewVersionNotice />
                 </View>
             )}
+
             {/* Render the overlay header after the dynamic list so native blur samples its content. */}
             {!(isLandscape && deviceType === 'phone' && Platform.OS !== 'web') && (
-                <View style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
+                <View {...(Platform.OS === 'web' ? { dataSet: { lmcSessionHeader: 'true' } } : {})} style={{
+                    // Browsers can pan a page while restoring focus. The
+                    // navigation must stay at the viewport edge, independent of
+                    // the transcript and the absolute status cards below it.
+                    position: Platform.OS === 'web' ? 'fixed' as any : 'absolute',
+                    top: Platform.OS === 'web' ? 'var(--lmc-session-header-offset, 0px)' as any : 0,
+                    left: desktopSidebarWidth,
                     right: 0,
                     zIndex: 1000
                 }}>
                     {Platform.OS === 'web' && (
                         <LinearGradient
+                            {...{dataSet: {lmcChromeFade: 'true'}}}
                             pointerEvents="none"
                             // Mirrors the dock's gradient at the bottom of the
                             // pane, so the transcript leaves the page the same
@@ -628,7 +634,7 @@ export const SessionView = React.memo((props: { id: string }) => {
                         backdropVisible={headerBackdropVisible}
                         extraPathSegment={fileViewPath ?? undefined}
                         rightSlot={
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingRight: floatingPaneActionsWidth }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                                 {(diffViewOpen || !!fileViewPath) ? headerRightSlot : headerRight}
                                 {/* The overlay replaces the header's own actions, and on
                                     tablet ChatHeaderView renders no back button — without
@@ -652,7 +658,7 @@ export const SessionView = React.memo((props: { id: string }) => {
                                         <Ionicons name="close" size={18} color={theme.colors.header.tint} />
                                     </Pressable>
                                 )}
-                                {!isTablet && paneActions}
+                                {(!isTablet || Platform.OS === 'web') && paneActions}
                             </View>
                         }
                         onTitlePress={session ? () => router.push(`/session/${sessionId}/info`) : undefined}
@@ -677,17 +683,9 @@ export const SessionView = React.memo((props: { id: string }) => {
     // (chat stays mounted underneath so state is preserved).
     return (
         <View style={{ flex: 1, flexDirection: 'row' }}>
-            <View
-                style={{
-                    flex: 1,
-                    // Web-only: isolate the chat subtree's layout from the
-                    // parent flex-row. If we ever bring back a width
-                    // animation on the right sidebar, `contain` prevents
-                    // layout work from leaking up to the chat tree on
-                    // every frame.
-                    ...(Platform.OS === 'web' ? { contain: 'layout style paint' as any } : {}),
-                }}
-            >
+            {/* Layout/paint containment would capture the fixed header and let
+                an ancestor scroll it offscreen, including on tablet browsers. */}
+            <View style={{ flex: 1 }}>
                 {mainContent}
                 {diffViewOpen && canShowSidebar && (
                     <View
@@ -849,7 +847,7 @@ export function SessionViewLoaded({
     const isLandscape = useIsLandscape();
     const deviceType = useDeviceType();
     const isTablet = useIsTablet();
-    const { width: inputWindowWidth } = useWindowDimensions();
+    const { width: inputWindowWidth } = useLayoutWindowDimensions();
     // Only the portrait phone chat uses an overlay dock. Tablet, desktop,
     // landscape, and embedded views retain their existing split layout.
     // The composer floats over the transcript, which scrolls beneath it and
@@ -948,8 +946,8 @@ export function SessionViewLoaded({
         && sessionCapabilities(session.metadata).refresh;
     const agentDefaultOverrides = useSetting('agentDefaultOverrides');
     const effectiveAgentDefaults = React.useMemo(() => (
-        resolveAgentDefaultConfig(agentDefaultOverrides, flavor, cliVersion)
-    ), [agentDefaultOverrides, cliVersion, flavor]);
+        resolveAgentDefaultConfig(agentDefaultOverrides, flavor, cliVersion, catalogMetadata?.modelCatalogs)
+    ), [agentDefaultOverrides, cliVersion, flavor, catalogMetadata]);
     const availableModels = React.useMemo(() => (
         getAvailableModels(
             flavor,
@@ -1175,6 +1173,7 @@ export function SessionViewLoaded({
     const handleQueueModeChange = React.useCallback((mode: QueueMode) => {
         sessionSetQueueMode(sessionId, mode).catch((error) => { console.error('queue mode change failed:', error); });
     }, [sessionId]);
+    useQueueReceiptRecovery(sessionId, messages, session.agentState?.queue);
     const queuedPrompts = React.useMemo(() => pendingQueuePrompts(messages, session.agentState?.queue), [messages, session.agentState?.queue]);
     const queueMode: QueueMode = session.metadata?.queueMode ?? 'batch';
     // Handed over whenever the session can queue at all; the strip shows
@@ -1646,7 +1645,7 @@ function ResumeCommandCopyBlock({ resumeCommandBlock }: {
                             color: theme.colors.text,
                             fontSize: 13,
                             lineHeight: 18,
-                            fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+                            ...Typography.mono(),
                         }}
                     >
                         {line}

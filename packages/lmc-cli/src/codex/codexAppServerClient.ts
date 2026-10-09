@@ -19,8 +19,8 @@ import { engineLoginContext } from '@/utils/engineLoginContext';
  * app-server wrapper or approval callbacks. See docs/plans/codex-app-server-migration.md.
  */
 
-import { execSync, execFileSync, type ChildProcess } from 'node:child_process';
-import { spawn as crossSpawn } from 'cross-spawn';
+import { execSync, type ChildProcess } from 'node:child_process';
+import { spawn as crossSpawn, sync as crossSpawnSync } from 'cross-spawn';
 import { createInterface, type Interface as ReadlineInterface } from 'node:readline';
 import { logger } from '@/ui/logger';
 import type {
@@ -119,8 +119,11 @@ function parseCodexCliVersion(version: string): { major: number; minor: number; 
 
 function readCodexCliVersion(): { major: number; minor: number; patch: number } | null {
     try {
-        const version = execFileSync(codexExecutable(), ['--version'], { encoding: 'utf8', windowsHide: true }).trim();
-        return parseCodexCliVersion(version);
+        // npm installs a .cmd shim on Windows, which execFileSync cannot launch.
+        // Use the same platform-aware resolution as the app-server transport.
+        const result = crossSpawnSync(codexExecutable(), ['--version'], { encoding: 'utf8', windowsHide: true });
+        if (result.error || result.status !== 0) return null;
+        return parseCodexCliVersion(result.stdout.trim());
     } catch {
         return null;
     }
@@ -270,6 +273,7 @@ export class CodexAppServerClient {
 
     // Handlers set by the consumer (runCodex.ts)
     private eventHandler: ((msg: EventMsg) => void) | null = null;
+    private activityHandler: (() => void) | null = null;
     private approvalHandler: ApprovalHandler | null = null;
     private rateLimitsHandler: ((value: unknown) => void) | null = null;
 
@@ -297,6 +301,9 @@ export class CodexAppServerClient {
     setEventHandler(handler: (msg: EventMsg) => void): void {
         this.eventHandler = handler;
     }
+
+    get processId(): number | undefined { return this.process?.pid; }
+    setActivityHandler(handler: (() => void) | null): void { this.activityHandler = handler; }
 
     setRateLimitsHandler(handler: (value: unknown) => void): void {
         this.rateLimitsHandler = handler;
@@ -482,6 +489,7 @@ export class CodexAppServerClient {
                 this.eventHandler?.({
                     type: 'token_count',
                     ...tokenUsage,
+                    threadId: params.threadId ?? this._threadId,
                 });
             }
             return true;
@@ -755,6 +763,7 @@ export class CodexAppServerClient {
         proc.stderr?.on('data', (chunk: Buffer) => {
             if (this.process !== proc || this.processEpoch !== epoch) return;
             const text = chunk.toString().trim();
+            if (text) this.activityHandler?.();
             if (text) logger.debug(`[CodexAppServer:stderr] ${text}`);
         });
 
@@ -1534,6 +1543,7 @@ export class CodexAppServerClient {
 
         // Server → client request (approvals)
         if (msg.id != null && msg.method) {
+            this.activityHandler?.();
             this.handleServerRequest(msg.id, msg.method, msg.params).catch((err) => {
                 logger.debug('[CodexAppServer] Error handling server request:', err);
             });
@@ -1542,6 +1552,8 @@ export class CodexAppServerClient {
 
         // Notification (no id)
         if (msg.method) {
+            // Quota polling/keepalives aren't evidence of turn progress.
+            if (!/rateLimits|account\/|heartbeat/i.test(msg.method)) this.activityHandler?.();
             this.handleNotification(msg.method, msg.params);
             return;
         }

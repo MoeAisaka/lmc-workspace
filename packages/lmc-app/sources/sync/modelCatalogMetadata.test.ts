@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { withModelCatalogs } from './modelCatalogMetadata';
+import { newestModelCatalogs, withModelCatalogs } from './modelCatalogMetadata';
 import { catalogModelName, getAvailableModels, getEffortLevelsForModel, getCatalogDefaultEffort, assertModelEffort } from '@/components/modelModeOptions';
 import { engineModelGroups } from './engineModelCatalog';
 import { resolveMessageModeMeta } from './messageMeta';
@@ -56,5 +56,18 @@ describe('discovered model catalogs', () => {
         expect(() => assertModelEffort('claude', 'claude-basic', 'medium', catalogs)).toThrow();
         expect(() => assertModelEffort('claude', 'private-model', 'custom', catalogs)).not.toThrow();
         expect(getCatalogDefaultEffort('claude', 'unknown', { modelCatalogs: catalogs }, 'medium')).toBe('medium');
+    });
+    it('uses the newest engine for account-wide settings, not the latest capture', () => {
+        const entry = (id: string, runtimeVersion: string, capturedAt: number) => ({ runtimeVersion, capturedAt, models: [{ id, name: id }] });
+        const device = (claude: any, codex: any, modelDiscovery = true) => ({ modelDiscovery, modelCatalogs: { claude, codex } } as MachineMetadata);
+        const picked = newestModelCatalogs([
+            device(entry('claude-pinned', '2.1.179', 900), entry('gpt-pinned', '0.153.4', 900)),
+            device(entry('claude-current', '0.3.286', 100), entry('gpt-current', '0.159.3', 100)),
+            device(entry('claude-hidden', '9.0.0', 950), entry('gpt-hidden', '9.0.0', 950), false),
+            null,
+        ]);
+        expect(picked.claude?.models[0].id).toBe('claude-current');
+        expect(picked.codex?.models[0].id).toBe('gpt-current');
+        expect(newestModelCatalogs([])).toEqual({ claude: undefined, codex: undefined });
     });
 });

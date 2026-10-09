@@ -9,9 +9,10 @@ import { CommandView } from '@/components/CommandView';
 interface BashViewFullProps {
     tool: ToolCall;
     metadata: Metadata | null;
+    compact?: boolean;
 }
 
-export const BashViewFull = React.memo<BashViewFullProps>(({ tool, metadata }) => {
+export const BashViewFull = React.memo<BashViewFullProps>(({ tool, metadata, compact }) => {
     const { input, result, state } = tool;
 
     // Parse the result
@@ -38,7 +39,7 @@ export const BashViewFull = React.memo<BashViewFullProps>(({ tool, metadata }) =
     }
 
     return (
-        <View style={styles.container}>
+        <View style={[styles.container, compact && { paddingTop: 0, paddingBottom: 12 }]}>
             <View style={styles.terminalContainer}>
                 <ScrollView 
                     horizontal

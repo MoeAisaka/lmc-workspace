@@ -27,6 +27,20 @@ describe('sessionEnvironment', () => {
         }
     });
 
+    it('never lets one refresh\'s receive cursor reach a session started without one', () => {
+        // The daemon was started by a runner that had just been refreshed.
+        const daemonEnvironment = { KEEP_ME: 'safe', HAPPY_REFRESH_RECEIVE_SEQ: '4758', HAPPY_REFRESH_ENGINE_SWITCH: '1' };
+
+        expect(SESSION_SCOPED_ENV_KEYS).toEqual(expect.arrayContaining(['HAPPY_REFRESH_RECEIVE_SEQ', 'HAPPY_REFRESH_ENGINE_SWITCH']));
+        // Spawning the daemon itself, and a recovery that names no cursor.
+        expect(sanitizeSessionEnvironment(daemonEnvironment)).toEqual({ KEEP_ME: 'safe' });
+        const recovered = buildSessionChildEnvironment(daemonEnvironment, { HAPPY_RECONNECT_SESSION_ID: 'gold', HAPPY_RECONNECT_SEQ: '2273' });
+        expect(recovered).not.toHaveProperty('HAPPY_REFRESH_RECEIVE_SEQ');
+        expect(recovered).not.toHaveProperty('HAPPY_REFRESH_ENGINE_SWITCH');
+        // A real refresh still carries its own cursor.
+        expect(buildSessionChildEnvironment(daemonEnvironment, { HAPPY_REFRESH_RECEIVE_SEQ: '11023' }).HAPPY_REFRESH_RECEIVE_SEQ).toBe('11023');
+    });
+
     it('keeps explicit fork values after removing stale ambient values', () => {
         const childEnv = buildSessionChildEnvironment(contaminatedEnvironment(), {
             HAPPY_FORKED_FROM_SESSION_ID: 'new-parent-session',

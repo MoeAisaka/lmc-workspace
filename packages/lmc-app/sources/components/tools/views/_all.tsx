@@ -27,6 +27,7 @@ export type ToolViewProps = {
     sessionId?: string;
     messageId?: string;
     focusFile?: string;
+    compact?: boolean;
     permissionFooter?: React.ReactNode;
 }
 

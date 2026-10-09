@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { projectPath } from '@/projectPath';
 import { claudeExecutable, codexExecutable, runtimeVersion } from '@/runtime/managedRuntime';
-import { execFile } from 'node:child_process';
+import { probeCommand } from './probeCommand';
 import { createRequire } from 'node:module';
 import type { ApiSessionClient } from '@/api/apiSession';
 import { engineLoginContext } from './engineLoginContext';
@@ -86,13 +86,9 @@ export async function checkEngineAuth(engine: Engine, cwd: string, env?: Record<
         const command = engine === 'claude' ? claudeSdkExecutable() : codexExecutable();
         const args = engine === 'claude' ? ['auth', 'status', '--json'] : ['login', 'status'];
         const merged = inheritEnvironment ? { ...process.env, ...env } : { ...env };
-        return await new Promise(resolve => {
-            execFile(command, args, { cwd, env: merged, timeout: 10_000, maxBuffer: 64 * 1024 }, (error, stdout, stderr) => {
-                const code = error ? (typeof error.code === 'number' ? error.code : null) : 0;
-                const status = parseEngineAuth(engine, code, engine === 'claude' ? stdout : `${stdout}\n${stderr}`);
-                resolve(engine === 'codex' && status === 'required' && codexEnvKeyAuthReady(merged) ? 'ready' : status);
-            });
-        });
+        const { code, stdout, stderr } = await probeCommand(command, args, { cwd, env: merged });
+        const status = parseEngineAuth(engine, code, engine === 'claude' ? stdout : `${stdout}\n${stderr}`);
+        return engine === 'codex' && status === 'required' && codexEnvKeyAuthReady(merged) ? 'ready' : status;
     } catch { return 'unknown'; }
 }
 

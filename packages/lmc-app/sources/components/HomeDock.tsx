@@ -1,8 +1,9 @@
+import { Text } from '@/components/StyledText';
 import { machineModelMetadata } from '@/sync/modelCatalogMetadata';
 import { getAvailableModels, getCatalogDefaultEffort } from '@/components/modelModeOptions';
 import { preserveCodexEffortSelection } from '@/components/modelModeOptions';
 import * as React from 'react';
-import { ActivityIndicator, Keyboard, LayoutChangeEvent, Modal as RNModal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Keyboard, LayoutChangeEvent, Modal as RNModal, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { Ionicons, Octicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -897,7 +898,7 @@ export const HomeDock = React.memo(({
             modelMode: rigCreation.defaultModelKey ?? '',
             effortLevel: rigCreation.defaultEffortForModel(rigCreation.defaultModelKey),
         }
-        : resolveAgentDefaultConfig(defaultOverrides, agentType, happyCliVersion), [agentType, defaultOverrides, happyCliVersion, rigCreation]);
+        : resolveAgentDefaultConfig(defaultOverrides, agentType, happyCliVersion, machineModelMetadata(selectedChoice?.lmcMachine?.metadata).modelCatalogs), [agentType, defaultOverrides, happyCliVersion, rigCreation, selectedChoice]);
     const permissionOptions = React.useMemo(
         // The CLI daemon on the picked computer is what will parse the mode;
         // older CLIs drop the whole prompt on modes they do not know (`auto`).
@@ -1176,7 +1177,7 @@ export const HomeDock = React.memo(({
                 modelMode: nextRigCreation.defaultModelKey ?? '',
                 effortLevel: nextRigCreation.defaultEffortForModel(nextRigCreation.defaultModelKey),
             }
-            : resolveAgentDefaultConfig(defaultOverrides, agent, happyCliVersion);
+            : resolveAgentDefaultConfig(defaultOverrides, agent, happyCliVersion, machineModelMetadata(selectedChoice?.lmcMachine?.metadata).modelCatalogs);
         // Choosing Happy Agent no longer moves the machine selection: the computer already covers
         // both daemons, and switching it under the person was what made the picker show two.
         setAgentType(agent);

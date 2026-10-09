@@ -1,6 +1,8 @@
-import type { MarkdownBlock, MarkdownSpan } from "./parseMarkdown";
+import type { MarkdownBlock, MarkdownParseOptions, MarkdownSpan } from "./parseMarkdown";
 import { parseMarkdownSpans } from "./parseMarkdownSpans";
 import { parseMarkdownDetails } from './parseMarkdownDetails';
+import { parseFollowupDirective } from './parseFollowupDirective';
+import { parseInteractiveFence } from 'lmc-wire';
 
 // Split a pipe-delimited table row into cells, stripping only the leading/trailing
 // empty strings caused by outer pipes while preserving interior empty cells.
@@ -66,7 +68,7 @@ function parseTable(lines: string[], startIndex: number): { table: MarkdownBlock
     return { table, nextIndex: index };
 }
 
-export function parseMarkdownBlock(markdown: string) {
+export function parseMarkdownBlock(markdown: string, options: MarkdownParseOptions = {}) {
     const blocks: MarkdownBlock[] = [];
     const lines = markdown.split('\n');
     let index = 0;
@@ -86,13 +88,17 @@ export function parseMarkdownBlock(markdown: string) {
         let trimmed = line.trim();
 
         // Code block
-        if (trimmed.startsWith('```')) {
-            const language = trimmed.slice(3).trim() || null;
+        const fence = trimmed.match(/^(`{3,}|~{3,})(.*)$/);
+        if (fence) {
+            const language = fence[2].trim() || null;
+            const closingFence = new RegExp(`^${fence[1][0]}{${fence[1].length},}\\s*$`);
             let content = [];
+            let closed = false;
             while (index < lines.length) {
                 const nextLine = lines[index];
-                if (nextLine.trim() === '```') {
+                if (closingFence.test(nextLine.trim())) {
                     index++;
+                    closed = true;
                     break;
                 }
                 content.push(nextLine);
@@ -101,7 +107,10 @@ export function parseMarkdownBlock(markdown: string) {
             const contentString = content.join('\n');
 
             // Detect mermaid diagram language and route to appropriate block type
-            if (language === 'mermaid') {
+            const interactive = parseInteractiveFence(language);
+            if (interactive) {
+                blocks.push({ type: 'interactive', ...interactive, html: contentString, closed });
+            } else if (language === 'mermaid') {
                 blocks.push({ type: 'mermaid', content: contentString });
             } else {
                 blocks.push({ type: 'code-block', language, content: contentString });
@@ -117,6 +126,25 @@ export function parseMarkdownBlock(markdown: string) {
                 // Preserve text following a same-line closing tag.
                 lines[--index] = details.trailing;
             }
+            continue;
+        }
+
+        // Keep quoted paragraphs and lists together, including nested quotes.
+        // This runs after fenced code, where a leading > is literal text.
+        if (/^>\s?/.test(trimmed)) {
+            const quoted = [trimmed.replace(/^>\s?/, '')];
+            while (index < lines.length && /^\s*>/.test(lines[index])) {
+                quoted.push(lines[index++].trimStart().replace(/^>\s?/, ''));
+            }
+            blocks.push({ type: 'quote', content: quoted.join('\n') });
+            continue;
+        }
+
+        const followup = options.followups ? parseFollowupDirective(line) : null;
+        if (followup) {
+            const previous = blocks.at(-1);
+            if (previous?.type === 'followups') previous.items.push(followup);
+            else blocks.push({ type: 'followups', items: [followup] });
             continue;
         }
 
@@ -162,6 +190,7 @@ export function parseMarkdownBlock(markdown: string) {
             let allLines = [{ number: parseInt(numberedListMatch[1]), indent, content: trimmed.slice(numberedListMatch[0].length) }];
             while (index < lines.length) {
                 const nextRaw = lines[index];
+                if (options.followups && parseFollowupDirective(nextRaw)) break;
                 const nextTrimmed = nextRaw.trim();
                 const nextMatch = nextTrimmed.match(/^(\d+)\.\s+/);
                 if (!nextMatch) break;
@@ -181,6 +210,7 @@ export function parseMarkdownBlock(markdown: string) {
             let allLines = [{ indent, content: trimmed.slice(listMatch[0].length) }];
             while (index < lines.length) {
                 const nextRaw = lines[index];
+                if (options.followups && parseFollowupDirective(nextRaw)) break;
                 const nextTrimmed = nextRaw.trim();
                 const nextMatch = nextTrimmed.match(/^([-*+])\s+/);
                 if (!nextMatch) break;

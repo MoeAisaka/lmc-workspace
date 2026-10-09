@@ -163,6 +163,19 @@ async function main() {
     forward('read_session_transcript'),
   );
 
+  server.registerTool(
+    'recall_interactive_block',
+    {
+      description: 'Fetch the HTML source of an interactive answer (an ```lmc-ui``` block) written earlier, by its id, so you can show it again with a ref or write a changed version. Defaults to this session; pass session_id for a block from another session on this machine (nmem notes carry both ids).',
+      title: 'Recall Interactive Block',
+      inputSchema: {
+        id: z.string().min(1).max(40).describe('The block id from its fence (id=...).'),
+        session_id: z.string().optional().describe('Another session on this machine; omit for this one.'),
+      },
+    },
+    forward('recall_interactive_block'),
+  );
+
   // Hub-and-workers tools, one definition shared with the HTTP server.
   for (const name of ORCHESTRATION_TOOL_NAMES) {
     server.registerTool(name, ORCHESTRATION_TOOL_DEFS[name], forward(name));

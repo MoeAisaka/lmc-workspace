@@ -44,12 +44,23 @@ describe('agent defaults', () => {
         ).permissionMode).toBe('auto');
     });
 
-    it('defaults an unconfigured Codex session to GPT-6 Astra', () => {
-        expect(getCodeAgentDefaults('codex').modelMode).toBe('gpt-6-astra');
-        expect(resolveAgentDefaultConfig({}, 'codex').modelMode).toBe('gpt-6-astra');
-        expect(resolveAgentDefaultConfig(undefined, 'codex', '1.3.0').modelMode).toBe('gpt-6-astra');
-        // The effort travels with the model and must stay one Astra publishes.
-        expect(resolveAgentDefaultConfig({}, 'codex').effortLevel).toBe('medium');
+    it('falls back to the current models when a device publishes no catalog', () => {
+        expect(getCodeAgentDefaults('codex').modelMode).toBe('gpt-6.1-sol');
+        expect(resolveAgentDefaultConfig({}, 'claude').modelMode).toBe('claude-opus-5-5');
+        expect(resolveAgentDefaultConfig(undefined, 'codex', '1.3.0')).toMatchObject({ modelMode: 'gpt-6.1-sol', effortLevel: 'medium' });
+    });
+
+    it('follows the default each engine catalog declares', () => {
+        const catalog = (models: any[]) => ({ models, capturedAt: 1, runtimeVersion: '1.0.0' });
+        const catalogs = {
+            codex: catalog([{ id: 'gpt-old', name: 'Old' }, { id: 'gpt-next', name: 'Next', isDefault: true }]),
+            claude: catalog([{ id: 'claude-next', name: 'Next', aliases: ['default', 'opus'] }]),
+        };
+        expect(resolveAgentDefaultConfig({}, 'codex', undefined, catalogs).modelMode).toBe('gpt-next');
+        expect(resolveAgentDefaultConfig({}, 'claude', undefined, catalogs).modelMode).toBe('claude-next');
+        // A person's own choice still wins, and a catalog with no declared default changes nothing.
+        expect(resolveAgentDefaultConfig({ codex: { modelMode: 'gpt-old' } }, 'codex', undefined, catalogs).modelMode).toBe('gpt-old');
+        expect(resolveAgentDefaultConfig({}, 'codex', undefined, { codex: catalog([{ id: 'gpt-old', name: 'Old' }]) }).modelMode).toBe('gpt-6.1-sol');
     });
 
     it('keeps an explicit Codex model choice ahead of the default', () => {

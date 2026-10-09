@@ -11,13 +11,52 @@ html, body {
     font-synthesis: none;
 }
 
+/* Let the browser grow the input. The mirror is the no-measurement fallback
+   for engines without field-sizing; both paths share exact text metrics. */
+.lmc-auto-textarea {
+    display: grid;
+    position: relative;
+    width: 100%;
+    min-width: 0;
+}
+.lmc-auto-textarea > textarea,
+.lmc-auto-textarea > .lmc-textarea-mirror {
+    grid-area: 1 / 1 / 2 / 2;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    min-height: var(--lmc-field-min-height);
+    max-height: min(var(--lmc-field-max-height), var(--lmc-composer-max-height, var(--lmc-field-max-height)));
+    margin: 0;
+    padding: var(--lmc-field-padding);
+    font: inherit;
+    line-height: inherit;
+    letter-spacing: inherit;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    border: 0;
+}
+.lmc-auto-textarea > textarea {
+    outline: none;
+    resize: none;
+    background: transparent;
+    scrollbar-width: none;
+    overflow-y: auto;
+}
+.lmc-textarea-mirror { visibility: hidden; overflow: hidden; pointer-events: none; }
+.lmc-auto-textarea[data-native-sizing="true"] > .lmc-textarea-mirror { display: none; }
+.lmc-auto-textarea[data-native-sizing="true"] > textarea { field-sizing: content; }
+
 html.lmc-app-zoomed {
     overflow: hidden;
 }
 
 html.lmc-app-zoomed body {
-    width: calc(100vw / var(--lmc-app-zoom));
+    /* Browser chrome/rotation size the page. Keyboard occlusion belongs only
+       to the composer, never to a second body-height/top correction. */
+    width: calc(var(--lmc-layout-width, 100vw) / var(--lmc-app-zoom));
     height: calc(100vh / var(--lmc-app-zoom));
+    height: calc(100dvh / var(--lmc-app-zoom));
     transform-origin: top left;
 }
 
@@ -101,4 +140,24 @@ html.lmc-app-zoomed body {
    unaffected. */
 :root {
     text-spacing-trim: trim-start;
+}
+
+/* Personalization: transform/opacity only, never animate chat width or height. */
+@keyframes lmc-message-in {
+    from { opacity: 0; transform: translateY(var(--lmc-motion-distance, 8px)); }
+    to { opacity: 1; transform: translateY(0); }
+}
+html[data-lmc-motion="full"] [data-lmc-message],
+html[data-lmc-motion="gentle"] [data-lmc-message] {
+    animation: lmc-message-in var(--lmc-motion-duration, 220ms) ease-out;
+}
+html[data-lmc-motion="off"] [data-lmc-message],
+html[data-lmc-motion="off"] [data-happy-session-title-shimmer] > *,
+html[data-lmc-motion="gentle"] [data-happy-session-title-shimmer] > * {
+    animation: none !important;
+    background-position: 0% 0;
+}
+html[data-lmc-motion="off"] [data-lmc-resource-window] { transition: none !important; }
+@media (prefers-reduced-motion: reduce) {
+    [data-lmc-message] { animation: none !important; }
 }

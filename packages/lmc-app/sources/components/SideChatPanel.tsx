@@ -1,5 +1,6 @@
+import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import { View, Text, Pressable, Platform, ActivityIndicator, ScrollView, useWindowDimensions } from 'react-native';
+import { View, Pressable, Platform, ActivityIndicator, ScrollView, useWindowDimensions } from 'react-native';
 import { Octicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';

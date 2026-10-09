@@ -1,4 +1,5 @@
 import * as z from 'zod';
+import type { EngineModelCatalog, ModelCatalogs } from 'lmc-wire';
 import { compareVersionsWithPrerelease, isWellFormedVersion } from '@/utils/versionUtils';
 
 export const agentKeys = ['claude', 'codex', 'gemini', 'openclaw', 'agy'] as const;
@@ -32,11 +33,11 @@ const codeAgentDefaults: Record<AgentKey, AgentDefaultConfig> = {
     // Auto is the reviewed everyday mode for both shipped code agents. The
     // old CLI fallback is applied only when a machine version is known below;
     // a user override is kept separate and is never rewritten here.
-    claude: { permissionMode: 'auto', modelMode: 'claude-opus-5', effortLevel: 'medium' },
-    // Codex's default is the newest model in its picker (modelModeOptions.ts),
-    // matching the happy-cli launch default so an unconfigured session shows
-    // and sends the same model whichever side started it.
-    codex: { permissionMode: 'auto', modelMode: 'gpt-6-astra', effortLevel: 'medium' },
+    // The model named here is only the fallback for a device that publishes no
+    // catalog. A device that does publish one decides its own default below, so
+    // a new engine release moves the default without an app release.
+    claude: { permissionMode: 'auto', modelMode: 'claude-opus-5-5', effortLevel: 'medium' },
+    codex: { permissionMode: 'auto', modelMode: 'gpt-6.1-sol', effortLevel: 'medium' },
     gemini: { permissionMode: 'default', modelMode: 'gemini-2.5-pro', effortLevel: null },
     openclaw: { permissionMode: 'default', modelMode: 'default', effortLevel: null },
     agy: { permissionMode: 'default', modelMode: 'Gemini 3.1 Pro (High)', effortLevel: null },
@@ -69,15 +70,27 @@ export function normalizeAgentKey(flavor: string | null | undefined): AgentKey {
     return 'claude';
 }
 
+/** The model an engine's own catalog marks as its default, if it says. */
+export function catalogDefaultModelKey(catalog: EngineModelCatalog | null | undefined): string | null {
+    const models = catalog?.models ?? [];
+    return (models.find(model => model.isDefault)
+        ?? models.find(model => model.id === 'default' || model.aliases?.includes('default')))?.id ?? null;
+}
+
 export function getCodeAgentDefaults(
     flavor: string | null | undefined,
     cliVersion?: string | null,
+    catalogs?: ModelCatalogs | null,
 ): AgentDefaultConfig {
-    const defaults = codeAgentDefaults[normalizeAgentKey(flavor)];
+    const key = normalizeAgentKey(flavor);
+    const defaults = codeAgentDefaults[key];
     const permissionMode = resolveCodeDefaultPermissionMode(defaults.permissionMode, cliVersion);
-    return permissionMode === defaults.permissionMode
+    // An older engine may not know the fallback model at all; its catalog's
+    // own default is the one it can certainly run.
+    const modelMode = (key === 'claude' || key === 'codex' ? catalogDefaultModelKey(catalogs?.[key]) : null) ?? defaults.modelMode;
+    return permissionMode === defaults.permissionMode && modelMode === defaults.modelMode
         ? defaults
-        : { ...defaults, permissionMode };
+        : { ...defaults, permissionMode, modelMode };
 }
 
 /**
@@ -114,8 +127,9 @@ export function resolveAgentDefaultConfig(
     overrides: AgentDefaultOverrides | null | undefined,
     flavor: string | null | undefined,
     cliVersion?: string | null,
+    catalogs?: ModelCatalogs | null,
 ): AgentDefaultConfig {
-    const codeDefaults = getCodeAgentDefaults(flavor, cliVersion);
+    const codeDefaults = getCodeAgentDefaults(flavor, cliVersion, catalogs);
     const userOverride = getAgentDefaultOverride(overrides, flavor);
     return {
         permissionMode: userOverride.permissionMode ?? codeDefaults.permissionMode,

@@ -1,6 +1,8 @@
+import { DetailSummary } from '@/components/lmc/DetailSummary';
+import { Text } from '@/components/StyledText';
 import { RuntimeUpdatesPanel } from '@/components/RuntimeUpdatesPanel';
 import React, { useState, useMemo } from 'react';
-import { View, Text, ActivityIndicator, RefreshControl, Pressable, Platform } from 'react-native';
+import { View, ActivityIndicator, RefreshControl, Pressable, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
@@ -13,6 +15,7 @@ import { machineStopDaemon, machineUpdateMetadata, machineDelete } from '@/sync/
 import { Modal } from '@/modal';
 import { getSessionName, getSessionSubtitle } from '@/utils/sessionUtils';
 import { isMachineOnline } from '@/utils/machineUtils';
+import { formatBytes, formatMemoryUsage, machineResourcesOf } from '@/utils/lmc/machineResources';
 import { sync } from '@/sync/sync';
 import { useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
@@ -173,6 +176,7 @@ export default function MachineDetailScreen() {
     }
 
     const metadata = machine.metadata;
+    const resources = machineResourcesOf(machine);
     const machineName = metadata?.displayName || metadata?.host || 'unknown machine';
     const machineOnline = isMachineOnline(machine);
 
@@ -213,6 +217,10 @@ export default function MachineDetailScreen() {
                 }
                 keyboardShouldPersistTaps="handled"
             >
+                {Platform.OS === 'web' && <DetailSummary title={machineName}
+                    icon={<Ionicons name="desktop-outline" size={26} color={theme.colors.textSecondary} />}
+                    status={machineOnline ? t('status.online') : t('status.offline')}
+                    statusColor={machineOnline ? theme.colors.success : theme.colors.textSecondary} />}
                 {/* Daemon */}
                 <ItemGroup>
                         <Item
@@ -248,14 +256,14 @@ export default function MachineDetailScreen() {
                                     <Item
                                         title={t('machine.lastKnownPid')}
                                         subtitle={String(machine.daemonState.pid)}
-                                        subtitleStyle={{ fontFamily: 'Menlo', fontSize: 13 }}
+                                        subtitleStyle={{ ...Typography.mono(), fontSize: 13 }}
                                     />
                                 )}
                                 {machine.daemonState.httpPort && (
                                     <Item
                                         title={t('machine.lastKnownHttpPort')}
                                         subtitle={String(machine.daemonState.httpPort)}
-                                        subtitleStyle={{ fontFamily: 'Menlo', fontSize: 13 }}
+                                        subtitleStyle={{ ...Typography.mono(), fontSize: 13 }}
                                     />
                                 )}
                                 {machine.daemonState.startTime && (
@@ -268,7 +276,7 @@ export default function MachineDetailScreen() {
                                     <Item
                                         title={t('machine.cliVersion')}
                                         subtitle={machine.daemonState.startedWithCliVersion}
-                                        subtitleStyle={{ fontFamily: 'Menlo', fontSize: 13 }}
+                                        subtitleStyle={{ ...Typography.mono(), fontSize: 13 }}
                                     />
                                 )}
                             </>
@@ -279,6 +287,29 @@ export default function MachineDetailScreen() {
                         />
                 </ItemGroup>
 
+                {/* Memory: the daemon's last sample (see lmc-cli machineResources) */}
+                {resources && (
+                    <ItemGroup title={t('machine.resources')} footer={t('machine.sessionMemory')}>
+                        <Item title={t('machine.memoryUsed')} detail={formatMemoryUsage(resources.memory.totalBytes - resources.memory.availableBytes, resources.memory.totalBytes)} showChevron={false} />
+                        <Item title={t('machine.memoryAvailable')} detail={formatBytes(resources.memory.availableBytes)} showChevron={false} />
+                        {resources.daemonRssBytes !== undefined && (
+                            <Item title={t('machine.daemonMemory')} detail={formatBytes(resources.daemonRssBytes)} showChevron={false} />
+                        )}
+                        {machineSessions
+                            .filter((session) => resources.sessions[session.id])
+                            .sort((a, b) => resources.sessions[b.id].rssBytes - resources.sessions[a.id].rssBytes)
+                            .map((session) => (
+                                <Item
+                                    key={session.id}
+                                    title={getSessionName(session)}
+                                    subtitle={getSessionSubtitle(session)}
+                                    detail={formatBytes(resources.sessions[session.id].rssBytes)}
+                                    onPress={() => navigateToSession(session.id)}
+                                />
+                            ))}
+                        <Item title={t('machine.resourcesSampledAt')} detail={new Date(resources.sampledAt).toLocaleTimeString()} showChevron={false} />
+                    </ItemGroup>
+                )}
                 <RuntimeUpdatesPanel machineId={machineId!} supported={metadata?.managedUpgrades === true} online={machineOnline}/>
                 {/* CLI Availability */}
                 {metadata?.cliAvailability && (
@@ -362,7 +393,7 @@ export default function MachineDetailScreen() {
                         <Item
                             title={t('machine.machineId')}
                             subtitle={machineId}
-                            subtitleStyle={{ fontFamily: 'Menlo', fontSize: 12 }}
+                            subtitleStyle={{ ...Typography.mono(), fontSize: 12 }}
                         />
                         {metadata?.username && (
                             <Item
@@ -374,7 +405,7 @@ export default function MachineDetailScreen() {
                             <Item
                                 title={t('machine.homeDirectory')}
                                 subtitle={metadata.homeDir}
-                                subtitleStyle={{ fontFamily: 'Menlo', fontSize: 13 }}
+                                subtitleStyle={{ ...Typography.mono(), fontSize: 13 }}
                             />
                         )}
                         {metadata?.platform && (

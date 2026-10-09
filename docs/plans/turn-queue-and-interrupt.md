@@ -100,7 +100,7 @@ Stop 变成 Send**，注释写明"so the next message can be queued without abor
 **兼容**：`intent` 缺省即今天的行为；老 CLI 忽略未知 meta；`queue` 缺省时 App 不渲染等待态。
 先读后写，和其它协议改动同一原则。
 
-## 已定（2026-09-16，老大）
+## 已定（2026-09-16，Owner）
 
 | 取舍 | 决定 | 对实现的含义 |
 |---|---|---|

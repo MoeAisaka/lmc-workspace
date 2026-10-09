@@ -39,13 +39,16 @@ export function applyPendingEngineModel(sessionId: string, flavor: string | null
  * context window and service tier too, back when those were editable per
  * session; they are set at launch now.
  */
-export async function refreshSessionCli(sessionId: string) {
+export type BackgroundWorkChoice = 'stop' | 'wait';
+
+export async function refreshSessionCli(sessionId: string, backgroundWork?: BackgroundWorkChoice) {
     const session = storage.getState().sessions[sessionId];
     if (!session?.metadata || !sessionCapabilities(session.metadata).refresh) throw new Error(t('localFeatures.legacySessionConfig'));
-    if (submitting.has(sessionId) || refreshProgress(session.metadata, Date.now()).pending) return { status: 'queued' };
+    // A choice about the work holding a queued refresh is a new ask, not a duplicate.
+    if (submitting.has(sessionId) || (!backgroundWork && refreshProgress(session.metadata, Date.now()).pending)) return { status: 'queued' };
     submitting.add(sessionId);
     try {
-        const result = await apiSocket.sessionRPC<{ status: string }, unknown>(sessionId, 'configure-session', { refreshCli: true });
+        const result = await apiSocket.sessionRPC<{ status: string }, unknown>(sessionId, 'configure-session', { refreshCli: true, ...(backgroundWork ? { backgroundWork } : {}) });
         if (result.status !== 'queued') throw new Error(t('localFeatures.configRefreshing'));
         return result;
     } finally { submitting.delete(sessionId); }
@@ -161,11 +164,11 @@ export async function cancelSessionSwitch(sessionId: string): Promise<'cancelled
 /** The same RPC, for a refresh that is not a switch. */
 export const cancelSessionRefresh = cancelSessionSwitch;
 
-export async function retrySessionRefresh(sessionId: string) {
+export async function retrySessionRefresh(sessionId: string, backgroundWork?: BackgroundWorkChoice) {
     const state = storage.getState();
     const session = state.sessions[sessionId];
     if (!session) throw new Error(t('localFeatures.configFailed'));
-    if (session.active) return refreshSessionCli(sessionId);
+    if (session.active) return refreshSessionCli(sessionId, backgroundWork);
 
     const machineId = session.metadata?.machineId;
     if (!machineId) throw new Error(t('sessionInfo.resumeSessionMissingMachine'));

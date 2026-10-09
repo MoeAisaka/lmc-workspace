@@ -36,9 +36,9 @@ window.calls=0;window.replyMode='success';
 const now=Date.now();
 const w=(id,left)=>({id,remaining:left,resetsAt:now+4*86400000,durationMins:id==='five_hour'?300:10080,pending:false});
 const snapshot={providers:[
- {engine:'codex',plan:'pro',capturedAt:now-120000,refreshFailed:false,stale:false,windows:[w('five_hour',null),w('seven_day',72)],resetCredits:{count:1,expiresAt:now+86400000}},
+ {engine:'codex',plan:'pro',capturedAt:now-120000,refreshFailed:false,stale:false,windows:[w('five_hour',null),w('seven_day',72)],supplemental:{remaining:100,capturedAt:now-120000,resetsAt:now+86400000,pending:true,stale:false},usageCredits:{balance:53480.07237,capturedAt:now,unlimited:false,stale:false},resetCredits:{count:1,expiresAt:now+86400000}},
  {engine:'claude',plan:'max',capturedAt:now-300000,refreshFailed:false,stale:false,windows:[w('five_hour',98),w('seven_day',21),w('fable_week',60)],resetCredits:null}]};
-apiSocket.machineRPC=async(id,method)=>{if(id!=='quota-fixture'||method!=='account-quota')throw Error('Unexpected RPC');window.calls++;if(replyMode==='failed')throw Error('synthetic');const result=structuredClone(snapshot);const fable=result.providers[1].windows[2];if(replyMode==='zero')fable.remaining=0;if(replyMode==='unmatched')fable.resetsAt+=86400000;if(replyMode==='pending')fable.pending=true;return {snapshot:replyMode==='missing'?{providers:[]}:result};};
+apiSocket.machineRPC=async(id,method)=>{if(id!=='quota-fixture'||method!=='account-quota')throw Error('Unexpected RPC');window.calls++;if(replyMode==='failed')throw Error('synthetic');const result=structuredClone(snapshot);const fable=result.providers[1].windows[2];if(replyMode==='zero'){fable.remaining=0;result.providers[0].usageCredits.balance=0;}if(replyMode==='unmatched')fable.resetsAt+=86400000;if(replyMode==='pending')fable.pending=true;return {snapshot:replyMode==='missing'?{providers:[]}:result};};
 storage.setState({isDataReady:true,profile:{id:'demo',firstName:'LMC',lastName:'Demo'},machines:{'quota-fixture':{id:'quota-fixture',active:true,createdAt:1,metadata:{host:'Demo',accountQuota:true,happyCliVersion:'1.2.53'}}}});
 window.setTheme=theme=>{UnistylesRuntime.setAdaptiveThemes(false);UnistylesRuntime.setTheme(theme);document.body.style.background=theme==='dark'?'#141414':'#efeff2'};
 function App(){const [size,setSize]=React.useState({w:innerWidth,h:innerHeight});React.useEffect(()=>{const f=()=>setSize({w:innerWidth,h:innerHeight});addEventListener('resize',f);return()=>removeEventListener('resize',f)},[]);
@@ -46,7 +46,7 @@ return h(SafeAreaProvider,{initialMetrics:{frame:{x:0,y:0,width:size.w,height:si
 createRoot(document.getElementById('root')).render(h(App));
 `;
 const fonts=fs.readdirSync(path.join(root,'assets/sources/assets/fonts')).filter(f=>f.startsWith('IBMPlexSans-')).map(f=>`@font-face{font-family:'${f.split('.')[0]}';src:url('/assets/sources/assets/fonts/${f}')}`).join('');
-const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${fonts}body{margin:0;font-family:IBMPlexSans-Regular,Arial,sans-serif}</style><div id="root"></div>${scripts.map((s,i)=>`<script src="${s}"></script>${i===0?'<script src="/capture.js"></script>':''}`).join('')}<script src="/fixture.js"></script>`;
+const html = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${fonts}body{margin:0;font-family:IBMPlexSans-Regular,Arial,sans-serif}</style>${[...originalHtml.matchAll(/<link[^>]+href="([^" ]+\.css)"[^>]*>/g)].map(m=>`<link rel="stylesheet" href="${m[1]}">`).join('')}<div id="root"></div>${scripts.map((s,i)=>`<script src="${s}"></script>${i===0?'<script src="/capture.js"></script>':''}`).join('')}<script src="/fixture.js"></script>`;
 const server=http.createServer((req,res)=>{
  let content, type='text/javascript';
  if(req.url==='/'){content=html;type='text/html';}
@@ -79,7 +79,7 @@ const server=http.createServer((req,res)=>{
    gap:t('localFeatures.quotaFableGap',{points:'9'}),pending:t('localFeatures.quotaFableSyncPending'),retry:t('localFeatures.quotaRetryHint')
   }});
   await page.getByRole('button',{name:labels.account,exact:true}).click();
-  await page.getByText('72%',{exact:true}).waitFor();
+  await page.getByTestId('account-quota-cards').getByText('72%',{exact:true}).waitFor();
   assert.equal(await page.getByTestId('quota-fable-legend').count(),1);
   assert.equal(await page.getByRole('progressbar').count(),4,'Fable shares the weekly bar, without a separate progress bar');
   assert.equal(await page.evaluate(()=>isSessionDrawerOpen()),true,'opening quota bubble must preserve its parent entry');
@@ -92,11 +92,27 @@ const server=http.createServer((req,res)=>{
     await page.evaluate(()=>closeQuotaMenu());
     await page.waitForTimeout(180);
     await page.getByRole('button',{name:labels.account,exact:true}).click();
-    await page.getByText('72%',{exact:true}).waitFor();
+    await page.getByTestId('account-quota-cards').getByText('72%',{exact:true}).waitFor();
     await page.waitForTimeout(200);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+    const badge=page.getByTestId('quota-supplemental');assert.match(await badge.innerText(),/53,480.07/);
+    assert.equal(await page.getByTestId('quota-claude').getByTestId('quota-supplemental').count(),0);
+    const badgeFit=await badge.evaluate(n=>({w:n.clientWidth,sw:n.scrollWidth,x:n.getBoundingClientRect().left,right:n.getBoundingClientRect().right,parent:n.parentElement.getBoundingClientRect().right}));
+    assert.ok(badgeFit.sw<=badgeFit.w+1 && badgeFit.right<=badgeFit.parent+1,'Supplemental label fits header');
     const card=await page.getByTestId('account-quota-cards').boundingBox();assert.ok(card.x>=0 && card.x+card.width<=width);
+    const lane=await page.getByTestId('account-menu-scroll').evaluate(scroll=>{
+     const bounds=scroll.getBoundingClientRect();
+     const content=scroll.firstElementChild;
+     return {gap:bounds.left+scroll.clientWidth-content.firstElementChild.getBoundingClientRect().right,
+      padding:parseFloat(getComputedStyle(content).paddingRight),
+      horizontalOverflow:scroll.scrollWidth>scroll.clientWidth,
+      canScroll:scroll.scrollHeight>scroll.clientHeight};
+    });
+    assert.ok(lane.gap>=7.5,'scrollbar needs a reserved lane outside the cards: '+JSON.stringify(lane));
+    assert.ok(lane.padding>=8,'overlay scrollbar must not depend on browser gutter support');
+    assert.equal(lane.horizontalOverflow,false,'scrollbar lane must not cause horizontal overflow');
     await page.getByText(labels.signOut,{exact:true}).scrollIntoViewIfNeeded();
+    if(lane.canScroll)assert.ok(await page.getByTestId('account-menu-scroll').evaluate(n=>n.scrollTop>0),'bottom action must remain reachable by scrolling');
     await page.getByText(labels.usage,{exact:true}).scrollIntoViewIfNeeded();
     await page.screenshot({path:path.join(out,theme+'-'+width+'.png')});
     const originalEntry=await page.getByRole('button',{name:labels.account,exact:true}).boundingBox();
@@ -125,7 +141,7 @@ const server=http.createServer((req,res)=>{
    await page.evaluate(mode=>{replyMode=mode},mode);
    await page.getByRole('button',{name:labels.refresh,exact:true}).click();
    const legend=page.getByTestId('quota-fable-legend');
-   if(mode==='zero')await legend.getByText('Fable 0%',{exact:false}).waitFor();
+   if(mode==='zero'){await legend.getByText('Fable 0%',{exact:false}).waitFor();assert.match(await page.getByTestId('quota-supplemental').innerText(),/^0 /);}
    else await legend.getByText(labels.pending,{exact:false}).waitFor();
    assert.equal(await legend.getByText(labels.gap,{exact:false}).count(),0);
    assert.equal(await page.getByRole('progressbar').count(),4);
@@ -142,7 +158,7 @@ const server=http.createServer((req,res)=>{
    await page.evaluate(()=>{replyMode='failed'});
    await page.getByRole('button',{name:labels.refresh,exact:true}).click();
    await page.getByText(labels.retry,{exact:true}).waitFor();
-   assert.equal(await page.getByText('72%',{exact:true}).count(),1);
+   assert.equal(await page.getByTestId('account-quota-cards').getByText('72%',{exact:true}).count(),1);
    assert.deepEqual(await sizes(),before,`refresh failure must not stretch quota cards at ${width}px`);
    await page.evaluate(()=>{replyMode='success'});
    await page.getByRole('button',{name:labels.refresh,exact:true}).click();
@@ -156,7 +172,8 @@ const server=http.createServer((req,res)=>{
   assert.equal(await page.getByTestId('quota-fable-legend').count(),1);
   assert.equal(await page.getByRole('progressbar').count(),4,'Fable shares the weekly bar, without a separate progress bar');
   assert.ok((await page.getByTestId('quota-fable-legend').innerText()).includes('Fable —'));
+  assert.match(await page.getByTestId('quota-supplemental').innerText(),/—/);
   assert.deepEqual(errors,[]);
-  console.log('PASS real AccountMenu + quota hook, phone top alignment at 320/390/430/667, desktop 1000, light/dark, scrolling, refresh failure preserves data and height, missing is not zero');
+  console.log('PASS reserved scrollbar lane + real AccountMenu + quota hook, phone top alignment at 320/390/430/667, desktop 1000, light/dark, scrolling, refresh failure preserves data and height, missing is not zero');
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exit(1)});

@@ -1,3 +1,4 @@
+import { Typography } from '@/constants/Typography';
 /**
  * Web-only code editor with syntax highlighting.
  * Uses react-simple-code-editor + Prism.js.
@@ -117,7 +118,7 @@ export const CodeEditor = React.memo(function CodeEditor({
                 padding={16}
                 readOnly={readOnly}
                 style={{
-                    fontFamily: 'ui-monospace, "SF Mono", "Cascadia Code", "Segoe UI Mono", Menlo, Monaco, Consolas, monospace',
+                    fontFamily: Typography.mono().fontFamily,
                     fontSize: 14,
                     lineHeight: 1.5,
                     minHeight: '100%',

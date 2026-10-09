@@ -15,6 +15,17 @@ export const AccountQuotaProviderSchema = z.object({
     refreshFailed: z.boolean(),
     stale: z.boolean(),
     windows: z.array(AccountQuotaWindowSchema).max(3),
+    usageCredits: z.object({
+        balance: z.number().finite().min(0).max(Number.MAX_SAFE_INTEGER).nullable(),
+        unlimited: z.boolean(), capturedAt: z.number().finite().positive(), stale: z.boolean(),
+    }).nullable().optional(),
+    supplemental: z.object({
+        remaining: z.number().finite().min(0).max(100).nullable(),
+        capturedAt: z.number().finite().positive().nullable(),
+        resetsAt: z.number().finite().positive().nullable(),
+        pending: z.boolean(),
+        stale: z.boolean(),
+    }).nullable().optional(),
     resetCredits: z.object({ count: z.number().int().min(0), expiresAt: z.number().finite().positive().nullable() }).nullable(),
 });
 export const AccountQuotaSnapshotSchema = z.object({

@@ -57,6 +57,7 @@ export const SettingsSchema = z.object({
     voiceCustomAgentId: z.string().nullable().describe('Custom ElevenLabs agent ID (null to use Happy default)'),
     voiceBypassToken: z.boolean().describe('Bypass Happy server token and connect directly to ElevenLabs (requires custom agent ID)'),
     preferredLanguage: z.string().nullable().describe('Preferred UI language (null for auto-detect from device locale)'),
+    interactiveAnswers: z.enum(['off', 'ask', 'auto']).describe('Whether engines may answer with sandboxed interactive pages (D30): never, only when asked, or at their own judgement'),
     recentMachinePaths: z.array(z.object({
         machineId: z.string(),
         path: z.string()
@@ -138,6 +139,7 @@ export const settingsDefaults: Settings = {
     voiceCustomAgentId: null,
     voiceBypassToken: false,
     preferredLanguage: null,
+    interactiveAnswers: 'auto',
     recentMachinePaths: [],
     lastUsedAgent: null,
     lastUsedPermissionMode: null,

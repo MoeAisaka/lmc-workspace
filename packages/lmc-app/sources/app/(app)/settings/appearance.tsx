@@ -1,3 +1,7 @@
+import { PersonalizationSettings } from '@/components/lmc/settings/PersonalizationSettings';
+import { storage } from '@/sync/storage';
+import { personalizationDefaults } from '@/sync/personalization';
+import { settingsDefaults } from '@/sync/settings';
 import { Ionicons } from '@expo/vector-icons';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
@@ -18,6 +22,10 @@ import {
     type UserMessageBubbleColor,
 } from '@/utils/userMessageBubbleColor';
 import * as React from 'react';
+import { INTERACTIVE_ANSWERS_MODES, type InteractiveAnswersMode } from 'lmc-wire';
+
+const interactiveLabel = (mode: InteractiveAnswersMode) => mode === 'off' ? t('lmc.interactive.modeOff') : mode === 'ask' ? t('lmc.interactive.modeAsk') : t('lmc.interactive.modeAuto');
+const interactiveDescription = (mode: InteractiveAnswersMode) => mode === 'off' ? t('lmc.interactive.modeOffDescription') : mode === 'ask' ? t('lmc.interactive.modeAskDescription') : t('lmc.interactive.modeAutoDescription');
 
 type ThemePreference = 'adaptive' | 'light' | 'dark';
 
@@ -121,6 +129,21 @@ export default function AppearanceSettingsScreen() {
         setTimeout(() => reloadApp(), 100);
     };
 
+    const bubbleControl = (
+        <Item
+            title={t('settingsAppearance.userMessageBubbleColor')}
+            subtitle={t('settingsAppearance.userMessageBubbleColorDescription')}
+            icon={<Ionicons name="chatbubble-ellipses-outline" size={29} color={resolveUserMessageBubbleColor(displayBubbleColor, theme.dark).indicator} />}
+            rightElement={<SettingsSelect
+                value={displayBubbleColor}
+                options={USER_MESSAGE_BUBBLE_COLORS.map(color => ({ value: color, label: getUserMessageBubbleColorLabel(color), leading: <BubbleColorDot color={color} /> }))}
+                onChange={setUserMessageBubbleColor}
+            />}
+            showDivider={false}
+        />
+    );
+
+    const [interactiveAnswers, setInteractiveAnswers] = useSettingMutable('interactiveAnswers');
     return (
         <SettingsMenuHost>
             <ItemList style={{ paddingTop: 0 }}>
@@ -153,25 +176,31 @@ export default function AppearanceSettingsScreen() {
                     />
                 </ItemGroup>
 
-                <ItemGroup title={t('settingsAppearance.chat')} footer={t('settingsAppearance.chatDescription')}>
+                <ItemGroup title={t('lmc.interactive.settingTitle')} footer={t('lmc.interactive.settingFooter')}>
                     <Item
-                        title={t('settingsAppearance.userMessageBubbleColor')}
-                        subtitle={t('settingsAppearance.userMessageBubbleColorDescription')}
-                        icon={<Ionicons name="chatbubble-ellipses-outline" size={29} color={resolveUserMessageBubbleColor(displayBubbleColor, theme.dark).indicator} />}
-                        rightElement={
-                            <SettingsSelect
-                                value={displayBubbleColor}
-                                options={USER_MESSAGE_BUBBLE_COLORS.map((color) => ({
-                                    value: color,
-                                    label: getUserMessageBubbleColorLabel(color),
-                                    leading: <BubbleColorDot color={color} />,
-                                }))}
-                                onChange={setUserMessageBubbleColor}
-                            />
-                        }
+                        title={t('lmc.interactive.settingSubtitle')}
+                        icon={<Ionicons name="color-wand-outline" size={29} color={theme.colors.status.connecting} />}
+                        rightElement={<SettingsSelect
+                            value={interactiveAnswers}
+                            options={INTERACTIVE_ANSWERS_MODES.map(mode => ({ value: mode, label: interactiveLabel(mode), description: interactiveDescription(mode) }))}
+                            onChange={setInteractiveAnswers}
+                        />}
                         showDivider={false}
                     />
                 </ItemGroup>
+
+                {Platform.OS === 'web' ? <PersonalizationSettings
+                    onReset={() => {
+                        storage.getState().applyLocalSettings({ personalization: { ...personalizationDefaults }, chatWideMode: false, zenMode: false });
+                        setUserMessageBubbleColor(settingsDefaults.userMessageBubbleColor);
+                        applyTheme('adaptive');
+                    }}
+                    colors={bubbleControl}
+                /> : (
+                    <ItemGroup title={t('settingsAppearance.chat')} footer={t('settingsAppearance.chatDescription')}>
+                        {bubbleControl}
+                    </ItemGroup>
+                )}
 
                 <ItemGroup title={t('settingsAppearance.input')} footer={t('settingsAppearance.inputDescription')}>
                     <Item

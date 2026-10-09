@@ -1,6 +1,8 @@
+import { Typography } from '@/constants/Typography';
+import { Text } from '@/components/StyledText';
 import { apiSocket } from '@/sync/apiSocket';
 import React from 'react';
-import { View, Text, Pressable, ScrollView, TextInput, ActivityIndicator } from 'react-native';
+import { View, Pressable, ScrollView, TextInput, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import { resourceExtension, resourcePathMatches, type ResourceSearchMatch, type ResourceSearchScope, type ResourceSearchSkipReason } from 'lmc-wire';
@@ -145,7 +147,7 @@ export function SessionResourceWindow({ sessionId, onOpen, onBrowse, active = tr
                 {!!review?.olderCursor && <Pressable onPress={() => void readReview(review.olderCursor)}><Text style={{ padding: 10, color: linkColor }}>{t('lmc.resources.loadOlder')}</Text></Pressable>}
                 {filteredEntries.map(entry => <Pressable key={entry.revision} onPress={() => setSelectedChange(selectedChange?.revision === entry.revision ? null : entry)} style={{ padding: 10, borderBottomWidth: 1, borderColor: theme.colors.divider }}>
                     <Text style={{ color: theme.colors.text, fontSize: 13 }}>{{ add: t('lmc.resources.kindAdd'), update: t('lmc.resources.kindUpdate'), delete: t('lmc.resources.kindDelete'), rename: t('lmc.resources.kindRename') }[entry.kind]} · {entry.path}{entry.destination ? ' → ' + entry.destination : ''}</Text>
-                    {selectedChange?.revision === entry.revision && <Text selectable style={{ fontFamily: 'monospace', fontSize: 11, lineHeight: 17, paddingTop: 8, color: theme.colors.textSecondary }}>{entry.patch || t('lmc.resources.noPatch')}</Text>}
+                    {selectedChange?.revision === entry.revision && <Text selectable style={{ ...Typography.mono(), fontSize: 11, lineHeight: 17, paddingTop: 8, color: theme.colors.textSecondary }}>{entry.patch || t('lmc.resources.noPatch')}</Text>}
                 </Pressable>)}
                 {!filteredEntries.length && <Text style={{ padding: 12, color: theme.colors.textSecondary }}>{extension === null ? t('lmc.resources.emptyReview') : t('lmc.resources.searchEmpty')}</Text>}
                 {!!review?.entries.length && <Pressable onPress={() => { void apiSocket.sessionRPC(sessionId, 'resource-review', { viewed: review.cursor, scope }).then(() => readReview()).catch(e => setReviewError(e.message)); }}><Text style={{ padding: 12, color: linkColor }}>{t('lmc.resources.markSeen')}</Text></Pressable>}

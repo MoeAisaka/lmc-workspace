@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 vi.mock('@/ui/logger', () => ({ logger: { debug: vi.fn(), warn: vi.fn() } }));
-vi.mock('@/configuration', () => ({ configuration: { daemonLockFile: '/unused/daemon.lock' } }));
+vi.mock('@/configuration', () => ({ configuration: { daemonLockFile: '/unused/daemon.lock', daemonStateFile: '/unused/daemon.state' } }));
 
 const { acquireDaemonLock, releaseDaemonLock } = await import('@/persistence');
 
@@ -75,5 +75,51 @@ describe('daemon heartbeat state', () => {
         const { supervisor, ...unmanaged } = startup;
         const next = heartbeatDaemonState(unmanaged, { pid: 100, httpPort: 5000, startedWithCliVersion: '1.2.7' }, 'now');
         expect('supervisor' in next).toBe(false);
+    });
+});
+
+describe('daemon owner cleanup', () => {
+    async function ownerFiles(statePid: number, lockPid: number) {
+        const lock = await lockPath();
+        const state = lock + '.state';
+        const { configuration } = await import('@/configuration');
+        const { writeFileSync } = await import('node:fs');
+        Object.assign(configuration, { daemonStateFile: state, daemonLockFile: lock });
+        writeFileSync(state, JSON.stringify({ pid: statePid }));
+        writeFileSync(lock, String(lockPid));
+        return { state, lock };
+    }
+
+    it('preserves the successor state and lock when the old daemon exits late', async () => {
+        const { state, lock } = await ownerFiles(process.pid + 1, process.pid + 1);
+        const { clearDaemonState } = await import('@/persistence');
+        await clearDaemonState(process.pid);
+        expect(JSON.parse(await readFile(state, 'utf-8')).pid).toBe(process.pid + 1);
+        expect(await readFile(lock, 'utf-8')).toBe(String(process.pid + 1));
+    });
+
+    it('clears only the state and lock belonging to the expected owner', async () => {
+        const { state, lock } = await ownerFiles(process.pid, process.pid);
+        const { clearDaemonState } = await import('@/persistence');
+        await clearDaemonState(process.pid);
+        await expect(readFile(state)).rejects.toMatchObject({ code: 'ENOENT' });
+        await expect(readFile(lock)).rejects.toMatchObject({ code: 'ENOENT' });
+    });
+
+    it('does not remove a newer lock while cleaning an older state file', async () => {
+        const { state, lock } = await ownerFiles(process.pid, process.pid + 1);
+        const { clearDaemonState } = await import('@/persistence');
+        await clearDaemonState(process.pid);
+        await expect(readFile(state)).rejects.toMatchObject({ code: 'ENOENT' });
+        expect(await readFile(lock, 'utf-8')).toBe(String(process.pid + 1));
+    });
+
+    it('does not unlink another owner when releasing a superseded lock handle', async () => {
+        const file = await lockPath();
+        const handle = await acquireDaemonLock(1, 0, file);
+        const { writeFileSync } = await import('node:fs');
+        writeFileSync(file, String(process.pid + 1));
+        await releaseDaemonLock(handle!, file);
+        expect(await readFile(file, 'utf-8')).toBe(String(process.pid + 1));
     });
 });

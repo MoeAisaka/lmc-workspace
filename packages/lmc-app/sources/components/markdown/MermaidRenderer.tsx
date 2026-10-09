@@ -1,6 +1,7 @@
+import { Text } from '@/components/StyledText';
 import * as React from 'react';
 import { scriptJson } from './scriptJson';
-import { View, Platform, Text } from 'react-native';
+import { View, Platform } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';

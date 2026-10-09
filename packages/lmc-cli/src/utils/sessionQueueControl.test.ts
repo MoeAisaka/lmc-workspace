@@ -117,6 +117,18 @@ describe('registerQueueControlHandlers', () => {
 });
 
 describe('steer handler', () => {
+    it('releases an unresponsive key once and never restores or repeats it', async () => {
+        const queue = new MessageQueue2<string>(m => m);
+        const f = fakeClient();
+        const steer = vi.fn(async () => ({ steered: false, reason: 'unresponsive', restore: false }));
+        registerQueueControlHandlers(f.client, queue, { isBusy: () => true, interrupt: async () => {}, steer });
+        queue.push('frozen', 'm', undefined, { key: 'frozen' });
+        expect(await f.handlers.get('steer')!({ key: 'frozen' })).toEqual({ steered: false, reason: 'unresponsive' });
+        expect(queue.size()).toBe(0);
+        expect(await f.handlers.get('steer')!({ key: 'frozen' })).toEqual({ steered: false, reason: 'gone' });
+        expect(steer).toHaveBeenCalledTimes(1);
+        expect(vi.mocked(f.client.sendSessionEvent).mock.calls.filter(c => c[0].type === 'queue-released')).toEqual([[{ type: 'queue-released', keys: ['frozen'] }]]);
+    });
     const busy = { isBusy: () => true, interrupt: async () => {} };
 
     it('says unsupported when the engine has no steer, without touching the queue', async () => {

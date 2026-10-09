@@ -27,24 +27,26 @@ const {pendingQueuePrompts}=moduleExport('pendingQueuePrompts'),{storage}=module
 const {UnistylesRuntime}=moduleExport('UnistylesRuntime'),{SafeAreaProvider}=moduleExport('SafeAreaProvider');
 const {GestureHandlerRootView}=moduleExport('GestureHandlerRootView');
 window.setTheme=theme=>{UnistylesRuntime.setAdaptiveThemes(false);UnistylesRuntime.setTheme(theme);document.body.style.background=theme==='dark'?'#202020':'#fff'};
-const base=Date.now()-30000;
+const base=Number(sessionStorage.getItem('fixtureBase'))||Date.now()-30000;sessionStorage.setItem('fixtureBase',String(base));
 const messages=[{kind:'agent-text',id:'reply',localId:null,createdAt:base+2000,text:'Current reply is still running.'},{kind:'user-text',id:'pending',localId:'key',createdAt:base+1000,text:'Pending unique prompt',meta:{intent:'queue',queueKey:'key'}},{kind:'user-text',id:'original',localId:'original',createdAt:base,text:'Original question'}];
 const common={active:true,presence:'online',thinking:false,createdAt:base,updatedAt:base,metadata:{path:'/fixture',host:'Fixture',flavor:'codex'}};
 const hub={...common,id:'hub',metadata:{...common.metadata,name:'Fixture Hub',summary:{text:'Fixture Hub'},orchestration:{role:'hub',workers:[{sessionId:'worker'}],board:[]}}};
 const worker={...common,id:'worker',metadata:{...common.metadata,name:'Fixture Worker',summary:{text:'Fixture Worker'},orchestration:{role:'worker',hub:{sessionId:'hub'}}}};
 window.actionCount=0;const action=()=>window.actionCount++;
 function App(){
- const [phase,setPhase]=React.useState('sending'),[engine,setEngine]=React.useState('codex'),[listKey,remount]=React.useState(0);
- window.setPhase=setPhase;window.setEngine=setEngine;window.remount=()=>remount(n=>n+1);
+ const [phase,setPhase]=React.useState(sessionStorage.getItem('fixturePhase')||'sending'),[engine,setEngine]=React.useState(sessionStorage.getItem('fixtureEngine')||'codex'),[listKey,remount]=React.useState(0);
+ window.setPhase=next=>{sessionStorage.setItem('fixturePhase',next);setPhase(next)};window.setEngine=next=>{sessionStorage.setItem('fixtureEngine',next);setEngine(next)};window.remount=()=>remount(n=>n+1);
  const queue=phase==='queued'||phase==='restored'||phase==='released-stale'?[{key:'key',preview:'Pending unique prompt',createdAt:base+1000}]:[];
  const receipt=phase.startsWith('released')?{type:'queue-released',keys:['key']}:phase==='withdrawn'?{type:'queue-withdrawn',key:'key'}:null;
  const liveMessages=receipt?[{kind:'agent-event',id:'receipt',createdAt:base+4000,event:receipt},...messages]:messages;
+ if(phase==='released-answer'||phase==='released-repeat')liveMessages.unshift({kind:'agent-text',id:'after-release',localId:null,createdAt:base+5000,text:'Reply after prompt was received.'});
+ if(phase==='released-repeat')liveMessages.unshift({kind:'agent-event',id:'duplicate-receipt',createdAt:base+6000,event:{type:'queue-released',keys:['key']}});
  const session={...common,id:'fixture',thinking:true,metadata:{...common.metadata,flavor:engine,sessionCapabilities:{turnQueue:true,turnQueueLifecycle:true}},agentState:{queue}};
  storage.setState({isDataReady:true,sessions:{hub,worker,fixture:session},sessionMessages:{fixture:{messages:liveMessages,isLoaded:true,hasMoreOlder:false,isLoadingOlder:false,messagesMap:Object.fromEntries(liveMessages.map(m=>[m.id,m]))}}});
  return h(SafeAreaProvider,{initialMetrics:{frame:{x:0,y:0,width:390,height:900},insets:{top:0,bottom:0,left:0,right:0}}},h(GestureHandlerRootView,{},
  h('section',{id:'list',style:{width:'min(360px,100%)',height:300,display:'flex'}},h(DeviceEngineSessionList,{key:listKey,hideSearch:true,hideAccount:true})),
- h('section',{id:'chat',style:{height:300,width:'100%'}},h(ChatList,{session,topContentInset:0,bottomContentInset:0})),
- h('section',{id:'strip',style:{padding:8}},h(QueueStrip,{items:pendingQueuePrompts(liveMessages,queue),mode:'batch',steerState:engine==='codex'?'ready':'disabled',onSteer:action,onPromote:action,onWithdraw:action,onModeChange:action}))));
+ h('section',{id:'chat',style:{height:420,width:'100%'}},h(ChatList,{session,topContentInset:0,bottomContentInset:0})),
+ h('section',{id:'strip',style:{padding:8}},h(QueueStrip,{items:pendingQueuePrompts(liveMessages,queue),mode:'batch',steerState:'ready',onSteer:()=>{action();window.setPhase('released-stale')},onPromote:()=>{action();window.setPhase('released')},onWithdraw:()=>{action();window.setPhase('withdrawn')},onModeChange:action}))));
 }
 createRoot(document.getElementById('root')).render(h(App));
 `;
@@ -72,12 +74,19 @@ const server=http.createServer((req,res)=>{
  const browser=await chromium.launch({headless:true,executablePath:process.env.LMC_CHROME_PATH||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});
  try{
   const context=await browser.newContext({viewport:{width:390,height:1000},locale:'zh-CN'});
-  await context.route('**/*',route=>new URL(route.request().url()).hostname==='127.0.0.1'?route.continue():route.abort());
+  const external=[];await context.route('**/*',route=>{if(new URL(route.request().url()).hostname==='127.0.0.1')return route.continue();external.push(route.request().url());return route.abort()});
   const page=await context.newPage();page.setDefaultTimeout(10000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
 
   await page.goto('http://127.0.0.1:'+server.address().port);
   await page.getByText('Current reply is still running.',{exact:true}).waitFor();
-  const labels=await page.evaluate(()=>{const {t}=moduleExport('getCurrentLanguage');return {expand:t('lmc.list.expand'),collapse:t('lmc.list.collapse'),promote:t('lmc.queue.promote')}});
+  const labels=await page.evaluate(()=>{const {t}=moduleExport('getCurrentLanguage');return {expand:t('lmc.list.expand'),collapse:t('lmc.list.collapse'),promote:t('lmc.queue.promote'),steer:t('lmc.queue.steer')}});
+  const visualOrder=async texts=>{
+   const boxes=[];
+   for(const text of texts){const node=page.locator('#chat').getByText(text,{exact:true});await node.waitFor();assert.equal(await node.count(),1);boxes.push(await node.boundingBox())}
+   for(let i=1;i<boxes.length;i++)assert.ok(boxes[i-1].y+boxes[i-1].height<=boxes[i].y+1,JSON.stringify({texts,boxes}));
+   return boxes;
+  };
+  const before=['Original question','Current reply is still running.'],prompt='Pending unique prompt',after='Reply after prompt was received.';
   const toggle=page.locator('#list [aria-expanded]').first();
   assert.equal(await toggle.getAttribute('aria-expanded'),'false');
   const group=page.getByText('Fixture Worker',{exact:true});
@@ -99,20 +108,40 @@ const server=http.createServer((req,res)=>{
     await page.evaluate(phase=>setPhase(phase),phase);await page.waitForTimeout(80);
     assert.equal(await page.locator('#chat').getByText('Pending unique prompt',{exact:true}).count(),1);
     assert.equal(await page.locator('[data-lmc-queue-strip]').count(),0);
+    await visualOrder([...before,prompt]);
    }
    await page.evaluate(()=>setPhase('withdrawn'));await page.waitForTimeout(80);
    assert.equal(await page.getByText('Pending unique prompt',{exact:true}).count(),0);
   }
-  await page.evaluate(()=>setPhase('queued'));
-  for(const theme of ['light','dark']){
+  const cases=[];
+  for(const engine of ['claude','codex'])for(const theme of ['light','dark']){
+   await page.evaluate(engine=>setEngine(engine),engine);
    await page.evaluate(theme=>setTheme(theme),theme);
    for(const width of [320,390,1100]){
-    await page.setViewportSize({width,height:1000});await page.waitForTimeout(80);
+    await page.setViewportSize({width,height:1000});
+    // Button handlers synthesize only the persisted Agent receipt/state. The
+    // real exported ChatList performs the placement, grouping and rendering.
+    for(const control of ['steer','promote']){
+     await page.evaluate(()=>setPhase('queued'));await page.waitForTimeout(80);
+     await page.locator('#strip').getByRole('button',{name:labels[control],exact:true}).click();await page.waitForTimeout(80);
+     await visualOrder([...before,prompt]);
+     assert.equal(await page.locator('[data-lmc-queue-strip]').count(),0);
+    }
+    for(const phase of ['released-answer','released-repeat']){
+     await page.evaluate(phase=>setPhase(phase),phase);await page.waitForTimeout(80);
+     await visualOrder([...before,prompt,after]);
+    }
+    await page.reload();await page.locator('#chat').getByText(after,{exact:true}).waitFor();
+    await page.evaluate(theme=>setTheme(theme),theme);await page.evaluate(()=>document.fonts.ready);
+    const boxes=await visualOrder([...before,prompt,after]);
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
-    await page.screenshot({path:path.join(out,theme+'-'+width+'.png'),fullPage:true});
+    await page.screenshot({path:path.join(out,engine+'-'+theme+'-'+width+'.png'),fullPage:true});
+    cases.push({engine,theme,width,boxes});
    }
   }
   assert.deepEqual(errors,[]);
-  console.log('PASS actual hub list default collapse, zero reserved height, manual state retained; ChatList/QueueStrip: optimistic queue, delayed snapshot, take/restore, release/withdrawal, Claude and Codex; light/dark at 320/390/1100');
+  assert.deepEqual(external,[]);
+  fs.writeFileSync(path.join(out,'results.json'),JSON.stringify({cases,errors,external},null,2));
+  console.log('PASS actual hub list default collapse, zero reserved height, manual state retained; ChatList/QueueStrip: optimistic queue, delayed snapshot, take/restore, release/withdrawal; release position, subsequent reply, repeated receipt and full reload; 12 Claude/Codex × light/dark × 320/390/1100 cases');
  }finally{await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exit(1)});

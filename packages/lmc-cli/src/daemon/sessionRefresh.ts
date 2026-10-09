@@ -2,6 +2,7 @@ import type { CodexContextLimits } from '@/codex/contextLimits';
 import type { CodexServiceTier } from '@/codex/serviceTier';
 import type { TrackedSession } from './types';
 import { findOrphanedSessionPid, type RunningProcess } from './sessionSpawnGuard';
+import { REFRESH_EXIT_TIMEOUT } from './lateRefreshRecovery';
 /** Detached sessions survive daemon restarts; persisted records intentionally have pid 0. */
 export async function canRefreshSession(session: TrackedSession | undefined, pid: number, listProcesses: () => Promise<RunningProcess[]>): Promise<boolean> {
     if (!Number.isSafeInteger(pid) || pid <= 0 || !session?.encryption || !['claude', 'codex'].includes(session.happySessionMetadataFromLocalWebhook?.flavor ?? '')) return false;
@@ -30,5 +31,5 @@ export async function resumeAfterExit(pid: number, alive: (pid: number) => boole
         if (!alive(pid)) { await resume(); return; }
         await delay();
     }
-    throw new Error('Old session did not exit; refusing a duplicate process');
+    throw new Error(REFRESH_EXIT_TIMEOUT);
 }

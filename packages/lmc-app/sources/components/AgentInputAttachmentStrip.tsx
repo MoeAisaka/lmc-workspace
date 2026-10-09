@@ -1,10 +1,11 @@
+import { Text } from '@/components/StyledText';
 /**
  * Horizontal scrollable strip showing selected image attachment thumbnails.
  * Each thumbnail shows the image with a remove button.
  * Uses thumbhash as a blurry placeholder while the full image loads.
  */
 import * as React from 'react';
-import { ScrollView, View, Pressable, Text } from 'react-native';
+import { ScrollView, View, Pressable } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -65,7 +66,7 @@ function AttachmentThumbnail({
     if (!isImage) {
         const kb = image.size > 0 ? (image.size >= 1024 * 1024 ? `${(image.size / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(image.size / 1024))} KB`) : '';
         return (
-            <View style={[styles.fileCard, { borderColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }]}>
+            <View testID="agent-input-attachment" style={[styles.fileCard, { borderColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }]}>
                 <Ionicons name="document-outline" size={20} color={theme.colors.textSecondary} />
                 <View style={{ flex: 1, minWidth: 0 }}>
                     <Text numberOfLines={1} style={{ fontSize: 12, color: theme.colors.text }}>{image.name}</Text>
@@ -78,7 +79,7 @@ function AttachmentThumbnail({
         );
     }
     return (
-        <View style={[
+        <View testID="agent-input-attachment" style={[
             styles.thumbContainer,
             { borderColor: theme.colors.divider }
         ]}>

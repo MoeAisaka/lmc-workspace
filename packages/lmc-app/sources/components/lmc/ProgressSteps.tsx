@@ -1,5 +1,7 @@
+import { Typography } from '@/constants/Typography';
+import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { lmcColors } from './lmcColors';
@@ -80,6 +82,6 @@ const styles = StyleSheet.create(() => ({
     dot: { width: 8, height: 8, borderRadius: 4 },
     markBang: { color: '#FFFFFF', fontSize: 12, fontWeight: '700', lineHeight: 14 },
     command: { marginTop: 6, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 10 },
-    commandText: { flex: 1, fontSize: 13, fontFamily: 'Menlo' },
+    commandText: { flex: 1, fontSize: 13, ...Typography.mono() },
     commandHost: { fontSize: 12 },
 }));

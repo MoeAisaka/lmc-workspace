@@ -1,5 +1,6 @@
+import { Text } from '@/components/StyledText';
 import React, { useEffect } from 'react';
-import { Platform, View, Text, Image as RNImage } from 'react-native';
+import { Platform, View, Image as RNImage } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet } from 'react-native-unistyles';

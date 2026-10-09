@@ -1,5 +1,7 @@
+import { Text } from '@/components/StyledText';
+import { Typography } from '@/constants/Typography';
 import * as React from 'react';
-import { Text, View, Platform } from 'react-native';
+import { View, Platform } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 
 interface CodeViewProps {
@@ -25,7 +27,7 @@ const styles = StyleSheet.create((theme) => ({
         padding: 12,
     },
     codeText: {
-        fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
+        fontFamily: Platform.OS === 'web' ? Typography.mono().fontFamily : Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
         fontSize: 12,
         color: theme.colors.text,
         lineHeight: 18,

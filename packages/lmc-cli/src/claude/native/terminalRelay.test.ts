@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { NativeTerminalRelay, encodeNativeInput, nativeComposerReady } from './terminalRelay';
+import { NativeTerminalRelay, encodeNativeInput, nativeComposerHasDraft, nativeComposerReady, sanitizeNativeText, unwrapNativePaste } from './terminalRelay';
 function setup() {
     let now = 100;
     const write = vi.fn();
@@ -9,6 +9,12 @@ function setup() {
     return { relay, request, write, tick: () => { now += 16000; } };
 }
 describe('native terminal ownership and input', () => {
+    it('does not mistake input revisions for an engine response', () => {
+        const { relay, request } = setup();
+        relay.input(request); relay.inputChanged();
+        expect(relay.revision).toBe(2); expect(relay.outputRevision).toBe(0);
+        relay.outputChanged(); expect(relay.outputRevision).toBe(1);
+    });
     it('does not exit or send queued work while native Stop hooks still run', () => {
         expect(nativeComposerReady(['Saving current thread…', 'manual mode on · esc to interrupt', '$'], { x: 1, y: 2 })).toBe(false);
         expect(nativeComposerReady(['Worked for 34s · done', 'manual mode on', '$'], { x: 1, y: 2 })).toBe(true);
@@ -45,5 +51,25 @@ describe('native terminal ownership and input', () => {
         expect(() => encodeNativeInput({ type: 'key', key: 'kill' })).toThrow();
         expect(encodeNativeInput({ type: 'key', key: 'y' })).toBe('y');
         expect(encodeNativeInput({ type: 'key', key: 'n' })).toBe('n');
+    });
+    it('unwraps only a complete paste tag with matching ids', () => {
+        expect(unwrapNativePaste('\n\n<pasted_content id="0d22">\na\n\nb\n</pasted_content id="0d22">\n')).toBe('a\n\nb');
+        expect(unwrapNativePaste(' plain ')).toBe('plain');
+        expect(unwrapNativePaste('<pasted_content id="1">a</pasted_content id="2">')).toBe('<pasted_content id="1">a</pasted_content id="2">');
+        expect(unwrapNativePaste('before <pasted_content id="1">a</pasted_content id="1">')).toBe('before <pasted_content id="1">a</pasted_content id="1">');
+    });
+    it('turns pasted CRLF into newlines and drops control bytes so the encoder accepts the text', () => {
+        const pasted = '1、第一行\r\n2、第二行\r3\x1b[201~\x07 尾';
+        expect(() => encodeNativeInput({ type: 'text', text: pasted })).toThrow();
+        const clean = sanitizeNativeText(pasted);
+        expect(clean).toBe('1、第一行\n2、第二行\n3[201~ 尾');
+        expect(encodeNativeInput({ type: 'text', text: clean })).toBe('\x1b[200~' + clean + '\x1b[201~');
+        expect(sanitizeNativeText('tab\tand\nnewline stay')).toBe('tab\tand\nnewline stay');
+    });
+    it('tells a restored draft from an empty composer and from a running turn', () => {
+        expect(nativeComposerHasDraft(['done 3:12 PM', '$  .137 验证通过后直接上 .85'], { x: 3, y: 1 })).toBe(true);
+        expect(nativeComposerHasDraft(['done 3:12 PM', '$ '], { x: 2, y: 1 })).toBe(false);
+        expect(nativeComposerHasDraft(['esc to interrupt', '$  typed while busy'], { x: 3, y: 1 })).toBe(false);
+        expect(nativeComposerHasDraft(['1. Stay'], { x: 0, y: 0 })).toBe(false);
     });
 });

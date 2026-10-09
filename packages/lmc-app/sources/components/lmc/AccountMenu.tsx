@@ -40,7 +40,7 @@ export const useAccountMenu = create<{ anchor: AccountMenuAnchor | null; open: (
 }));
 
 const styles = StyleSheet.create((theme) => ({
-    menu: { position: 'absolute', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 24, overflow: 'hidden', backgroundColor: theme.colors.surface, ...lmcSurfaceBorder(theme), ...lmcElevation(theme, 3) },
+    menu: { position: 'absolute', paddingHorizontal: 4, paddingVertical: 8, borderRadius: 24, overflow: 'hidden', backgroundColor: theme.colors.surface, ...lmcSurfaceBorder(theme), ...lmcElevation(theme, 3) },
     divider: { height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.divider, marginVertical: 6 },
     item: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, paddingVertical: 7, minHeight: 34, borderRadius: 10 },
     itemText: { fontSize: 14, lineHeight: 20, color: theme.colors.text, ...Typography.default() },
@@ -96,9 +96,12 @@ export function AccountMenu({ anchor, onClose }: { anchor: AccountMenuAnchor; on
                 }}
                 style={[styles.menu, { left, width: menuWidth, maxHeight, top, borderRadius: anchor.cardRadius ?? 24 }]}
             >
-                <ScrollView showsVerticalScrollIndicator contentContainerStyle={{ paddingBottom: 2 }}>
+                {/* Keep content at its original 12px inset, with the overlay scrollbar
+                    in the outer 8px lane instead of on top of quota cards. */}
+                <ScrollView testID="account-menu-scroll" showsVerticalScrollIndicator contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: 2 }}>
                 <AccountQuotaCards {...quota} onRefresh={quota.refresh} />
                 <View style={styles.divider} />
+                <Item icon="analytics-outline" label="用量看板" onPress={go(() => router.push('/settings/usage'))} />
                 <Item icon="laptop-outline" label={t('lmc.menu.devices')} onPress={open('devices')} />
                 <Item icon="person-circle-outline" label={t('lmc.menu.profile')} onPress={open('account')} />
                 <Item icon="settings-outline" label={t('lmc.menu.settings')} onPress={open('general')} />

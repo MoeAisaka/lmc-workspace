@@ -1,5 +1,6 @@
+import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import { Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import type { ToolCall } from '@/sync/typesMessage';
 import { getToolTiming, validTimestamp } from '@/utils/turnTimeline';
@@ -8,19 +9,25 @@ import { formatWorkDuration } from '@/hooks/useGroupedMessages';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
 
-export function ToolTimelineTiming({ tool, active = false }: { tool: ToolCall; active?: boolean }) {
+export function ToolTimelineTiming({ tool, active = false, compact = false }: { tool: ToolCall; active?: boolean; compact?: boolean }) {
+    const [expanded, setExpanded] = React.useState(false);
     const ticking = active && tool.state === 'running';
     const elapsed = useElapsedTime(ticking ? tool.startedAt ?? tool.createdAt : null);
     const now = ticking ? Date.now() : tool.completedAt ?? tool.createdAt;
     const timing = React.useMemo(() => getToolTiming(tool, active, now), [tool, active, now, elapsed]);
     const time = (value: number | null) => validTimestamp(value) ? new Date(value).toLocaleString() : '—';
     return (
-        <View style={styles.card} testID="tool-timeline-timing">
+        <View style={[styles.card, compact && { padding: 10, marginBottom: 12 }]} testID="tool-timeline-timing">
+            <Pressable disabled={!compact} accessibilityRole={compact ? "button" : undefined} accessibilityLabel={compact ? "展开或收起步骤时间" : undefined} accessibilityState={compact ? { expanded } : undefined} onPress={() => setExpanded(value => !value)}>
             <Text style={[styles.status, timing.status === 'error' && styles.error]}>
                 {t(`toolGroup.timeline.${timing.status}`)} · {timing.durationMs === null ? t('toolGroup.timeline.unrecorded') : formatWorkDuration(timing.durationMs)}
+                {compact ? (expanded ? "  ▴" : "  ▾") : ""}
             </Text>
+            </Pressable>
+            {(!compact || expanded) && <>
             <Text style={styles.time}>{t('toolGroup.timeline.started')}  {time(timing.startedAt)}</Text>
             <Text style={styles.time}>{t('toolGroup.timeline.finished')}  {time(tool.completedAt)}</Text>
+            </>}
         </View>
     );
 }

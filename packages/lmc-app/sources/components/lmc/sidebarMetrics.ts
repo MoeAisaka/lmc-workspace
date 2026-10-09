@@ -1,5 +1,10 @@
 import { create } from 'zustand';
 
+/** Shared by the permanent drawer and viewport-pinned session controls. */
+export function resolveDesktopSidebarWidth(windowWidth: number, preferredWidth: number): number {
+    return Math.min(preferredWidth, Math.max(280, windowWidth * 0.4));
+}
+
 /**
  * What the sidebar's top card actually measures.
  *

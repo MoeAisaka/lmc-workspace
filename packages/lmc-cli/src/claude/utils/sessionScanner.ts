@@ -36,6 +36,8 @@ export async function createSessionScanner(opts: {
     onTaskNotification?: (event: NativeTaskNotification) => void
     /** A native queue receipt, not a second user chat message. */
     onQueuedMessage?: (event: NativeQueuedMessage) => void
+    /** Fresh log bytes, including internal records that aren't chat messages. */
+    onActivity?: () => void
     /** Restore only the latest native goal, without replaying old chat messages. */
     hydrateGoalStatus?: boolean
     /**
@@ -55,6 +57,14 @@ export async function createSessionScanner(opts: {
     let currentSessionId: string | null = null;
     let watchers = new Map<string, (() => void)>();
     let processedEntryKeys = new Set<string>();
+    const logRevisions = new Map<string, string>();
+    const onLogRead = (sessionId: string, file: string) => {
+        // Compare only a compact revision; repeated scanner reads aren't progress.
+        const revision = `${file.length}:${file.slice(-256)}`;
+        const previous = logRevisions.get(sessionId);
+        logRevisions.set(sessionId, revision);
+        if (file.length && previous !== revision) opts.onActivity?.();
+    };
     // Sessions whose transcript file never appeared. Their watcher gave up,
     // so we must stop re-reading them and never re-create a watcher for them
     // — otherwise a phantom session id (e.g. a remote launch whose .jsonl is
@@ -74,7 +84,7 @@ export async function createSessionScanner(opts: {
 
     // Mark existing entries as processed and start watching the initial session
     if (opts.sessionId) {
-        let entries = await readSessionEntries(projectDir, opts.sessionId);
+        let entries = await readSessionEntries(projectDir, opts.sessionId, onLogRead);
         logger.debug(`[SESSION_SCANNER] Marking ${entries.length} existing entries as processed from session ${opts.sessionId}`);
         for (let entry of entries) {
             processedEntryKeys.add(entry.key);
@@ -109,7 +119,7 @@ export async function createSessionScanner(opts: {
 
         // Process sessions
         for (let session of sessions) {
-            const sessionEntries = await readSessionEntries(projectDir, session);
+            const sessionEntries = await readSessionEntries(projectDir, session, onLogRead);
             let skipped = 0;
             let sentMessages = 0;
             let sentTranscriptEvents = 0;
@@ -190,13 +200,18 @@ export async function createSessionScanner(opts: {
             sync.stop();
         },
         onNewSession: async (sessionId: string, options?: { treatExistingAsProcessed?: boolean }) => {
+            // A real native boundary may arrive after a slow first local command
+            // outlived the missing-file deadline. Revive even the current id;
+            // ordinary repeated announcements still do no extra work.
+            const revived = deadSessions.delete(sessionId);
             if (currentSessionId === sessionId) {
+                if (revived) sync.invalidate();
                 logger.debug(`[SESSION_SCANNER] New session: ${sessionId} is the same as the current session, skipping`);
                 return;
             }
             // The caller explicitly re-announces this session, so give a
             // previously-dropped id another chance (its file may exist now).
-            if (deadSessions.delete(sessionId)) {
+            if (revived) {
                 logger.debug(`[SESSION_SCANNER] Reviving previously-dropped session: ${sessionId}`);
             }
             if (finishedSessions.has(sessionId)) {
@@ -262,12 +277,13 @@ function transcriptEventKey(event: ScannerTranscriptEvent): string {
  * Returns only valid conversation messages and recognized side-channel events,
  * silently skipping internal events.
  */
-async function readSessionEntries(projectDir: string, sessionId: string): Promise<SessionLogEntry[]> {
+async function readSessionEntries(projectDir: string, sessionId: string, onRead?: (sessionId: string, file: string) => void): Promise<SessionLogEntry[]> {
     const expectedSessionFile = join(projectDir, `${sessionId}.jsonl`);
     logger.debug(`[SESSION_SCANNER] Reading session file: ${expectedSessionFile}`);
     let file: string;
     try {
         file = await readFile(expectedSessionFile, 'utf-8');
+        onRead?.(sessionId, file);
     } catch (error) {
         logger.debug(`[SESSION_SCANNER] Session file not found: ${expectedSessionFile}`);
         return [];

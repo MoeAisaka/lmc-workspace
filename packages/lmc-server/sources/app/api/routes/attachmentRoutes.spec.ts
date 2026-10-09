@@ -87,8 +87,9 @@ vi.mock("@/storage/files", () => filesMock);
 
 import { attachmentRoutes } from "./attachmentRoutes";
 
-async function createApp() {
-    const app = fastify();
+async function createApp(trustProxy: false | string[] = false) {
+    vi.stubEnv('LMC_TRUSTED_PROXIES', trustProxy ? trustProxy.join(',') : '');
+    const app = fastify({ trustProxy });
     app.setValidatorCompiler(validatorCompiler);
     app.setSerializerCompiler(serializerCompiler);
     const typed = app.withTypeProvider<ZodTypeProvider>() as unknown as Fastify;
@@ -114,6 +115,73 @@ async function createApp() {
     await typed.ready();
     return typed;
 }
+
+describe('attachmentRoutes — connected origin compatibility', () => {
+    let app: Fastify;
+    beforeEach(() => {
+        resetState();
+        vi.stubEnv('PUBLIC_URL', 'https://lmc.example.test:11455');
+        seedSession('s1', 'u1');
+    });
+    afterEach(async () => {
+        if (app) await app.close();
+        vi.unstubAllEnvs();
+    });
+
+    it.each([
+        'https://lmc.example.test:11455',
+        'https://lmc-preview.example.test:11455',
+        'http://192.0.2.10:4193',
+    ])('keeps legacy Agent upload/download authentication on %s', async origin => {
+        app = await createApp(['127.0.0.1']);
+        const url = new URL(origin);
+        const headers = {
+            'x-user-id': 'u1', host: 'center:4193',
+            'x-forwarded-host': url.host, 'x-forwarded-proto': url.protocol.slice(0, -1),
+        };
+        const upload = await app.inject({
+            method: 'POST', url: '/v1/sessions/s1/attachments/request-upload', headers,
+            payload: { filename: 'image.png', size: 7 },
+        });
+        expect(upload.statusCode).toBe(200);
+        const { ref, uploadUrl } = upload.json();
+        expect(new URL(uploadUrl).origin).toBe(origin);
+        // Both existing Claude and Codex Agents only attach credentials when
+        // the returned absolute URL begins with their connected server URL.
+        const put = await app.inject({
+            method: 'PUT', url: uploadUrl,
+            headers: { ...(uploadUrl.startsWith(origin) ? { 'x-user-id': 'u1' } : {}), 'content-type': 'application/octet-stream' },
+            payload: Buffer.from('picture'),
+        });
+        expect(put.statusCode).toBe(200);
+        const download = await app.inject({
+            method: 'POST', url: '/v1/sessions/s1/attachments/request-download', headers, payload: { ref },
+        });
+        expect(download.statusCode).toBe(200);
+        const { downloadUrl } = download.json();
+        expect(new URL(downloadUrl).origin).toBe(origin);
+        const get = await app.inject({
+            method: 'GET', url: downloadUrl,
+            headers: downloadUrl.startsWith(origin) ? { 'x-user-id': 'u1' } : {},
+        });
+        expect(get.statusCode).toBe(200);
+        expect(get.rawPayload).toEqual(Buffer.from('picture'));
+    });
+
+    it.each(['127.0.0.1', '::ffff:127.0.0.1'])('ignores forwarded origins from untrusted %s', async remoteAddress => {
+        app = await createApp(['192.0.2.1']);
+        for (const action of ['request-upload', 'request-download']) {
+            const res = await app.inject({
+                method: 'POST', url: `/v1/sessions/s1/attachments/${action}`, remoteAddress,
+                headers: { 'x-user-id': 'u1', host: 'connected.test:4193',
+                    'x-forwarded-host': 'untrusted.test', 'x-forwarded-proto': 'https' },
+                payload: action === 'request-upload' ? { filename: 'x.png', size: 1 } : { ref: 'sessions/s1/attachments/abc.enc' },
+            });
+            expect(res.statusCode).toBe(200);
+            expect(new URL(res.json().uploadUrl ?? res.json().downloadUrl).origin).toBe('http://connected.test:4193');
+        }
+    });
+});
 
 describe("attachmentRoutes — request-upload", () => {
     let app: Fastify;

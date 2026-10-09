@@ -1,3 +1,4 @@
+import { isMatchingQueueReceipt } from './queueReceiptRecovery';
 import { resolveSessionLifecycle, resolveFetchedSessionLifecycle, type SessionLifecycle } from './sessionLifecycle';
 import { UnsupportedCodexEffortError } from '@/components/modelModeOptions';
 import Constants from 'expo-constants';
@@ -52,6 +53,7 @@ import { AsyncLock } from '@/utils/lock';
 import { Message } from './typesMessage';
 import { EncryptionCache } from './encryption/encryptionCache';
 import { systemPrompt } from './prompt/systemPrompt';
+import { interactiveAnswersPrompt } from 'lmc-wire';
 import { fetchArtifact, fetchArtifacts, createArtifact, updateArtifact } from './apiArtifacts';
 import { DecryptedArtifact, Artifact, ArtifactCreateRequest, ArtifactUpdateRequest } from './artifactTypes';
 import { ArtifactEncryption } from './encryption/artifactEncryption';
@@ -61,8 +63,10 @@ import { FeedItem } from './feedTypes';
 import { UserProfile } from './friendTypes';
 import { resolveControlHandoffDirection } from './controlHandoff';
 import { resolveMessageModeMeta, UnsupportedPermissionModeError } from './messageMeta';
-import type { AttachmentPreview, UploadedAttachment } from './attachmentTypes';
+import { MAX_ATTACHMENT_FILE_SIZE, type AttachmentPreview, type UploadedAttachment } from './attachmentTypes';
 import { requestAttachmentUpload, uploadEncryptedBlob } from './apiAttachments';
+import { ATTACHMENT_PART_SIZE, uploadInParts } from './largeAttachmentUpload';
+import { showToast } from '@/components/lmc/Toast';
 import { encryptBlob } from '@/encryption/blob';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { Modal } from '@/modal';
@@ -590,8 +594,9 @@ class Sync {
     private async uploadAttachmentsForSession(
         sessionId: string,
         attachments: AttachmentPreview[],
-    ): Promise<{ uploaded: UploadedAttachment[]; failed: number }> {
+    ): Promise<{ uploaded: UploadedAttachment[]; failed: number; reason?: string }> {
         if (!this.credentials) return { uploaded: [], failed: attachments.length };
+        const credentials = this.credentials;
 
         const blobKey = this.encryption.getSessionBlobKey(sessionId);
         if (!blobKey) {
@@ -601,9 +606,46 @@ class Sync {
 
         const uploaded: UploadedAttachment[] = [];
         let failed = 0;
+        let reason: string | undefined;
 
         for (const attachment of attachments) {
             try {
+                // A non-image file past one piece goes up in pieces, read from
+                // the browser's file one slice at a time (web only).
+                if (Platform.OS === 'web' && !attachment.mimeType.startsWith('image/')) {
+                    const blob = await (await fetch(attachment.uri)).blob();
+                    if (blob.size > ATTACHMENT_PART_SIZE) {
+                        if (!storage.getState().sessions[sessionId]?.metadata?.sessionCapabilities?.largeFiles) {
+                            // An older Agent would assemble nothing, or cap the download.
+                            if (blob.size > MAX_ATTACHMENT_FILE_SIZE) {
+                                Modal.alert(t('lmc.common.fileTooLarge'), t('lmc.common.largeFileUnsupported', { name: attachment.name }), [{ text: t('common.ok') }]);
+                                failed++;
+                                continue;
+                            }
+                        } else {
+                            let shown = -1;
+                            const progress = (sent: number, total: number) => {
+                                const percent = Math.floor(sent / total * 100);
+                                if (percent === shown) return;
+                                shown = percent;
+                                showToast(t('lmc.common.uploadingFile', { name: attachment.name, percent }));
+                            };
+                            progress(0, blob.size);
+                            const parts = await uploadInParts({
+                                blob,
+                                encrypt: bytes => encryptBlob(bytes, blobKey),
+                                send: async encrypted => {
+                                    const upload = await requestAttachmentUpload(credentials, sessionId, attachment.name, encrypted.length);
+                                    await uploadEncryptedBlob(upload, encrypted, credentials);
+                                    return upload.ref;
+                                },
+                                onProgress: progress,
+                            });
+                            uploaded.push({ ref: parts[0], parts, name: attachment.name, size: blob.size, width: 0, height: 0 });
+                            continue;
+                        }
+                    }
+                }
                 const bytes = await readFileBytes(attachment.uri);
                 const encrypted = encryptBlob(bytes, blobKey);
 
@@ -626,6 +668,7 @@ class Sync {
                     thumbhash: attachment.thumbhash,
                 });
             } catch (err) {
+                reason = errorMessageFromUnknown(err).slice(0, 200);
                 const diagnostic = getAttachmentDiagnostic(err);
                 if (diagnostic) {
                     console.error('[attachments] Failed to upload image attachment:', formatAttachmentDiagnosticForLog(diagnostic, {
@@ -646,7 +689,7 @@ class Sync {
             }
         }
 
-        return { uploaded, failed };
+        return { uploaded, failed, reason };
     }
 
     async sendMessage(sessionId: string, text: string, options?: SendMessageOptions) {
@@ -731,15 +774,18 @@ class Sync {
 
         // Upload attachments and queue file events before the text message.
         if (effectiveAttachments && effectiveAttachments.length > 0) {
-            const { uploaded, failed } = await this.uploadAttachmentsForSession(sessionId, effectiveAttachments);
+            const { uploaded, failed, reason } = await this.uploadAttachmentsForSession(sessionId, effectiveAttachments);
 
             if (failed > 0) {
                 Modal.alert(
                     t('imageUpload.uploadFailedTitle'),
-                    t('imageUpload.uploadFailedMessage', { count: failed }),
+                    t('imageUpload.uploadFailedMessage', { count: failed }) + (reason ? `\n\n${reason}` : ''),
                     [{ text: t('common.ok'), style: 'cancel' }],
                 );
             }
+            // Nothing was uploaded and there are no words: an empty message
+            // would only confuse the Agent. The draft is still there to retry.
+            if (uploaded.length === 0 && !text.trim()) return;
 
             if (uploaded.length > 0) {
                 let pending = this.pendingOutbox.get(sessionId);
@@ -763,6 +809,7 @@ class Sync {
                                     ref: att.ref,
                                     name: att.name,
                                     size: att.size,
+                                    ...(att.parts ? { parts: att.parts } : {}),
                                     // Include image metadata when we have dimensions; thumbhash is
                                     // optional. The native iOS picker can't generate a thumbhash
                                     // without Canvas, so requiring it here would reduce the chat
@@ -822,7 +869,9 @@ class Sync {
             },
             meta: {
                 sentFrom,
-                appendSystemPrompt: systemPrompt,
+                // The interactive-answers text follows the setting at send time, so
+                // turning it off stops costing tokens from the next message on.
+                appendSystemPrompt: [systemPrompt, interactiveAnswersPrompt(storage.getState().settings.interactiveAnswers)].filter(Boolean).join('\n\n'),
                 ...(modeMeta.permissionMode !== undefined ? { permissionMode: modeMeta.permissionMode } : {}),
                 ...(modeMeta.model !== undefined ? { model: modeMeta.model } : {}),
                 ...(modeMeta.modelProviderId !== undefined ? { modelProviderId: modeMeta.modelProviderId } : {}),
@@ -2138,6 +2187,36 @@ class Sync {
             await new Promise((resolve) => setTimeout(resolve, SLEEP_BETWEEN_PAGES_MS));
         }
     }
+
+    /** Re-read the gap after an orphan prompt, independent of the live high-water
+     * mark. Only matching control receipts enter the store; no business input,
+     * lifecycle replay, scrollback eviction or pagination cursor mutation. */
+    recoverQueueReceiptPage = async (sessionId: string, keys: string[], afterSeq: number) => {
+        if (!keys.length || !Number.isSafeInteger(afterSeq) || afterSeq < 1) throw new Error('Invalid queue recovery range');
+        return this.getSessionMessageLock(sessionId).inLock(async () => {
+            const encryption = this.encryption.getSessionEncryption(sessionId);
+            if (!encryption) throw new Error('Session encryption not ready');
+            const response = await apiSocket.request(`/v3/sessions/${sessionId}/messages?after_seq=${afterSeq}&limit=100`);
+            if (!response.ok) throw new Error(`Queue receipt recovery: ${response.status}`);
+            const data = await response.json() as V3GetSessionMessagesResponse;
+            const page = Array.isArray(data.messages) ? data.messages : [];
+            const decrypted = await encryption.decryptMessages(page);
+            const wanted = new Set(keys);
+            const receipts: NormalizedMessage[] = [];
+            let nextSeq = afterSeq;
+            for (let i = 0; i < page.length; i++) {
+                nextSeq = Math.max(nextSeq, page[i].seq);
+                const raw = decrypted[i];
+                if (!raw) throw new Error('Queue receipt could not be decrypted');
+                const message = normalizeRawMessage(raw.id, raw.localId, raw.createdAt, raw.content);
+                if (message && isMatchingQueueReceipt(message, wanted)) receipts.push({ ...message, serverSeq: page[i].seq });
+            }
+            if (receipts.length) storage.getState().applyMessages(sessionId, receipts, {
+                edge: storage.getState().sessionMessages[sessionId]?.windowEdge ?? 'newest',
+            });
+            return { nextSeq, hasMore: !!data.hasMore && nextSeq > afterSeq };
+        });
+    };
 
     private fetchInitialLatestPage = async (
         sessionId: string,

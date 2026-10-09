@@ -1,14 +1,6 @@
+import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import {
-    Modal as RNModal,
-    Platform,
-    Pressable,
-    Text,
-    View,
-    useWindowDimensions,
-    type StyleProp,
-    type ViewStyle,
-} from 'react-native';
+import { Modal as RNModal, Platform, Pressable, View, useWindowDimensions, type StyleProp, type ViewStyle } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';

@@ -1,8 +1,14 @@
 import { parseMarkdownBlock } from "./parseMarkdownBlock"
+import type { FollowupOption } from './parseFollowupDirective';
+
+export type MarkdownParseOptions = { followups?: boolean };
 
 export type MarkdownBlock = {
     type: 'text'
     content: MarkdownSpan[]
+} | {
+    type: 'quote',
+    content: string
 } | {
     type: 'header'
     level: 1 | 2 | 3 | 4 | 5 | 6
@@ -21,10 +27,21 @@ export type MarkdownBlock = {
     type: 'mermaid',
     content: string
 } | {
+    /** D30: a sandboxed page the engine answered with, or a reference to one it wrote earlier. */
+    type: 'interactive',
+    id: string | null,
+    title: string | null,
+    ref: string | null,
+    html: string,
+    closed: boolean
+} | {
     type: 'horizontal-rule'
 } | {
     type: 'options',
     items: string[]
+} | {
+    type: 'followups',
+    items: FollowupOption[]
 } | {
     type: 'table',
     headers: MarkdownSpan[][],
@@ -46,6 +63,6 @@ export type MarkdownSpan = {
     url: string | null
 }
 
-export function parseMarkdown(markdown: string) {
-    return parseMarkdownBlock(markdown);
+export function parseMarkdown(markdown: string, options: MarkdownParseOptions = {}) {
+    return parseMarkdownBlock(markdown, options);
 }

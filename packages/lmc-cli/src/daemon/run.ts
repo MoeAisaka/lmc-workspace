@@ -1,4 +1,7 @@
 import { registerEngineLogin } from './registerEngineLogin';
+import { startMachineSystemDiagnostics } from './machineSystemDiagnostics';
+import { startMachineResources } from './machineResources';
+import { startAiTraffic } from './aiTraffic';
 import { startModelDiscovery } from '@/runtime/modelDiscovery';
 import { UpgradeManager } from '@/runtime/upgradeManager';
 import { stageRelease, activateRelease, latestVersion, rollbackRelease } from '@/runtime/releaseInstaller';
@@ -6,6 +9,8 @@ import { AUTO_UPGRADE, checkEngineUpgrades } from '@/runtime/autoUpgrade';
 import { decideRefresh } from '@/runtime/refreshDecision';
 import { runtimeVersion, runsSelectedAgent, readRuntimeSelection, refreshSupported } from '@/runtime/managedRuntime';
 import { RefreshJournal, type RefreshJob } from './refreshJournal';
+import { recoverLateRefreshes } from './lateRefreshRecovery';
+import { ActiveSessionJournal, StartupSessionRecovery } from './sessionRecovery';
 import { canRefreshSession, resumeAfterExit, type SessionRefreshOptions } from './sessionRefresh';
 import { findProviderSessionPid } from './sessionSpawnGuard';
 import { validateCodexContextLimits } from '@/codex/contextLimits';
@@ -43,7 +48,7 @@ import { getTmuxUtilities, isTmuxAvailable, parseTmuxSessionIdentifier, formatTm
 import { expandEnvironmentVariables } from '@/utils/expandEnvVars';
 import { detectCLIAvailability } from '@/utils/detectCLI';
 import { buildResumeLaunch } from '@/resume/handleResumeCommand';
-import psList from 'ps-list';
+import { listSessionProcesses } from './sessionProcesses';
 import { findLiveSessionProcess, findOrphanedSessionPid, isProcessAlive, SingleFlight } from './sessionSpawnGuard';
 import { detectResumeSupport } from '@/resume/localHappyAgentAuth';
 import { encodeBase64, decodeBase64, decrypt } from '@/api/encryption';
@@ -101,9 +106,11 @@ export async function startDaemon(): Promise<void> {
   //
   // In case the setup malfunctions - our signal handlers will not properly
   // shut down. We will force exit the process with code 1.
+  let shuttingDown = false;
   let requestShutdown: (source: 'happy-app' | 'happy-cli' | 'os-signal' | 'exception', errorMessage?: string) => void;
   let resolvesWhenShutdownRequested = new Promise<({ source: 'happy-app' | 'happy-cli' | 'os-signal' | 'exception', errorMessage?: string })>((resolve) => {
     requestShutdown = (source, errorMessage) => {
+      shuttingDown = true;
       logger.debug(`[DAEMON RUN] Requesting shutdown (source: ${source}, errorMessage: ${errorMessage})`);
 
       // Fallback - in case startup malfunctions - we will force exit the process with code 1
@@ -238,6 +245,8 @@ export async function startDaemon(): Promise<void> {
     // Pre-populate from disk so sessions survive daemon restarts.
     const sessionIdToFinishedSession = new Map<string, TrackedSession>();
     const persisted = readPersistedSessions();
+    const bootedAt = Date.now() - os.uptime() * 1000;
+    const sessionBoot = (id: string) => ({ recordedAt: persisted[id]?.savedAt ?? 0, bootedAt });
     for (const [id, s] of Object.entries(persisted)) {
       sessionIdToFinishedSession.set(id, {
         startedBy: 'persisted',
@@ -256,6 +265,15 @@ export async function startDaemon(): Promise<void> {
     if (Object.keys(persisted).length > 0) {
       logger.debug(`[DAEMON RUN] Loaded ${Object.keys(persisted).length} persisted sessions from disk`);
     }
+    const activeSessionJournal = new ActiveSessionJournal(join(configuration.lmcHomeDir, 'active-sessions.json'));
+    const rememberActiveSession = (id: string, pid: number) => {
+      try { activeSessionJournal.remember(id, pid); }
+      catch (error) { logger.warn('[DAEMON] Could not persist automatic session recovery', error); }
+    };
+    const forgetActiveSession = (id: string, pid?: number) => {
+      try { activeSessionJournal.forget(id, pid); }
+      catch (error) { logger.warn('[DAEMON] Could not persist session stop', error); }
+    };
 
     // Session spawning awaiter system
     const pidToAwaiter = new Map<number, (session: TrackedSession) => void>();
@@ -287,6 +305,7 @@ export async function startDaemon(): Promise<void> {
           metadata: sessionMetadata,
           savedAt: Date.now(),
         });
+        rememberActiveSession(sessionId, pid);
       }
 
       // Check if we already have this PID (daemon-spawned)
@@ -770,7 +789,7 @@ export async function startDaemon(): Promise<void> {
       }
     };
 
-    const resumeSession = async (happySessionId: string, options?: { model?: string; permissionMode?: string; receiveSeq?: number; effort?: string; codexServiceTier?: CodexServiceTier; codexContextLimits?: CodexContextLimits }): Promise<SpawnSessionResult> => {
+    const resumeSession = async (happySessionId: string, options?: { model?: string; permissionMode?: string; receiveSeq?: number; effort?: string; codexServiceTier?: CodexServiceTier; codexContextLimits?: CodexContextLimits }, canStart: () => boolean = () => true): Promise<SpawnSessionResult> => {
       // Resume is idempotent: one live process per session, always.
       const live = findLiveSession(happySessionId);
       if (live) {
@@ -785,7 +804,8 @@ export async function startDaemon(): Promise<void> {
       try {
         orphanPid = await findOrphanedSessionPid(
           sessionIdToFinishedSession.get(happySessionId),
-          () => psList(),
+          () => listSessionProcesses(),
+          sessionBoot(happySessionId),
         );
       } catch (error) {
         return { type: 'error', errorMessage: error instanceof Error ? error.message : 'Cannot verify existing session process; refusing a duplicate.' };
@@ -800,7 +820,7 @@ export async function startDaemon(): Promise<void> {
       const providerSessionId = resumeMetadata?.flavor === 'codex' ? resumeMetadata?.codexThreadId : resumeMetadata?.claudeSessionId;
       let providerPid: number | undefined;
       try {
-        providerPid = findProviderSessionPid(await psList(), providerSessionId ?? undefined, pid => {
+        providerPid = findProviderSessionPid(await listSessionProcesses(), providerSessionId ?? undefined, pid => {
           const owner = pidToTrackedSession.get(pid);
           return !!owner && owner.happySessionId !== happySessionId;
         });
@@ -814,12 +834,12 @@ export async function startDaemon(): Promise<void> {
 
       return resumesInFlight.run(
         happySessionId,
-        () => resumeSessionUnguarded(happySessionId, options),
+        () => resumeSessionUnguarded(happySessionId, options, canStart),
         () => logger.debug(`[DAEMON RUN] Resume of session ${happySessionId} already in flight, joining it`),
       );
     };
 
-    const resumeSessionUnguarded = async (happySessionId: string, options?: SessionRefreshOptions): Promise<SpawnSessionResult> => {
+    const resumeSessionUnguarded = async (happySessionId: string, options?: SessionRefreshOptions, canStart: () => boolean = () => true): Promise<SpawnSessionResult> => {
       try {
         const tracked = findTrackedSessionById(happySessionId);
         if (!tracked) {
@@ -869,6 +889,10 @@ export async function startDaemon(): Promise<void> {
 
         await fs.access(launch.cwd);
 
+        // Stop/shutdown may arrive while process discovery or filesystem checks
+        // are awaiting. This is the last synchronous gate before creating a PID.
+        if (shuttingDown || !canStart()) return { type: 'error', errorMessage: 'Session resume cancelled' };
+
         return spawnTrackedLmcProcess({
           args: launch.args,
           cwd: launch.cwd,
@@ -900,11 +924,13 @@ export async function startDaemon(): Promise<void> {
     // Stop a session by sessionId or PID fallback
     const stopSession = (sessionId: string): boolean => {
       logger.debug(`[DAEMON RUN] Attempting to stop session ${sessionId}`);
+      if (!sessionId.startsWith('PID-')) forgetActiveSession(sessionId);
 
       // Try to find by sessionId first
       for (const [pid, session] of pidToTrackedSession.entries()) {
         if (session.happySessionId === sessionId ||
           (sessionId.startsWith('PID-') && pid === parseInt(sessionId.replace('PID-', '')))) {
+          if (session.happySessionId) forgetActiveSession(session.happySessionId, pid);
 
           if (session.startedBy === 'daemon' && session.childProcess) {
             // Signal the whole process group, not just the LMC CLI parent.
@@ -960,6 +986,7 @@ export async function startDaemon(): Promise<void> {
     const onChildExited = (pid: number) => {
       const session = pidToTrackedSession.get(pid);
       if (session?.happySessionId && session.encryption) {
+        if (!shuttingDown) forgetActiveSession(session.happySessionId, pid);
         sessionIdToFinishedSession.set(session.happySessionId, session);
         logger.debug(`[DAEMON RUN] Process PID ${pid} exited, preserved session ${session.happySessionId} for resume`);
       } else {
@@ -1001,7 +1028,7 @@ export async function startDaemon(): Promise<void> {
     };
     const prepareSessionRefresh = async (sessionId: string, pid: number, options: SessionRefreshOptions): Promise<{ error?: string }> => {
       const tracked = findTrackedSessionById(sessionId);
-      if (!await canRefreshSession(tracked, pid, () => psList())) {
+      if (!await canRefreshSession(tracked, pid, () => listSessionProcesses())) {
         return { error: 'Session identity or resume data unavailable; no process was stopped' };
       }
       try {
@@ -1041,6 +1068,19 @@ export async function startDaemon(): Promise<void> {
     for (const job of await refreshJournal.list()) {
       if (job.state === 'waiting') watchRefreshJob(job);
     }
+    const recoverLateRefreshJobs = () => recoverLateRefreshes({
+      journal: refreshJournal,
+      alive: isProcessAlive,
+      inFlight: id => refreshJobs.has(id),
+      metadata: async id => {
+        const tracked = findTrackedSessionById(id);
+        return tracked?.encryption
+          ? fetchServerSessionMetadata(id, tracked.encryption.encryptionKey, tracked.encryption.encryptionVariant)
+          : null;
+      },
+      watch: watchRefreshJob,
+    }).catch(error => logger.warn('[DAEMON] Late refresh recovery deferred', error));
+    await recoverLateRefreshJobs();
 
     // Start control server
     const { port: controlPort, stop: stopControlServer } = await startDaemonControlServer({
@@ -1116,6 +1156,48 @@ export async function startDaemon(): Promise<void> {
 
     // Connect to server
     apiMachine.connect();
+
+    // On an upgrade, adopt only verified live wrappers. Never seed recovery
+    // from all historical sessions.json records (including closed sessions).
+    try {
+      const processes = await listSessionProcesses();
+      for (const [id, tracked] of sessionIdToFinishedSession) {
+        if (findLiveSession(id)) continue;
+        const pid = await findOrphanedSessionPid(tracked, async () => processes, sessionBoot(id));
+        if (!pid) continue;
+        pidToTrackedSession.set(pid, { ...tracked, pid, startedBy: 'adopted' });
+        rememberActiveSession(id, pid);
+      }
+    } catch (error) { logger.warn('[DAEMON] Live session adoption deferred', error); }
+    const startupRecovery = new StartupSessionRecovery({
+      journal: activeSessionJournal, machineId,
+      stopping: () => shuttingDown,
+      busy: id => refreshJobs.has(id),
+      live: async id => !!(findLiveSession(id) || await findOrphanedSessionPid(findTrackedSessionById(id), () => listSessionProcesses(), sessionBoot(id))),
+      metadata: async id => {
+        const encryption = findTrackedSessionById(id)?.encryption;
+        return encryption ? fetchServerSessionMetadata(id, encryption.encryptionKey, encryption.encryptionVariant) : null;
+      },
+      resume: async (id, metadata, options, canStart) => {
+        const tracked = findTrackedSessionById(id);
+        if (!tracked || shuttingDown) throw new Error('Session recovery unavailable');
+        tracked.happySessionMetadataFromLocalWebhook = metadata;
+        const result = await resumeSession(id, options, canStart);
+        if (result.type !== 'success') throw new Error(result.type === 'error' ? result.errorMessage : 'Saved directory unavailable');
+        logger.debug(`[DAEMON] Automatically reconnected session ${id}`);
+      },
+      error: (id, error) => logger.warn(`[DAEMON] Automatic recovery deferred for ${id}`, error),
+    });
+    void startupRecovery.run();
+    const stopResources = startMachineResources({
+      publish: resources => apiMachine.updateDaemonState(state => ({ ...(state ?? { status: 'running' }), resources })),
+      roots: () => getCurrentChildren().filter(s => s.happySessionId && s.pid > 0).map(s => ({ sessionId: s.happySessionId!, pid: s.pid })),
+    });
+    const stopAiTraffic = startAiTraffic({
+      file: join(configuration.lmcHomeDir, 'ai-traffic.json'),
+      publish: aiTraffic => apiMachine.updateDaemonState(state => ({ ...(state ?? { status: 'running' }), aiTraffic })),
+    });
+    const stopSystemDiagnostics = startMachineSystemDiagnostics(fullDiskAccess => apiMachine.updateMachineMetadata(metadata => ({ ...metadata!, systemDiagnostics: { fullDiskAccess } })));
     const stopModelDiscovery = startModelDiscovery(async modelCatalogs => {
       await apiMachine.updateMachineMetadata(metadata => ({ ...metadata!, modelDiscovery: true, modelCatalogs }));
     });
@@ -1123,10 +1205,10 @@ export async function startDaemon(): Promise<void> {
     const stopEngineLogin = registerEngineLogin(apiMachine, {
       alive: async id => {
         const tracked = findTrackedSessionById(id);
-        return !!(findLiveSession(id)?.pid || (tracked && await findOrphanedSessionPid(tracked, () => psList())));
+        return !!(findLiveSession(id)?.pid || (tracked && await findOrphanedSessionPid(tracked, () => listSessionProcesses())));
       },
       ids: async () => {
-        const processes = await psList();
+        const processes = await listSessionProcesses();
         const all = new Map([...sessionIdToFinishedSession, ...Array.from(pidToTrackedSession.values()).filter(s => s.happySessionId).map(s => [s.happySessionId!, s] as const)]);
         const ids: string[] = [];
         for (const [id, tracked] of all) {
@@ -1163,7 +1245,7 @@ export async function startDaemon(): Promise<void> {
         const jobs: {id:string;state:'pending'}[]=[];
         for(const [id,tracked] of all){
           if(engine!=='agent' && tracked.happySessionMetadataFromLocalWebhook?.flavor!==engine)continue;
-          const live=findLiveSession(id)?.pid ?? await findOrphanedSessionPid(tracked,()=>psList());
+          const live=findLiveSession(id)?.pid ?? await findOrphanedSessionPid(tracked,()=>listSessionProcesses());
           if(live)jobs.push({id,state:'pending'});
         }
         return jobs;
@@ -1242,18 +1324,22 @@ export async function startDaemon(): Promise<void> {
       }
       heartbeatRunning = true;
 
+      await recoverLateRefreshJobs();
+      await startupRecovery.run();
+
       if (process.env.DEBUG) {
         logger.debug(`[DAEMON RUN] Health check started at ${new Date().toLocaleString()}`);
       }
 
       // Prune stale sessions
-      for (const [pid, _] of pidToTrackedSession.entries()) {
+      for (const [pid, tracked] of pidToTrackedSession.entries()) {
         try {
           // Check if process is still alive (signal 0 doesn't kill, just checks)
           process.kill(pid, 0);
         } catch (error) {
           // Process is dead, remove from tracking
           logger.debug(`[DAEMON RUN] Removing stale session with PID ${pid} (process no longer exists)`);
+          if (!shuttingDown && tracked.happySessionId) forgetActiveSession(tracked.happySessionId, pid);
           pidToTrackedSession.delete(pid);
         }
       }
@@ -1271,6 +1357,7 @@ export async function startDaemon(): Promise<void> {
         }
       }
       if (bundleReplaced || !runsSelectedAgent()) {
+        shuttingDown = true;
         // TODO: We probably do not want to keep this in-process self-restart logic long-term.
         // A native service manager would make startup and upgrades much simpler: the CLI would
         // ask the OS to start the latest daemon instead of hand-rolling respawn/kill behavior here.
@@ -1283,6 +1370,7 @@ export async function startDaemon(): Promise<void> {
         // isDaemonRunningCurrentlyInstalledLmcVersion() === true, and exits —
         // leaving nothing running once we also exit.
         stopModelDiscovery();
+        stopSystemDiagnostics();
         stopEngineLogin();
         apiMachine.shutdown();
         await stopControlServer();
@@ -1351,6 +1439,9 @@ export async function startDaemon(): Promise<void> {
       await new Promise(resolve => setTimeout(resolve, 100));
 
       stopModelDiscovery();
+      stopSystemDiagnostics();
+      stopResources();
+      stopAiTraffic();
       stopEngineLogin();
       apiMachine.shutdown();
       await stopControlServer();

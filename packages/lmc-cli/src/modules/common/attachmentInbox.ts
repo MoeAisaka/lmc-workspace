@@ -4,7 +4,7 @@ import { join, extname, basename } from 'node:path';
 import { configuration } from '@/configuration';
 import { logger } from '@/ui/logger';
 
-export interface InboxAttachment { data: Uint8Array; mimeType: string; name: string }
+export interface InboxAttachment { data: Uint8Array; mimeType: string; name: string; file?: { path: string; size: number } }
 export interface SavedAttachment { name: string; path: string; size: number; isImage: boolean }
 
 const IMAGE_MAGIC: number[][] = [
@@ -64,15 +64,37 @@ export async function saveAttachmentsToInbox(
         const prefix = stamp((opts.now ?? (() => new Date()))());
         const suffix = attachments.length > 1 ? `-${index + 1}` : '';
         const ext = extname(name);
-        const path = join(dir, `${prefix}${suffix}-${ext ? name.slice(0, -ext.length) : name}${ext}`);
-        try {
-            await writeFile(path, Buffer.from(att.data), { flag: 'wx', mode: 0o600 });
-            saved.push({ name, path, size: att.data.length, isImage: looksLikeImage(att.data) });
-        } catch (error) {
-            logger.debug('[inbox] Failed to save attachment', { name, error: error instanceof Error ? error.message : String(error) });
+        // A large file was written here while it downloaded; it is never model input.
+        if (att.file) { saved.push({ name, path: att.file.path, size: att.file.size, isImage: false }); continue; }
+        const base = `${prefix}${suffix}-${ext ? name.slice(0, -ext.length) : name}`;
+        // Different queued messages often all call their screenshot image.jpg.
+        // Reserve by writing exclusively, including on concurrent deliveries.
+        for (let collision = 0; ; collision++) {
+            const path = join(dir, `${base}${collision ? `-${collision + 1}` : ''}${ext}`);
+            try {
+                await writeFile(path, Buffer.from(att.data), { flag: 'wx', mode: 0o600 });
+                saved.push({ name, path, size: att.data.length, isImage: looksLikeImage(att.data) });
+                break;
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException)?.code === 'EEXIST') continue;
+                logger.debug('[inbox] Failed to save attachment', { name, error: error instanceof Error ? error.message : String(error) });
+                break;
+            }
         }
     }
     return saved;
+}
+
+/** A fresh path in the inbox for a file that is written as it arrives. */
+export async function reserveInboxPath(name: string, opts: { projectPath: string | null | undefined; sessionId: string; now?: () => Date }): Promise<string> {
+    const dir = await resolveInboxDir(opts.projectPath, opts.sessionId);
+    const safe = safeAttachmentName(name);
+    const ext = extname(safe);
+    const base = `${stamp((opts.now ?? (() => new Date()))())}-${ext ? safe.slice(0, -ext.length) : safe}`;
+    for (let n = 0; ; n++) {
+        const path = join(dir, `${base}${n ? `-${n + 1}` : ''}${ext}`);
+        try { await access(path, constants.F_OK); } catch { return path; }
+    }
 }
 
 /** Text appended to the user's message so the agent knows where the files are. */
@@ -85,5 +107,6 @@ export function formatInboxNote(saved: SavedAttachment[]): string {
 function formatBytes(n: number): string {
     if (n < 1024) return `${n} B`;
     if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-    return `${(n / 1024 / 1024).toFixed(1)} MB`;
+    if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+    return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }

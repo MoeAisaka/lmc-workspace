@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import { db } from '@/storage/db';
 import { lmcAuth } from './auth';
+import { AGENT_MAIL_RECEIPT_PROTOCOL } from 'lmc-wire';
 
 /**
  * Agent-to-agent mail.
@@ -38,7 +39,7 @@ export function lmcAgentMailRoutes(app: FastifyInstance<any, any, any, any>) {
         if (!accountId) return reply.code(401).send({ error: 'Device authorization is no longer valid' });
         const key = await lmcAuth.agentChannelKey(accountId);
         if (!key) return reply.code(404).send({ error: 'This account has no channel key' });
-        return { key, mailProtocol: 2 };
+        return { key, mailProtocol: AGENT_MAIL_RECEIPT_PROTOCOL };
     });
 
     app.put('/v1/lmc/agent/directory', async (request, reply) => {
@@ -106,8 +107,12 @@ export function lmcAgentMailRoutes(app: FastifyInstance<any, any, any, any>) {
     app.get('/v1/lmc/agent/mail', async (request, reply) => {
         const accountId = await agentAccount(request);
         if (!accountId) return reply.code(401).send({ error: 'Device authorization is no longer valid' });
-        const parsed = z.object({ sessionId: z.string().min(1).max(64) }).safeParse(request.query);
+        const parsed = z.object({
+            sessionId: z.string().min(1).max(64),
+            mailProtocol: z.coerce.number().int().min(1).max(AGENT_MAIL_RECEIPT_PROTOCOL).optional(),
+        }).safeParse(request.query);
         if (!parsed.success) return reply.code(400).send({ error: 'Invalid request' });
+        if (!await ownSession(accountId, parsed.data.sessionId)) return reply.code(404).send({ error: 'Unknown recipient' });
         const pending = await db.agentMail.findMany({
             where: { accountId, toSessionId: parsed.data.sessionId, deliveredAt: null },
             orderBy: { createdAt: 'asc' },
@@ -115,9 +120,12 @@ export function lmcAgentMailRoutes(app: FastifyInstance<any, any, any, any>) {
         });
         const claimed: typeof pending = [];
         for (const mail of pending) {
-            // Marked as the agent takes them: a crash between here and the
-            // engine loses a message, which is the safer failure — redelivery
-            // would replay work the agent may already have done.
+            if (parsed.data.mailProtocol === AGENT_MAIL_RECEIPT_PROTOCOL) {
+                claimed.push(mail);
+                continue;
+            }
+            // Older recipients cannot suppress redelivery durably. Preserve
+            // their take-and-mark contract until they upgrade.
             const result = await db.agentMail.updateMany({
                 where: { id: mail.id, accountId, toSessionId: parsed.data.sessionId, deliveredAt: null },
                 data: { deliveredAt: new Date() },
@@ -125,6 +133,7 @@ export function lmcAgentMailRoutes(app: FastifyInstance<any, any, any, any>) {
             if (result.count === 1) claimed.push(mail);
         }
         return {
+            mailProtocol: parsed.data.mailProtocol === AGENT_MAIL_RECEIPT_PROTOCOL ? AGENT_MAIL_RECEIPT_PROTOCOL : 2,
             mail: claimed.map((mail) => ({
                 id: mail.id,
                 fromSessionId: mail.fromSessionId,
@@ -133,5 +142,27 @@ export function lmcAgentMailRoutes(app: FastifyInstance<any, any, any, any>) {
                 createdAt: mail.createdAt.getTime(),
             })),
         };
+    });
+
+    app.post('/v1/lmc/agent/mail/ack', async (request, reply) => {
+        const accountId = await agentAccount(request);
+        if (!accountId) return reply.code(401).send({ error: 'Device authorization is no longer valid' });
+        const parsed = z.object({
+            sessionId: z.string().min(1).max(64),
+            ids: z.array(z.string().min(1).max(128)).min(1).max(20),
+        }).safeParse(request.body);
+        if (!parsed.success) return reply.code(400).send({ error: 'Invalid acknowledgement' });
+        const { sessionId } = parsed.data;
+        if (!await ownSession(accountId, sessionId)) return reply.code(404).send({ error: 'Unknown recipient' });
+        const ids = [...new Set(parsed.data.ids)];
+        // Check the whole batch before changing any row. Delivered tombstones
+        // count too, so a lost ACK response can be retried without side effects.
+        const owned = await db.agentMail.findMany({ where: { accountId, toSessionId: sessionId, id: { in: ids } }, select: { id: true } });
+        if (owned.length !== ids.length) return reply.code(403).send({ error: 'Mail does not belong to this recipient' });
+        await db.agentMail.updateMany({
+            where: { accountId, toSessionId: sessionId, id: { in: ids }, deliveredAt: null },
+            data: { deliveredAt: new Date() },
+        });
+        return { acknowledged: ids };
     });
 }

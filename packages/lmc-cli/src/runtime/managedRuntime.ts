@@ -1,11 +1,9 @@
 import { readFileSync, existsSync, realpathSync } from 'node:fs';
 import { join, isAbsolute } from 'node:path';
 import { createRequire } from 'node:module';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { probeCommand } from '@/utils/probeCommand';
 import { configuration } from '@/configuration';
 import { projectPath } from '@/projectPath';
-const run = promisify(execFile);
 const require = createRequire(import.meta.url);
 export type Engine = 'claude' | 'codex';
 export type Component = Engine | 'agent';
@@ -31,7 +29,7 @@ export function sdkRequire(release:Release|null=runtimeRelease('claude')??null) 
 }
 export function claudeExecutable(release:Release|null=runtimeRelease('claude')??null) {
     const relative=createRequire(sdkRequire(release).resolve('@anthropic-ai/claude-agent-sdk'));
-    return relative.resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/claude`);
+    return relative.resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/claude${process.platform === 'win32' ? '.exe' : ''}`);
 }
 export function codexExecutable(release:Release|null=runtimeRelease('codex')??null) {
     return release ? join(release.directory,'node_modules','.bin','codex') : 'codex';
@@ -49,12 +47,13 @@ export function runsSelectedAgent(root:string=agentRoot(), running:string=projec
     return root===running || resolve(root)===resolve(running);
 }
 export function engineCapabilities(engine:Engine) {
-    return {automaticGoals:true,modelDiscovery:true,refresh:true,cancelRefresh:true,turnQueue:true,turnSteer:engine==='codex',turnQueueLifecycle:true,authentication:true,authenticationRecovery:true,resume:true,resourceFiles:true,resourceSearch:true,fileInbox:true,model:true,effort:true,context:engine==='codex',serviceTier:engine==='codex',runtimeConfiguration:engine==='codex'};
+    return {automaticGoals:true,modelDiscovery:true,refresh:true,cancelRefresh:true,turnQueue:true,turnSteer:engine==='codex',turnQueueLifecycle:true,authentication:true,authenticationRecovery:true,resume:true,resourceFiles:true,resourceSearch:true,fileInbox:true,largeFiles:true,model:true,effort:true,context:engine==='codex',serviceTier:engine==='codex',runtimeConfiguration:engine==='codex'};
 }
 export async function runtimeVersion(engine:Engine, fresh=false) {
     const release=runtimeRelease(engine,fresh)??null;
     const command=engine==='claude'?claudeExecutable(release):codexExecutable(release);
-    const {stdout}=await run(command,['--version'],{timeout:10000,maxBuffer:8192});
+    const {code,stdout}=await probeCommand(command,['--version'],{timeout:10000,maxBuffer:8192});
+    if(code!==0)throw new Error('无法读取引擎版本');
     const version=stdout.match(/\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?/)?.[0];
     if(!version)throw new Error('无法识别引擎版本');
     return {engine,version,packageVersion:release?.version,source:release?'lmc-managed':engine==='claude'?'sdk-bundled':'system-path',path:command==='codex'?command:realpathSync(command)};

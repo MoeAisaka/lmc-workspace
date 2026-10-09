@@ -1,18 +1,6 @@
+import { Text } from '@/components/StyledText';
 import React, { useEffect, useRef, useState } from 'react';
-import {
-    Animated,
-    Easing,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-    Platform,
-    useWindowDimensions,
-    type StyleProp,
-    type TextStyle,
-    type ViewStyle,
-} from 'react-native';
+import { Animated, Easing, ScrollView, StyleSheet, TouchableOpacity, View, Platform, useWindowDimensions, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 import { sessionAllow, sessionDeny, sessionSetAgentModes } from '@/sync/ops';
 import { useUnistyles } from 'react-native-unistyles';
 import { storage } from '@/sync/storage';

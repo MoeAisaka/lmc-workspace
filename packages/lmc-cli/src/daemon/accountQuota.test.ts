@@ -35,6 +35,17 @@ describe('sanitized dashboard projection', () => {
         expect(projectAccountQuota(raw, now).providers[1].windows[1].remaining).toBeNull();
         expect(projectAccountQuota(null, now).providers.every(p => p.capturedAt === null && p.stale)).toBe(true);
     });
+    it('projects the distinct reserve pool without treating reset vouchers as supplementary quota', () => {
+        const raw = source() as any;
+        expect(projectAccountQuota(raw, now).providers[0].supplemental).toBeNull();
+        raw.sources.codex_spark.data.reserve = { present: true, remainingWeeklyPercent: 100, pendingWeekly: true };
+        expect(projectAccountQuota(raw, now).providers[0].supplemental).toMatchObject({ remaining: 100, pending: true, capturedAt: now - 120_000, stale: false });
+        raw.sources.codex_spark.data.reserve.remainingWeeklyPercent = 0;
+        expect(projectAccountQuota(raw, now).providers[0].supplemental?.remaining).toBe(0);
+        raw.sources.codex_spark.data.reserve.remainingWeeklyPercent = 101;
+        expect(projectAccountQuota(raw, now).providers[0].supplemental?.remaining).toBeNull();
+        expect(projectAccountQuota(raw, now + 70 * 60_000).providers[0].supplemental?.stale).toBe(true);
+    });
     it('coalesces concurrent reads and enforces a 15-second cache, including failure', async () => {
         const read = vi.fn().mockResolvedValue(projectAccountQuota(source(), now));
         const handler = createAccountQuotaHandler(read);

@@ -110,7 +110,13 @@ describe('findOrphanedSessionPid', () => {
         happySessionMetadataFromLocalWebhook: { hostPid } as TrackedSession['happySessionMetadataFromLocalWebhook'],
     });
 
-    const happyCmd = '/opt/node /Volumes/WorkSSD/DevCaches/npm-global/lib/node_modules/happy/dist/index.mjs claude --resume abc';
+    const happyCmd = '/opt/node /Volumes/Data/DevCaches/npm-global/lib/node_modules/happy/dist/index.mjs claude --resume abc';
+
+    it('rejects even an LMC PID if its registration belongs to the previous machine boot', async () => {
+        const processes = async () => [{ pid: 52272, name: 'node', cmd: happyCmd }];
+        expect(await findOrphanedSessionPid(persisted(52272), processes, { recordedAt: 100, bootedAt: 200 })).toBeUndefined();
+        expect(await findOrphanedSessionPid(persisted(52272), processes, { recordedAt: 210, bootedAt: 200 })).toBe(52272);
+    });
 
     it('recovers a session left running by a previous daemon', async () => {
         const found = await findOrphanedSessionPid(persisted(52272), async () => [
@@ -163,9 +169,14 @@ describe('findOrphanedSessionPid', () => {
     });
 
     it.each([
+        '/home/user/.local/opt/node-v24.21.0-linux-x64/bin/node --no-warnings --no-deprecation /home/user/.local/lib/node_modules/link-my-cli/dist/index.mjs codex --resume abc',
+        '/usr/bin/node /home/user/.local/lib/node_modules/link-my-cli/dist/index.mjs claude --resume abc',
         '/opt/node --no-warnings --no-deprecation /opt/happy/dist/index.mjs codex --resume abc',
         '/opt/node /Volumes/Work SSD/happy-cli/dist/index.mjs claude --resume abc',
         '/opt/node /opt/happy/dist/index.mjs --happy-starting-mode remote --resume abc',
+        String.raw`node --no-warnings --no-deprecation C:\Users\MoeAi\AppData\Roaming\npm\node_modules\link-my-cli\dist\index.mjs codex --started-by daemon`,
+        String.raw`"C:\Program Files\nodejs\node.exe" --no-warnings "C:\Users\Test User\AppData\Roaming\npm\node_modules\link-my-cli\dist\index.mjs" codex --started-by daemon`,
+        String.raw`"C:\Program Files\nodejs\node.exe" "C:\Users\MoeAi\.lmc\agent-releases\release-123\dist\index.mjs" claude --resume abc`,
     ])('recognizes the actual session wrapper: %s', async (cmd) => {
         expect(await findOrphanedSessionPid(persisted(52272), async () => [
             { pid: 52272, name: 'node', cmd },
@@ -190,6 +201,12 @@ describe('finding a wrapper by the conversation it resumes', () => {
 
     it('finds a replacement neither the map nor the persisted pid knows', () => {
         expect(findProviderSessionPid([wrapper(73682, thread)], thread)).toBe(73682);
+    });
+
+    it('finds an orphaned Windows wrapper by its original provider thread', () => {
+        const cmd = String.raw`"C:\Program Files\nodejs\node.exe" "C:\Users\MoeAi\AppData\Roaming\npm\node_modules\link-my-cli\dist\index.mjs" codex --resume ${thread}`;
+        expect(findProviderSessionPid([{pid: 13656, cmd}], thread)).toBe(13656);
+        expect(findProviderSessionPid([{pid: 13656, cmd: cmd.replace(' codex --resume', ' daemon --resume')}], thread)).toBeUndefined();
     });
 
     it('ignores the engine process that resumes the same conversation', () => {

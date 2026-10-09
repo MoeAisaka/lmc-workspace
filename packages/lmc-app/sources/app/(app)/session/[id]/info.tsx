@@ -1,7 +1,11 @@
+import { lmcColors } from '@/components/lmc/lmcColors';
+import { DetailSummary } from '@/components/lmc/DetailSummary';
+import { ProviderIcon } from '@/components/ProviderIcon';
+import { Text } from '@/components/StyledText';
 import React, { useCallback } from 'react';
 import { useAllSessions } from '@/sync/storage';
 import { openCollaborationSheet } from '@/components/lmc/CollaborationSheet';
-import { View, Text, Animated, Platform, Switch } from 'react-native';
+import { View, Animated, Platform, Switch } from 'react-native';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons, Octicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
@@ -130,7 +134,7 @@ function formatDangerouslySkipPermissionsMetadata(
     return 'Unknown';
 }
 
-function SessionInfoContent({ session }: { session: Session }) {
+export function SessionInfoContent({ session }: { session: Session }) {
     const { theme } = useUnistyles();
     const router = useRouter();
     const projectAvatar = useSessionProjectAvatar(session.id);
@@ -259,10 +263,17 @@ function SessionInfoContent({ session }: { session: Session }) {
                     paddingTop: Platform.OS === 'ios' ? MOBILE_GLASS_HEADER_HEIGHT : 0,
                 }}
             >
-                {/* Session Header */}
-                <View style={{ maxWidth: layout.maxWidth, alignSelf: 'center', width: '100%' }}>
+                {/* Compact Web identity; native keeps its platform header. */}
+                {Platform.OS === 'web' ? <DetailSummary
+                    title={sessionName}
+                    status={sessionStatus.statusText}
+                    statusColor={sessionStatus.statusDotColor}
+                    icon={projectAvatar?.uri
+                        ? <Avatar id={getSessionAvatarId(session)} size={48} imageUrl={projectAvatar.uri} thumbhash={projectAvatar.thumbhash} />
+                        : <ProviderIcon kind={session.metadata?.flavor} size={26} />}
+                /> : <View style={{ maxWidth: layout.maxWidth, alignSelf: 'center', width: '100%' }}>
                     <MobileGlassSurface
-                        enabled={Platform.OS !== 'web'}
+                        enabled
                         intensity={68}
                         style={{
                             alignItems: 'center',
@@ -277,11 +288,11 @@ function SessionInfoContent({ session }: { session: Session }) {
                             marginHorizontal: 16,
                             marginTop: 16,
                             overflow: 'hidden',
-                            borderWidth: Platform.OS === 'web' ? 0 : 0.5,
+                            borderWidth: 0.5,
                             borderColor: theme.colors.glass.border,
                             shadowColor: theme.colors.glass.shadow,
                             shadowOffset: { width: 0, height: 10 },
-                            shadowOpacity: Platform.OS === 'web' ? 0 : 1,
+                            shadowOpacity: 1,
                             shadowRadius: 24,
                         }}
                     >
@@ -308,13 +319,14 @@ function SessionInfoContent({ session }: { session: Session }) {
                             </Text>
                         </View>
                     </MobileGlassSurface>
-                </View>
+                </View>}
 
                 {/* CLI Version Warning */}
                 {isCliOutdated && (
                     <ItemGroup>
                         <Item
                             title={t('sessionInfo.cliVersionOutdated')}
+                            titleStyle={{ color: lmcColors(theme).attention }}
                             subtitle={t('sessionInfo.updateCliInstructions')}
                             icon={<Ionicons name="warning-outline" size={29} color="#FF9500" />}
                             showChevron={false}
@@ -468,12 +480,14 @@ function SessionInfoContent({ session }: { session: Session }) {
                     )}
                     <Item
                         title={t('sessionInfo.archiveSession')}
+                        destructive
                         subtitle={t('sessionInfo.archiveSessionSubtitle')}
                         icon={<Ionicons name="archive-outline" size={29} color="#FF3B30" />}
                         onPress={handleArchiveSession}
                     />
                     <Item
                         title={t('sessionInfo.deleteSession')}
+                        destructive
                         subtitle={t('sessionInfo.deleteSessionSubtitle')}
                         icon={<Ionicons name="trash-outline" size={29} color="#FF3B30" />}
                         onPress={handleDeleteSession}

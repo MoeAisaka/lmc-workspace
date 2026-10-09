@@ -1,5 +1,7 @@
+import { Text } from '@/components/StyledText';
+import { dialogAppearance } from './dialogAppearance';
 import React from 'react';
-import { Platform, View, Text, Pressable } from 'react-native';
+import { Platform, View, Pressable } from 'react-native';
 import { BaseModal } from './BaseModal';
 import { AlertModalConfig, ConfirmModalConfig } from '../types';
 import { Typography } from '@/constants/Typography';
@@ -33,6 +35,7 @@ export function WebAlertModal({ config, onClose, onConfirm }: WebAlertModalProps
         ]
         : config.buttons || [{ text: 'OK', style: 'default' as const }];
 
+    const appearance = dialogAppearance(theme);
     const styles = StyleSheet.create({
         container: {
             backgroundColor: Platform.select({
@@ -53,48 +56,56 @@ export function WebAlertModal({ config, onClose, onConfirm }: WebAlertModalProps
             },
             shadowOpacity: 0.25,
             shadowRadius: 4,
-            elevation: 5
+            elevation: 5,
+            ...appearance.container
         },
         content: {
             paddingHorizontal: 16,
             paddingTop: 20,
             paddingBottom: 16,
-            alignItems: 'center'
+            alignItems: 'center',
+            ...appearance.content
         },
         title: {
             fontSize: 17,
             textAlign: 'center',
             color: theme.colors.text,
-            marginBottom: 4
+            marginBottom: 4,
+            ...appearance.title
         },
         message: {
             fontSize: 13,
             textAlign: 'center',
             color: theme.colors.text,
             marginTop: 4,
-            lineHeight: 18
+            lineHeight: 18,
+            ...appearance.message
         },
         buttonContainer: {
             borderTopWidth: 1,
             borderTopColor: theme.colors.divider,
-            flexDirection: 'row'
+            flexDirection: 'row',
+            ...appearance.buttonContainer
         },
         button: {
             flex: 1,
             paddingVertical: 11,
             alignItems: 'center',
-            justifyContent: 'center'
+            justifyContent: 'center',
+            ...appearance.button
         },
         buttonPressed: {
             backgroundColor: theme.colors.divider
         },
         buttonSeparator: {
             width: 1,
-            backgroundColor: theme.colors.divider
+            backgroundColor: theme.colors.divider,
+            ...appearance.buttonSeparator
         },
         buttonText: {
             fontSize: 17,
-            color: theme.colors.textLink
+            color: theme.colors.textLink,
+            ...appearance.buttonText
         },
         cancelText: {
             fontWeight: '400'
@@ -129,7 +140,7 @@ export function WebAlertModal({ config, onClose, onConfirm }: WebAlertModalProps
                     {buttons.map((button, index) => (
                         <React.Fragment key={index}>
                             {index > 0 && <View style={styles.buttonSeparator} />}
-                            <Pressable
+                            <Pressable accessibilityRole="button"
                                 style={({ pressed }) => [
                                     styles.button,
                                     pressed && styles.buttonPressed

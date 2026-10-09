@@ -1,5 +1,9 @@
+import { Typography } from '@/constants/Typography';
+import { conversationFontSize, conversationLineHeight } from '@/constants/PersonalizationStyles';
+import { Text } from '@/components/StyledText';
+import { MarkdownView } from '@/components/markdown/MarkdownView';
 import * as React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { parseEnvelope, type Envelope, type ReportStatus, type ReviewStatus } from '@/sync/orchestrationEnvelope';
@@ -18,39 +22,42 @@ const tk = (key: string): string => (t as unknown as (k: string) => string)(key)
  * Mail between bound sessions arrives as a user message with the runner's
  * framing on top; shown as a user bubble it would read as something the
  * person said. These cards say who wrote it and, when the body is a task,
- * report or review envelope, lay the envelope out field by field — a hub
- * reviewing reports reads a column of labels, not a paragraph.
+ * report or review envelope, lay long fields out as reading sections. Only
+ * short metadata shares a label/value row, so prose has the full phone width.
  *
  * Direction is drawn, not just written: ↓ for a task travelling down, ↑ for
  * a report travelling up, ✓/↩ for a verdict. Reviewing is the hub's job, so
  * the cards carry no verdict controls: the person talks to the hub.
  */
-export function MailBlock({ text }: { text: string }) {
+export function MailBlock({ text, sessionId }: { text: string; sessionId?: string }) {
     const { theme } = useUnistyles();
     const mail = React.useMemo(() => parseMail(text), [text]);
     if (!mail) return null;
     const envelope = parseEnvelope(mail.body);
     if (envelope) {
-        return <EnvelopeCard envelope={envelope} direction="in" counterpartId={mail.senderId} counterpartLabel={mail.who} />;
+        return <EnvelopeCard envelope={envelope} direction="in" counterpartId={mail.senderId} counterpartLabel={mail.who} sessionId={sessionId} />;
     }
     const label = mail.relation === 'hub' ? t('lmc.orchestration.fromHub') : mail.relation === 'worker' ? t('lmc.orchestration.fromWorker') : t('lmc.orchestration.mailFrom', { who: mail.who });
     return (
-        <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.divider }]}>
+        <View {...{ dataSet: { lmcMail: 'message' } }} style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.divider }]}>
             <View style={styles.head}>
                 <Ionicons name="mail-outline" size={13} color={theme.colors.textSecondary} />
                 <Text style={[styles.headText, { color: theme.colors.textSecondary }]} numberOfLines={1}>{label}{mail.relation !== 'other' ? ` · ${mail.who}` : ''}</Text>
             </View>
-            <Text selectable style={[styles.body, { color: theme.colors.text }]}>{mail.body}</Text>
+            <View {...{ dataSet: { lmcMailSection: 'body' } }} style={styles.section}>
+                <MarkdownView markdown={mail.body} sessionId={sessionId} />
+            </View>
         </View>
     );
 }
 
-export function EnvelopeCard({ envelope, direction, counterpartId, counterpartLabel }: {
+export function EnvelopeCard({ envelope, direction, counterpartId, counterpartLabel, sessionId }: {
     envelope: Envelope;
     /** `in`: this session received it. `out`: this session sent it. */
     direction: 'in' | 'out';
     counterpartId: string | null;
     counterpartLabel?: string | null;
+    sessionId?: string;
 }) {
     const { theme } = useUnistyles();
     const colors = lmcColors(theme);
@@ -71,26 +78,30 @@ export function EnvelopeCard({ envelope, direction, counterpartId, counterpartLa
 
 
     return (
-        <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.divider }]}>
-            <View style={styles.head}>
-                <Text style={[styles.headText, { color: accent }]} numberOfLines={1}>
-                    {arrow} {kind} {envelope.id}{attemptLabel}{counterpartLabel && direction === 'in' ? ` · ${counterpartLabel}` : ''}
-                </Text>
-                <View style={{ flex: 1 }} />
+        <View {...{ dataSet: { lmcMail: envelope.kind } }} style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.divider }]}>
+            <View style={[styles.head, { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider }]}>
+                <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+                    <Text style={[styles.headText, { color: accent }]}>{arrow} {kind}{attemptLabel}</Text>
+                    <Text selectable style={[styles.identity, { color: theme.colors.textSecondary }]}>{envelope.id}{counterpartLabel && direction === 'in' ? ` · ${counterpartLabel}` : ''}</Text>
+                </View>
                 {status && pill && (
                     <View style={[styles.pill, { backgroundColor: pill.bg }]}><Text style={[styles.pillText, { color: pill.fg }]}>{tk(`lmc.orchestration.state.${status}`)}</Text></View>
                 )}
             </View>
-            {fields.map(([name, value]) => (
-                <View key={name} style={styles.fieldRow}>
-                    <Text style={[styles.fieldName, { color: theme.colors.textSecondary }]}>{tk(`lmc.orchestration.field.${name}`)}</Text>
-                    <Text selectable style={[styles.fieldValue, { color: theme.colors.text }]}>{value}</Text>
-                </View>
-            ))}
+            <View style={styles.fields}>
+                {fields.map(([name, value]) => {
+                    const metadata = ['stage', 'run', 'cost', 'model'].includes(name) && value.length < 160 && !value.includes('\n');
+                    return <View key={name} {...{ dataSet: { lmcMailSection: name } }} style={metadata ? styles.metadataRow : styles.section}>
+                        <Text style={[styles.fieldName, metadata && styles.metadataName, { color: theme.colors.textSecondary }]}>{tk(`lmc.orchestration.field.${name}`)}</Text>
+                        {metadata ? <Text selectable style={[styles.fieldValue, { color: theme.colors.text }]}>{value}</Text>
+                            : <MarkdownView markdown={value} sessionId={sessionId} />}
+                    </View>;
+                })}
+            </View>
             {evidence && (
                 <View style={styles.evidence}>
-                    <Pressable accessibilityRole="button" onPress={() => setShowEvidence((v) => !v)} style={styles.evidenceToggle}>
-                        <Ionicons name={showEvidence ? 'chevron-down' : 'chevron-forward'} size={12} color={theme.colors.textSecondary} />
+                    <Pressable accessibilityRole="button" accessibilityLabel={showEvidence ? t('lmc.orchestration.hideEvidence') : t('lmc.orchestration.showEvidence')} accessibilityState={{ expanded: showEvidence }} aria-expanded={showEvidence} onPress={() => setShowEvidence((v) => !v)} style={styles.evidenceToggle}>
+                        <Ionicons accessible={false} name={showEvidence ? 'chevron-down' : 'chevron-forward'} size={12} color={theme.colors.textSecondary} />
                         <Text style={[styles.evidenceLabel, { color: theme.colors.textSecondary }]}>{showEvidence ? t('lmc.orchestration.hideEvidence') : t('lmc.orchestration.showEvidence')}</Text>
                     </Pressable>
                     {showEvidence && (
@@ -112,21 +123,24 @@ export function EnvelopeCard({ envelope, direction, counterpartId, counterpartLa
 }
 
 const styles = StyleSheet.create(() => ({
-    card: { marginHorizontal: 16, marginVertical: 6, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, paddingVertical: 10, gap: 4 },
-    head: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingBottom: 4 },
-    headText: { fontSize: 12, fontWeight: '600', flexShrink: 1 },
-    body: { fontSize: 14, lineHeight: 20, paddingHorizontal: 14 },
-    fieldRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingHorizontal: 14, paddingVertical: 3 },
-    fieldName: { width: 40, fontSize: 12, lineHeight: 18 },
-    fieldValue: { flex: 1, fontSize: 13, lineHeight: 18 },
-    pill: { paddingHorizontal: 7, paddingVertical: 1, borderRadius: 999 },
-    pillText: { fontSize: 11, fontWeight: '600' },
-    evidence: { paddingHorizontal: 14, paddingTop: 4, gap: 6 },
-    evidenceToggle: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-    evidenceLabel: { fontSize: 12 },
+    card: { marginHorizontal: 16, marginVertical: 8, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, padding: 16, gap: 16, minWidth: 0 },
+    head: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingBottom: 12 },
+    headText: { fontSize: 13, lineHeight: 20, fontWeight: '600', flexShrink: 1 },
+    identity: { fontSize: 12, lineHeight: 19 },
+    fields: { gap: 20 },
+    section: { minWidth: 0, gap: 8 },
+    metadataRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+    metadataName: { width: 44 },
+    fieldName: { fontSize: conversationFontSize(12), lineHeight: conversationLineHeight(22), fontWeight: '600' },
+    fieldValue: { flex: 1, minWidth: 0, fontSize: conversationFontSize(14), lineHeight: conversationLineHeight(22) },
+    pill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
+    pillText: { fontSize: 11, lineHeight: 18, fontWeight: '600' },
+    evidence: { gap: 6 },
+    evidenceToggle: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 44 },
+    evidenceLabel: { fontSize: 13 },
     evidenceBox: { borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, padding: 10 },
-    evidenceText: { fontSize: 11.5, lineHeight: 16, fontFamily: 'Menlo' },
-    actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, paddingHorizontal: 14, paddingTop: 8 },
-    button: { height: 30, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-    buttonText: { fontSize: 12, fontWeight: '600' },
+    evidenceText: { fontSize: conversationFontSize(13), lineHeight: conversationLineHeight(21), ...Typography.mono() },
+    actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8 },
+    button: { minHeight: 44, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+    buttonText: { fontSize: 13, fontWeight: '600' },
 }));

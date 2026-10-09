@@ -25,6 +25,8 @@ export type UploadedAttachment = {
     width: number;
     height: number;
     thumbhash?: string;
+    /** Ordered pieces of a large file; `ref` is the first. */
+    parts?: string[];
 };
 
 export const MAX_IMAGES_PER_MESSAGE = 20;
@@ -38,6 +40,14 @@ export const MAX_ATTACHMENT_FILE_SIZE = 50 * 1024 * 1024;
  * picked it. The document picker used to apply the file limit to images too, so
  * the same photo passed through "+" and was refused when pasted.
  */
-export function attachmentSizeLimit(mimeType: string | null | undefined): number {
-    return (mimeType || '').startsWith('image/') ? MAX_FILE_SIZE : MAX_ATTACHMENT_FILE_SIZE;
+/** A file sent in pieces: bounded by patience and disk, not by memory. */
+export const MAX_LARGE_FILE_SIZE = 2 * 1024 * 1024 * 1024;
+
+export function attachmentSizeLimit(mimeType: string | null | undefined, largeFiles = false): number {
+    if ((mimeType || '').startsWith('image/')) return MAX_FILE_SIZE;
+    return largeFiles ? MAX_LARGE_FILE_SIZE : MAX_ATTACHMENT_FILE_SIZE;
+}
+
+export function formatSizeLimit(bytes: number): string {
+    return bytes >= 1024 * 1024 * 1024 ? `${bytes / 1024 / 1024 / 1024} GB` : `${bytes / 1024 / 1024} MB`;
 }

@@ -83,6 +83,7 @@ const sessionFileEventSchema = z.object({
     ref: z.string(),
     name: z.string(),
     size: z.number(),
+    parts: z.array(z.string()).optional(),
     image: z.object({
         width: z.number(),
         height: z.number(),

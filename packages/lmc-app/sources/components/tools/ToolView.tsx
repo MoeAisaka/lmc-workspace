@@ -1,5 +1,7 @@
+import { Typography } from '@/constants/Typography';
+import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import { Text, View, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
+import { View, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { openSessionFile, openToolDetail } from '@/components/lmc/toolOverlayStore';
 import { Ionicons, Octicons } from '@expo/vector-icons';
@@ -388,7 +390,7 @@ const styles = StyleSheet.create((theme) => ({
     elapsedText: {
         fontSize: 13,
         color: theme.colors.textSecondary,
-        fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
+        ...Typography.mono(),
     },
     toolName: {
         fontSize: 14,

@@ -57,7 +57,11 @@ export interface RunningProcess {
 export async function findOrphanedSessionPid(
     session: TrackedSession | undefined,
     listProcesses: () => Promise<RunningProcess[]>,
+    boot?: { recordedAt: number; bootedAt: number },
 ): Promise<number | undefined> {
+    // PIDs are reused across machine boots, including by another LMC wrapper.
+    // Only a registration made during this boot can establish PID ownership.
+    if (boot && boot.recordedAt < boot.bootedAt) return undefined;
     const hostPid = session?.happySessionMetadataFromLocalWebhook?.hostPid;
     if (!hostPid) return undefined;
 
@@ -107,18 +111,28 @@ export function findProviderSessionPid(
 
 /** Only the session entrypoint owns heartbeats; engines, MCP helpers and the daemon do not. */
 function looksLikeHappyCli(proc: RunningProcess): boolean {
-    const cmd = (proc.cmd ?? '').trim();
+    const args = lmcCliArguments(proc);
+    return args !== undefined && (args === '' || /^(?:codex|claude)(?:\s|$)/.test(args)
+        || /^--(?:happy-starting-mode|resume|started-by)(?:\s|=)/.test(args));
+}
+
+/** A slow control endpoint must not make a live daemon look like a reused PID. */
+export function isLmcDaemonProcess(proc: RunningProcess): boolean {
+    const args = lmcCliArguments(proc);
+    return args !== undefined && /^daemon\s+start-sync(?:\s|$)/.test(args);
+}
+
+function lmcCliArguments(proc: RunningProcess): string | undefined {
+    const cmd = (proc.cmd ?? '').trim().replace(/\\/g, '/');
     // ps-list may omit the interpreter or flatten spaces in a script path.
     // Consume the first script, never an LMC path appearing in its arguments.
-    const withoutNode = cmd.replace(/^(?:\S*\/)?node(?:\s+--(?:no-warnings|no-deprecation|enable-source-maps))*\s+/, '');
+    const withoutNode = cmd.replace(/^(?:"(?:[^"]*\/)?node(?:\.exe)?"|'(?:[^']*\/)?node(?:\.exe)?'|(?:[^\s"']*\/)?node(?:\.exe)?)(?:\s+--(?:no-warnings|no-deprecation|enable-source-maps))*\s+/i, '');
     const entry = withoutNode.match(/^["']?(.+?\.[cm]?js)["']?(?:\s+(.*))?$/);
-    if (!entry) return false;
-    const installedHappy = /(?:^|\/)(?:happy|happy-cli|happy-coder)\/dist\/index\.[cm]?js$/.test(entry[1]);
+    if (!entry) return undefined;
+    const installedHappy = /(?:^|\/)(?:happy|happy-cli|happy-coder|link-my-cli)\/dist\/index\.[cm]?js$/.test(entry[1]);
     const installedLmc = /\/\.lmc\/agent-releases\/[a-zA-Z0-9_-]+\/dist\/index\.[cm]?js$/.test(entry[1]);
-    if (!installedHappy && !installedLmc && !isRelocatedAgentEntry(entry[1])) return false;
-    const args = (entry[2] ?? '').trim();
-    return args === '' || /^(?:codex|claude)(?:\s|$)/.test(args)
-        || /^--(?:happy-starting-mode|resume|started-by)(?:\s|=)/.test(args);
+    if (!installedHappy && !installedLmc && !isRelocatedAgentEntry(entry[1])) return undefined;
+    return (entry[2] ?? '').trim();
 }
 
 /** The compatibility install directory may point to an external volume. */

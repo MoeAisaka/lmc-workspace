@@ -8,7 +8,7 @@ import {
     ScrollViewProps
 } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { useFlatSettings } from './lmc/settings/flatSettings';
+import { FlatSettingsContext, useFlatSettings } from './lmc/settings/flatSettings';
 
 export interface ItemListProps extends ScrollViewProps {
     children: React.ReactNode;
@@ -43,10 +43,11 @@ export const ItemList = React.memo<ItemListProps>((props) => {
     const isIOS = Platform.OS === 'ios';
     const isWeb = Platform.OS === 'web';
     
-    const flat = useFlatSettings();
+    const flat = useFlatSettings() || isWeb;
     const backgroundColor = flat ? theme.colors.surface : theme.colors.groupped.background;
 
     return (
+        <FlatSettingsContext.Provider value={flat}>
         <ScrollView 
             style={[
                 styles.container,
@@ -65,6 +66,7 @@ export const ItemList = React.memo<ItemListProps>((props) => {
         >
             {children}
         </ScrollView>
+        </FlatSettingsContext.Provider>
     );
 });
 
@@ -86,10 +88,11 @@ export const ItemListStatic = React.memo<Omit<ItemListProps, keyof ScrollViewPro
     const isIOS = Platform.OS === 'ios';
     const isWeb = Platform.OS === 'web';
     
-    const flat = useFlatSettings();
+    const flat = useFlatSettings() || isWeb;
     const backgroundColor = flat ? theme.colors.surface : theme.colors.groupped.background;
 
     return (
+        <FlatSettingsContext.Provider value={flat}>
         <View 
             style={[
                 { backgroundColor },
@@ -100,5 +103,6 @@ export const ItemListStatic = React.memo<Omit<ItemListProps, keyof ScrollViewPro
                 {children}
             </View>
         </View>
+        </FlatSettingsContext.Provider>
     );
 });

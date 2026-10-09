@@ -2,10 +2,82 @@ import { describe, expect, it } from 'vitest';
 import { pendingQueuePrompts, visibleTranscriptMessages } from './queuedMessageVisibility';
 import { normalizeRawMessage } from './typesRaw';
 import { createReducer, reducer } from './reducer/reducer';
+import { compareDisplayMessages } from './messageDisplayOrder';
 import type { Message, UserTextMessage } from './typesMessage';
 
 const user = (id: string, localId: string | null, text = 'same prompt'): UserTextMessage => ({
     kind: 'user-text', id, localId, text, createdAt: 1,
+});
+
+describe('released prompt transcript position', () => {
+    const prompt = (key: string, seq: number): Message => ({
+        ...user(`prompt-${key}`, key), createdAt: seq, serverSeq: seq, meta: { queueKey: key },
+    });
+    const reply = (id: string, seq: number): Message => ({
+        kind: 'agent-text', id, localId: null, text: id, createdAt: seq, serverSeq: seq,
+    });
+    const release = (id: string, seq: number, keys: string[]): Message => ({
+        kind: 'agent-event', id, createdAt: seq, serverSeq: seq, event: { type: 'queue-released', keys },
+    });
+    const transcript = (...messages: Message[]) => visibleTranscriptMessages(messages.sort(compareDisplayMessages));
+    const ids = (messages: Message[]) => messages.map(message => message.id);
+
+    it('appears after work done while waiting, then stays before the subsequent answer', () => {
+        const queued = prompt('key', 1), working = reply('while-waiting', 2), receipt = release('release', 3, ['key']);
+        expect(ids(transcript(queued, working))).toEqual(['while-waiting']);
+        expect(ids(transcript(queued, working, receipt))).toEqual(['prompt-key', 'while-waiting']);
+        expect(ids(transcript(queued, working, receipt, reply('after-release', 4))))
+            .toEqual(['after-release', 'prompt-key', 'while-waiting']);
+        expect(queued).toMatchObject({ createdAt: 1, serverSeq: 1, localId: 'key' });
+        expect(transcript(queued, working, receipt)[0]).toBe(queued);
+    });
+
+    it('follows individual release order when a later prompt is steered or promoted first', () => {
+        const messages = [prompt('first', 1), prompt('second', 2), reply('working', 3),
+            release('steered-second', 4, ['second']), reply('after-steer', 5),
+            release('drained-first', 6, ['first']), reply('after-drain', 7)];
+        expect(ids(transcript(...messages))).toEqual([
+            'after-drain', 'prompt-first', 'after-steer', 'prompt-second', 'working',
+        ]);
+    });
+
+    it('keeps each attachment with its prompt and uses the consumed order within a batch', () => {
+        const attachment: Message = { kind: 'tool-call', id: 'image', localId: 'file-id', createdAt: 3, serverSeq: 3,
+            meta: { queueKey: 'first' }, tool: { name: 'file', input: {}, state: 'completed', createdAt: 3, startedAt: 3, completedAt: 3, description: null }, children: [] };
+        const messages = [prompt('first', 1), prompt('second', 2), attachment, reply('working', 4),
+            release('batch', 5, ['second', 'first'])];
+        expect(ids(transcript(...messages))).toEqual(['image', 'prompt-first', 'prompt-second', 'working']);
+    });
+
+    it('uses the first durable release and does not move again when its receipt is repeated', () => {
+        const messages = [prompt('key', 1), reply('before', 2), release('first-release', 3, ['key']),
+            reply('after', 4), release('repeated-release', 5, ['key'])];
+        expect(ids(transcript(...messages))).toEqual(['after', 'prompt-key', 'before']);
+        const withdrawn: Message = { kind: 'agent-event', id: 'withdrawn', createdAt: 6, serverSeq: 6,
+            event: { type: 'queue-withdrawn', key: 'key' } };
+        expect(ids(transcript(...messages, withdrawn))).toEqual(['after', 'before']);
+    });
+
+    it('recovers the same position after reload or after the older prompt page arrives', () => {
+        const recent = [reply('before', 2), release('released', 3, ['key']), reply('after', 4)];
+        expect(ids(transcript(...recent))).toEqual(['after', 'before']);
+        const messages = [prompt('key', 1), ...recent];
+        expect(ids(transcript(...messages))).toEqual(['after', 'prompt-key', 'before']);
+        expect(transcript(...JSON.parse(JSON.stringify(messages)))).toEqual(transcript(...messages));
+    });
+
+    it('uses the server-ordered receipt position despite device clock skew', () => {
+        const queued = { ...prompt('key', 1), createdAt: 10000 };
+        const receipt = { ...release('released', 3, ['key']), createdAt: 0 };
+        expect(ids(transcript(queued, reply('before', 2), receipt, reply('after', 4))))
+            .toEqual(['after', 'prompt-key', 'before']);
+    });
+
+    it('anchors a legacy prompt by local identity when a durable receipt is available', () => {
+        const legacy = { ...user('legacy', 'key'), serverSeq: 1 };
+        expect(ids(transcript(legacy, reply('before', 2), release('released', 3, ['key']))))
+            .toEqual(['legacy', 'before']);
+    });
 });
 
 describe('pending prompt transcript visibility', () => {

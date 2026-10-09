@@ -6,6 +6,13 @@ const task = (id: string, attempt = 1, goal = 'do the thing') => parseEnvelope(`
 const report = (id: string, status: string, attempt = 1) => parseEnvelope(`[report ${id} · attempt ${attempt} · ${status}]\nsummary  s`)!;
 
 describe('board', () => {
+    it('uses the same explicit quota reason as the executor replacement gate', () => {
+        for (const [blocked, quota] of [['quota — exhausted', true], ['quota', true], ['not quota: waiting for input', false], ['rate limit 429', false]] as const) {
+            const envelope = parseEnvelope(`[report a · attempt 1 · blocked]\nblocked  ${blocked}`)!;
+            expect(applyEnvelope([], envelope, 'W1', 10)[0].reason).toBe(quota ? 'quota' : undefined);
+        }
+    });
+
     it('does not reopen a reviewed attempt or move it for duplicate/old reports', () => {
         let board = applyEnvelope([], task('a', 2), 'W1', 10);
         board = applyEnvelope(board, report('a', 'done', 2), 'W1', 20);

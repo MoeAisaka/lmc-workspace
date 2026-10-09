@@ -1,7 +1,8 @@
 import * as childProcess from 'node:child_process';
+import { mergeDelegationLedgers } from 'lmc-wire';
 import { describe, expect, it, vi } from 'vitest';
 import type { Metadata } from '@/api/types';
-import { parseEnvelope, formatReviewEnvelope } from './envelope';
+import { parseEnvelope, formatReviewEnvelope, formatReportEnvelope } from './envelope';
 import { boardUpdate } from './board';
 import { mailIdempotencyKey } from '../agentMail/agentMail';
 import { assignTask, inScope, nextAttempt, reportTask, spawnWorker, workerTitle, checksPass, type OrchestrationPort } from './tools';
@@ -30,6 +31,90 @@ describe('orchestration tools', () => {
     const contract = { model: 'claude-sonnet-5', effort: 'medium', scope: 'src/task.ts', budget_minutes: 10 };
     const taskArgs = { ...contract, sessionId: 'W', id: 'bounded', goal: 'fix', acceptance: 'test passes' };
     const hub = () => ({ orchestration: { role: 'hub', workers: [{ sessionId: 'W', by: 'auto', boundAt: 1 }, { sessionId: 'W2', by: 'auto', boundAt: 1 }] } } as Metadata);
+
+    it('rejects an expired migrated task and a same-attempt ownership conflict at the actual dispatch gate', async () => {
+        const entry = { worker: 'W', attempt: 1, deadline: 500, budgetMinutes: 10, dispatch: 'original', state: 'dispatched' as const };
+        const expired = port({ ...hub(), delegationLedger: mergeDelegationLedgers(undefined, { bounded: entry }) });
+        expect((await assignTask(expired, taskArgs)).text).toContain('expired');
+        expect(expired.mails).toEqual([]);
+        const conflict = port({ ...hub(), delegationLedger: mergeDelegationLedgers({ bounded: { ...entry, worker: 'W2', deadline: 601000 } }, { bounded: { ...entry, deadline: 601000 } }) });
+        expect((await assignTask(conflict, { ...taskArgs, sessionId: 'W2' })).text).toContain('Conflicting');
+        expect(conflict.mails).toEqual([]);
+    });
+
+    const block = async (p: ReturnType<typeof port>, blocked = 'quota', worker = 'W') => {
+        const row = p.metadataNow().delegationLedger!.bounded;
+        await p.updateMetadata(boardUpdate(formatReportEnvelope({ id: 'bounded', attempt: row.attempt, status: 'blocked', fields: { dispatch: row.dispatch, blocked, summary: 'Cannot continue' } }), worker)!);
+    };
+
+    it('hands a quota-blocked task to a bound executor without resetting durable limits', async () => {
+        const p = port(hub());
+        await assignTask(p, taskArgs);
+        await block(p);
+        const saved = JSON.parse(JSON.stringify(p.metadataNow()));
+        saved.orchestration.board = []; // Same proof survives board eviction and restart.
+        const restarted = port(saved, { now: () => 500000 });
+        expect((await assignTask(restarted, { ...taskArgs, sessionId: 'W2', model: 'machine-catalog-model' })).isError).toBe(false);
+        expect(restarted.metadataNow().delegationLedger!.bounded).toMatchObject({ worker: 'W2', attempt: 2, budgetMinutes: 10, deadline: 601000, state: 'dispatched' });
+        expect(parseEnvelope(restarted.mails[0].text)?.attempt).toBe(2);
+        await block(restarted, 'quota', 'W2');
+        expect((await assignTask(restarted, { ...taskArgs, sessionId: 'W' })).isError).toBe(true);
+        expect(restarted.mails).toHaveLength(1);
+    });
+
+    it.each(['configuration', 'not quota', 'rate limit'])('does not replace an executor for blocked: %s', async blocked => {
+        const p = port(hub());
+        await assignTask(p, taskArgs);
+        await block(p, blocked);
+        expect((await assignTask(p, { ...taskArgs, sessionId: 'W2' })).isError).toBe(true);
+        expect(p.mails).toHaveLength(1);
+    });
+
+    it('does not accept a quota report from another worker or a stale dispatch', async () => {
+        const p = port(hub());
+        await assignTask(p, taskArgs);
+        await block(p, 'quota', 'W2');
+        expect(p.metadataNow().delegationLedger!.bounded.state).toBe('dispatched');
+        expect((await assignTask(p, { ...taskArgs, sessionId: 'W2' })).isError).toBe(true);
+        await p.updateMetadata(boardUpdate(formatReportEnvelope({ id: 'bounded', attempt: 1, status: 'blocked', fields: { dispatch: 'stale', blocked: 'quota' } }), 'W')!);
+        expect((await assignTask(p, { ...taskArgs, sessionId: 'W2' })).isError).toBe(true);
+    });
+
+    it.each(['rejected', 'non-quota', 'working'])('rejects replacement after the latest state becomes %s', async state => {
+        const p = port(hub());
+        await assignTask(p, taskArgs);
+        if (state !== 'working') await block(p);
+        if (state === 'rejected') await p.updateMetadata(boardUpdate(formatReviewEnvelope({ id: 'bounded', attempt: 1, status: 'rejected', fields: { dispatch: p.metadataNow().delegationLedger!.bounded.dispatch } }), 'W')!);
+        if (state === 'non-quota') await block(p, 'configuration');
+        expect((await assignTask(p, { ...taskArgs, sessionId: 'W2' })).isError).toBe(true);
+        expect(p.mails).toHaveLength(1);
+    });
+
+    it('rejects quota handoff after expiry, budget changes or loss of binding', async () => {
+        const p = port(hub());
+        await assignTask(p, taskArgs);
+        await block(p);
+        expect((await assignTask(p, { ...taskArgs, sessionId: 'W2', budget_minutes: 11 })).isError).toBe(true);
+        expect((await assignTask(port(p.metadataNow(), { now: () => 601000 }), { ...taskArgs, sessionId: 'W2' })).isError).toBe(true);
+        await p.updateMetadata(m => ({ ...m, orchestration: { role: 'hub', workers: [{ sessionId: 'W', by: 'auto', boundAt: 1 }] } }));
+        expect((await assignTask(p, { ...taskArgs, sessionId: 'W2' })).isError).toBe(true);
+    });
+
+    it('rechecks quota proof during CAS and refuses delegation while hub migration is pending', async () => {
+        const p = port(hub());
+        await assignTask(p, taskArgs);
+        await block(p);
+        const initial = p.metadataNow();
+        p.updateMetadata = async updater => {
+            updater(initial);
+            const current = boardUpdate(formatReportEnvelope({ id: 'bounded', attempt: 1, status: 'blocked', fields: { dispatch: initial.delegationLedger!.bounded.dispatch, blocked: 'configuration' } }), 'W')!(initial);
+            updater(current);
+        };
+        expect((await assignTask(p, { ...taskArgs, sessionId: 'W2' })).isError).toBe(true);
+        const frozen = port({ ...hub(), delegationMigration: { target: 'next' } } as Metadata);
+        expect((await assignTask(frozen, taskArgs)).isError).toBe(true);
+        expect(frozen.mails).toEqual([]);
+    });
 
     it.each(['model', 'effort', 'scope', 'goal', 'acceptance', 'budget_minutes'] as const)('refuses missing %s before dispatch', async (field) => {
         const p = port(hub());

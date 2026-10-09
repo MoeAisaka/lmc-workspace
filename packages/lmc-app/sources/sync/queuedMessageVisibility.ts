@@ -1,5 +1,6 @@
 import type { Message } from './typesMessage';
 import type { QueuedPrompt } from './turnQueue';
+import { compareDisplayMessages } from './messageDisplayOrder';
 
 // Existing Agents persist this success receipt as a generic event. The queue
 // already acknowledges acceptance by removing the item; replaying these receipts
@@ -9,7 +10,9 @@ const STEER_ACCEPTED_RECEIPT = 'Codex 已接收补充回复，将在当前工作
 
 /** Queue keys are the sender's localId, not prompt text or a derived row id.
  * Filter before turn grouping so pending input cannot split the active turn.
- * Keep stored history intact: consumed prompts appear, withdrawn prompts stay hidden.
+ * Input/output are newest-first. Consumed prompts appear at their first durable
+ * release, not where they were typed while waiting. Only project display order;
+ * keep the stored messages, timestamps and identities intact.
  */
 export function visibleTranscriptMessages(messages: Message[], queue?: readonly { key: string }[] | null): Message[] {
     const { released, withdrawn } = queueReceipts(messages);
@@ -17,22 +20,51 @@ export function visibleTranscriptMessages(messages: Message[], queue?: readonly 
     // Receipts live in encrypted history, so withdrawal survives reconnects,
     // reloads and runner refreshes. Gather them independently of display order.
     for (const key of withdrawn) pending.add(key);
-    const visible = messages.filter(message => {
-        if (message.kind === 'agent-event' && (message.event.type === 'queue-withdrawn' || message.event.type === 'queue-released')) return false;
+    const unmoved = new Set<Message>();
+    const releasedPrompts = new Map<string, Message[]>();
+    for (const message of messages) {
+        if (message.kind === 'agent-event' && (message.event.type === 'queue-withdrawn' || message.event.type === 'queue-released')) continue;
         if (message.kind === 'agent-event' && message.event.type === 'message'
-            && message.event.message === STEER_ACCEPTED_RECEIPT) return false;
-        if (message.meta?.queueKey) return released.has(message.meta.queueKey) && !withdrawn.has(message.meta.queueKey);
-        return message.kind !== 'user-text' || !pending.has(message.localId ?? message.id);
-    });
+            && message.event.message === STEER_ACCEPTED_RECEIPT) continue;
+        const key = message.meta?.queueKey ?? (message.kind === 'user-text' ? message.localId ?? message.id : undefined);
+        if (key && (withdrawn.has(key) || (message.meta?.queueKey ? !released.has(key) : pending.has(key)))) continue;
+        if (key && released.has(key)) {
+            const group = releasedPrompts.get(key) ?? [];
+            group.push(message);
+            releasedPrompts.set(key, group);
+        } else {
+            unmoved.add(message);
+        }
+    }
+    const visible: Message[] = [];
+    for (const message of messages) {
+        if (unmoved.has(message)) visible.push(message);
+        if (message.kind !== 'agent-event' || message.event.type !== 'queue-released') continue;
+        // A batch's keys record consumption order (including promote). Reverse
+        // them for the inverted list, preserving each prompt's attachment order.
+        for (const key of [...message.event.keys].reverse()) {
+            if (released.get(key)?.id !== message.id) continue;
+            const group = releasedPrompts.get(key);
+            if (group) visible.push(...group);
+            releasedPrompts.delete(key);
+        }
+    }
     return visible.length === messages.length ? messages : visible;
 }
 
 function queueReceipts(messages: Message[]) {
-    const released = new Set<string>();
+    const released = new Map<string, Message>();
     const withdrawn = new Set<string>();
     for (const message of messages) {
         if (message.kind !== 'agent-event') continue;
-        if (message.event.type === 'queue-released') message.event.keys.forEach(key => released.add(key));
+        if (message.event.type === 'queue-released') {
+            for (const key of message.event.keys) {
+                const previous = released.get(key);
+                // A repeated receipt must not move an already displayed prompt.
+                // Use server sequence when present, including across clock skew.
+                if (!previous || compareDisplayMessages(previous, message) < 0) released.set(key, message);
+            }
+        }
         if (message.event.type === 'queue-withdrawn') withdrawn.add(message.event.key);
     }
     return { released, withdrawn };

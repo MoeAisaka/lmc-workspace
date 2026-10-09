@@ -244,7 +244,7 @@ describe('applySessions merging an engine switch', () => {
         const merged = mergeSwitch(CLAUDE_BEFORE, { ...CODEX_AFTER, modelMode: null, effortLevel: null });
 
         const meta = resolveMessageModeMeta(merged);
-        expect(meta.model).toBe('gpt-6-astra');
+        expect(meta.model).toBe('gpt-6.1-sol');
         expect(meta.effort).toBe('medium');
 
         const ui = shown(merged);
@@ -267,7 +267,7 @@ describe('applySessions merging an engine switch', () => {
 
         const meta = resolveMessageModeMeta(merged);
         expect(meta.model).not.toBe('claude-fable-5-1');
-        expect(meta.model).toBe('gpt-6-astra');
+        expect(meta.model).toBe('gpt-6.1-sol');
         // The effort went back to Codex's default with the model it belonged to.
         expect(meta.effort).toBe('medium');
 

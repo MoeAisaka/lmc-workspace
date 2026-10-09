@@ -1,3 +1,5 @@
+import { usePersonalizationMotion } from '@/hooks/usePersonalizationMotion';
+import { motionDuration } from '@/sync/personalization';
 import React, { useEffect, useRef } from 'react';
 import {
     View,
@@ -40,6 +42,7 @@ export function BaseModal({
     blurBackdrop = false,
     onExitComplete,
 }: BaseModalProps) {
+    const motion = usePersonalizationMotion();
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const exitCallback = useRef(onExitComplete);
     exitCallback.current = onExitComplete;
@@ -47,14 +50,14 @@ export function BaseModal({
     useEffect(() => {
         const animation = Animated.timing(fadeAnim, {
             toValue: visible ? 1 : 0,
-            duration: 200,
+            duration: motionDuration(motion, 200),
             useNativeDriver: true,
         });
         animation.start(({ finished }) => {
             if (finished && !visible) exitCallback.current?.();
         });
         return () => animation.stop();
-    }, [visible, fadeAnim]);
+    }, [visible, fadeAnim, motion]);
 
     const handleBackdropPress = () => {
         if (visible && closeOnBackdrop && onClose) {
@@ -66,7 +69,7 @@ export function BaseModal({
         <Modal
             visible={visible || !!onExitComplete}
             transparent={transparent}
-            animationType={onExitComplete ? 'none' : animationType}
+            animationType={onExitComplete || motion === 'off' ? 'none' : animationType}
             onRequestClose={closeOnRequestClose ? onClose : () => {}}
         >
             <KeyboardAvoidingView

@@ -1,5 +1,6 @@
+import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import { Animated, View, Text, Platform, Pressable } from 'react-native';
+import { Animated, View, Platform, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Typography } from '@/constants/Typography';
@@ -324,6 +325,7 @@ const styles = StyleSheet.create((theme) => ({
     },
     webScrim: {
         position: 'absolute',
+        zIndex: 0,
         top: 0,
         left: 0,
         right: 0,
@@ -343,6 +345,8 @@ const styles = StyleSheet.create((theme) => ({
     contentWrapper: {
         width: '100%',
         alignItems: 'center',
+        // Keep controls above the independently composited backdrop/mask.
+        zIndex: Platform.OS === 'web' ? 1 : undefined,
     },
     content: {
         flexDirection: 'row',

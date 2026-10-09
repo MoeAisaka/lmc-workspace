@@ -65,4 +65,22 @@ describe('sessionRefreshSteps', () => {
     it('flags a slow refresh without calling it failed', () => {
         expect(run({ sessionConfigState: 'queued', sessionConfigRequestedAt: 0 }, 40_000)).toMatchObject({ phase: 'running', slow: true });
     });
+
+    it('freezes a recorded failure at its finish time across later page loads', () => {
+        const meta = { sessionConfigState: 'error', sessionConfigRequestedAt: 10_000, sessionConfigUpdatedAt: 170_000 };
+        expect(run(meta, 50_000)).toMatchObject({ phase: 'failed', elapsedMs: 160_000 });
+        expect(run(meta, 200_000)).toMatchObject({ phase: 'failed', elapsedMs: 160_000 });
+        expect(run(meta, 900_000)).toMatchObject({ phase: 'failed', elapsedMs: 160_000 });
+        expect(run({ ...meta, sessionConfigState: 'queued' }, 200_000)).toMatchObject({ phase: 'running', elapsedMs: 190_000 });
+    });
+
+    it('surfaces the background work holding a refresh, queued or failed, and never on a stall', () => {
+        const work = ['scheduled task · reminder'];
+        const queued = run({ sessionConfigState: 'queued', sessionConfigRequestedAt: 40_000, sessionConfigError: '原生 Claude 里有后台工作在运行', sessionConfigBackgroundWork: work });
+        expect(queued).toMatchObject({ phase: 'running', backgroundWork: work });
+        const failed = run({ sessionConfigState: 'error', sessionConfigErrorKind: 'relaunch', sessionConfigRequestedAt: 40_000, sessionConfigUpdatedAt: 45_000, sessionConfigBackgroundWork: [] });
+        expect(failed).toMatchObject({ phase: 'failed', backgroundWork: [] });
+        expect(run({ sessionConfigState: 'error', sessionConfigRequestedAt: 40_000, sessionConfigUpdatedAt: 45_000 })).toMatchObject({ phase: 'failed', backgroundWork: null });
+        expect(run({ sessionConfigState: 'refreshing', sessionConfigRequestedAt: 40_000, sessionConfigUpdatedAt: 40_000, sessionConfigBackgroundWork: work }, 200_000)).toMatchObject({ phase: 'failed', stalled: true, backgroundWork: null });
+    });
 });

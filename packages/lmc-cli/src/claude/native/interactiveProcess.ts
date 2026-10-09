@@ -17,6 +17,7 @@ export async function startNativeInteractiveProcess(options: {
     executable: string; cwd: string; sessionId: string; resume: boolean;
     args?: string[]; env?: NodeJS.ProcessEnv;
     onHook: (hook: NativeHook, signal: AbortSignal) => void | object | Promise<void | object>; onScreen?: () => void;
+    onOutput?: () => void;
 }) {
     if (process.platform !== 'darwin') throw new Error('Native Claude requires macOS');
     const pty = require('@lydell/node-pty');
@@ -63,6 +64,7 @@ export async function startNativeInteractiveProcess(options: {
             ...options.args ?? [], '--settings', settings, '--ax-screen-reader'], { cwd: options.cwd, env, cols: 100, rows: 40 });
     } catch (error) { await cleanup(); throw error; }
     child.onData((data: string) => {
+        options.onOutput?.();
         // Backpressure bounds xterm's internal parser queue; only our own PTY.
         child.pause();
         writes = writes.then(() => new Promise<void>(resolve => terminal.write(data, () => {
@@ -86,5 +88,5 @@ export async function startNativeInteractiveProcess(options: {
         resolve(result);
     }));
     return { relay, exit, pid: child.pid as number, settled: () => writes,
-        write: (data: string) => { if (exited) throw new Error('Native terminal exited'); relay.outputChanged(); child.write(data); } };
+        write: (data: string) => { if (exited) throw new Error('Native terminal exited'); relay.inputChanged(); child.write(data); } };
 }

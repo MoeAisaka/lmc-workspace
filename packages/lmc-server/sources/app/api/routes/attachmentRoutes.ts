@@ -10,7 +10,10 @@
  */
 import { z } from 'zod';
 import * as crypto from 'crypto';
+import { BlockList, isIP } from 'node:net';
 import { Fastify } from '../types';
+import type { FastifyRequest } from 'fastify';
+import { trustedProxies } from '@/lmc/trustedProxies';
 import { db } from '@/storage/db';
 import { s3client, s3bucket, isLocalStorage, readLocalFile, putLocalFile } from '@/storage/files';
 
@@ -27,22 +30,22 @@ const uploadRateState = new Map<string, { count: number; windowStart: number }>(
 
 /**
  * Build the base URL the client should use to reach our local-mode upload /
- * download endpoints. Prefer an explicit PUBLIC_URL, then x-forwarded-* (for
- * deployments behind a proxy), then the Host header the request itself
- * arrived on. Falling back to localhost would make any non-localhost client
- * (a phone, another LAN device, a desktop pointing at a dev IP) fail with a
- * generic Network request failed when it tries to follow the URL.
+ * download endpoints. Keep the connected origin, including supported aliases:
+ * existing Claude/Codex Agents only send credentials to their configured server
+ * URL. Replacing an alias with PUBLIC_URL makes the subsequent blob request
+ * anonymous. Only the configured immediate proxies may supply forwarded
+ * host/protocol (Fastify's trustProxy address filtering applies to IPs only).
  */
-function resolveBaseUrl(request: { headers: Record<string, string | string[] | undefined> }): string {
-    if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL;
-    const xfHost = request.headers['x-forwarded-host'];
-    const xfProto = request.headers['x-forwarded-proto'];
-    const host = (Array.isArray(xfHost) ? xfHost[0] : xfHost) ?? request.headers.host;
-    const proto = (Array.isArray(xfProto) ? xfProto[0] : xfProto) ?? 'http';
-    if (typeof host === 'string' && host.length > 0) {
-        return `${proto}://${host}`;
+function resolveBaseUrl(request: FastifyRequest, proxies: BlockList): string {
+    const remote = request.raw.socket.remoteAddress;
+    const forwarded = remote && isIP(remote) && proxies.check(remote, isIP(remote) === 6 ? 'ipv6' : 'ipv4');
+    const host = forwarded ? request.host : request.headers.host;
+    const protocol = forwarded ? request.protocol :
+        ((request.raw.socket as { encrypted?: boolean }).encrypted ? 'https' : 'http');
+    if (host && ['http', 'https'].includes(protocol)) {
+        return `${protocol}://${host}`;
     }
-    return `http://localhost:${process.env.PORT || '3005'}`;
+    return process.env.PUBLIC_URL || `http://localhost:${process.env.PORT || '3005'}`;
 }
 
 function checkUploadRate(userId: string): boolean {
@@ -67,6 +70,13 @@ function checkUploadRate(userId: string): boolean {
 }
 
 export function attachmentRoutes(app: Fastify) {
+    const proxies = new BlockList();
+    for (const entry of trustedProxies()) {
+        const [address, prefix] = entry.split('/');
+        const family = isIP(address);
+        if (!family) throw new Error('LMC_TRUSTED_PROXIES must contain IP addresses or CIDRs');
+        proxies.addSubnet(address, Number(prefix ?? (family === 6 ? 128 : 32)), family === 6 ? 'ipv6' : 'ipv4');
+    }
 
     /**
      * Request an upload URL for an attachment.
@@ -124,7 +134,7 @@ export function attachmentRoutes(app: Fastify) {
             // Local mode: client uploads to our own PUT endpoint (the server
             // enforces the size limit by inspecting the request body before
             // it hits disk, so PUT is fine here).
-            const baseUrl = resolveBaseUrl(request);
+            const baseUrl = resolveBaseUrl(request, proxies);
             const uploadUrl = `${baseUrl}/v1/sessions/${sessionId}/attachments/${attachmentFile}`;
             return reply.send({ ref, uploadUrl, method: 'PUT' });
         } else {
@@ -244,7 +254,7 @@ export function attachmentRoutes(app: Fastify) {
         }
 
         if (isLocalStorage()) {
-            const baseUrl = resolveBaseUrl(request);
+            const baseUrl = resolveBaseUrl(request, proxies);
             const downloadUrl = `${baseUrl}/v1/sessions/${sessionId}/attachments/${attachmentFile}`;
             return reply.send({ downloadUrl });
         }

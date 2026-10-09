@@ -1,11 +1,6 @@
+import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import {
-    View,
-    ActivityIndicator,
-    Text,
-    Pressable,
-    Platform,
-} from 'react-native';
+import { View, ActivityIndicator, Pressable, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useFriendRequests, useSocketStatus, useRealtimeStatus, useSettingMutable } from '@/sync/storage';

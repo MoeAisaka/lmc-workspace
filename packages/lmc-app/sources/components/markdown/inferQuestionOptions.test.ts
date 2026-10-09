@@ -28,10 +28,32 @@ describe('inferQuestionOptions', () => {
         expect(infer('Please choose a version:\n- Desktop\n- Mobile').at(-1)?.type).toBe('options');
     });
 
+    it('recognizes the in-progress scope question from the screenshot', () => {
+        const prompt = '首期登录和权限管理，是否只面向本公司钉钉组织内的员工？';
+        const answers = ['仅本公司员工（建议先做）', '同时支持外部协作人员'];
+        const text = `${prompt}\n\n- ${answers[0]}\n\n- ${answers[1]}`;
+        expect(infer(text)).toEqual([
+            ...parseMarkdown(prompt),
+            { type: 'options', items: answers },
+        ]);
+        expect(parseMarkdown(text).at(-1)?.type).toBe('list');
+    });
+
+    it('accepts a scope choice with an uncertainty answer and formatted labels', () => {
+        expect(infer('首期是否仅限内部使用？\n1. **仅限内部使用**\n2. 也支持外部人员\n3. 不确定').at(-1)).toEqual({
+            type: 'options', items: ['仅限内部使用', '也支持外部人员', '不确定'],
+        });
+    });
+
     it.each([
         '检查结果：\n- 能切换并输入\n- 完全没有响应',
         '有哪些故障原因？\n- 磁盘损坏\n- 内存不足',
         '能否读取日志？\n- 文件权限不正确\n- 磁盘空间不足',
+        '权限检查是否通过？\n- 仅本公司员工\n- 同时支持外部协作人员',
+        '是否只面向本公司员工？\n- 账号管理\n- 权限管理',
+        '是否只面向本公司员工？\n- 仅内部使用\n- 仅管理员使用',
+        '是否只面向本公司员工？\n- 仅本公司员工\n- 同时支持外部人员\n- 支持审计日志',
+        '范围说明：\n- 仅本公司员工\n- 同时支持外部协作人员',
         'How to choose a disk:\n- Durability\n- Capacity',
         '例如，请选择下一步：\n- 继续\n- 暂停',
         '请选择下一步：\n- [查看文档](https://example.com)\n- 继续',

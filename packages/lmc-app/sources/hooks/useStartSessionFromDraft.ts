@@ -185,7 +185,7 @@ export function useStartSessionFromDraft() {
                 modelMode: rigCreation.defaultModelKey ?? '',
                 effortLevel: rigCreation.defaultEffortForModel(rigCreation.defaultModelKey),
             }
-            : resolveAgentDefaultConfig(defaultOverrides, agentType, machine.metadata?.happyCliVersion);
+            : resolveAgentDefaultConfig(defaultOverrides, agentType, machine.metadata?.happyCliVersion, machineModelMetadata(machine.metadata).modelCatalogs);
         const permission = resolveOption<{ key: string }>(
             // The daemon machine's CLI is what will parse the mode; older CLIs
             // drop the whole prompt on modes they do not know (e.g. `auto`).

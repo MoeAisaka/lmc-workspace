@@ -1,3 +1,4 @@
+import { readCodexCredits } from './codexCredits';
 import { readFile, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
@@ -22,6 +23,7 @@ export function projectAccountQuota(raw: unknown, now = Date.now()): AccountQuot
     const claudeAt = timestamp(claudeEntry.last_success_ts);
     const window = (id: AccountQuotaWindow['id'], remaining: unknown, resets: unknown, mins: unknown, pending = false): AccountQuotaWindow =>
         ({ id, remaining: percent(remaining), resetsAt: timestamp(resets), durationMins: duration(mins), pending });
+    const reserve = record(codexData.reserve);
     const credits = record(codex.resetCredits);
     const count = finite(credits.availableCount);
     const expiry = (Array.isArray(credits.credits) ? credits.credits : []).filter((c: any) => c?.status === 'available')
@@ -34,6 +36,11 @@ export function projectAccountQuota(raw: unknown, now = Date.now()): AccountQuot
     };
     return AccountQuotaSnapshotSchema.parse({ providers: [
         { engine: 'codex', plan: null, capturedAt: codexAt, refreshFailed: codexEntry.ok !== true,
+            supplemental: reserve.present === true ? {
+                remaining: percent(reserve.remainingWeeklyPercent), capturedAt: codexAt,
+                resetsAt: timestamp(reserve.resetsWeeklyAt), pending: reserve.pendingWeekly === true,
+                stale: codexEntry.ok !== true || codexData.stale === true || !codexAt || now - codexAt > 65 * 60_000 || codexAt > now + 60_000,
+            } : null,
             stale: codexData.stale === true || !codexAt || now - codexAt > 65 * 60_000 || codexAt > now + 60_000,
             windows: [window('five_hour', codex.remaining5hPercent, codex.resets5hAt, codex.window5hMins, codex.pending5h === true),
                 window('seven_day', codex.remainingWeeklyPercent, codex.resetsWeeklyAt, codex.windowWeeklyMins, codex.pendingWeekly === true)],
@@ -73,7 +80,9 @@ export async function readDashboardQuota(): Promise<AccountQuotaSnapshot> {
             chunks.push(value);
         }
     } finally { await reader.cancel().catch(() => {}); }
-    return projectAccountQuota(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+    const snapshot = projectAccountQuota(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+    const credits = await readCodexCredits();
+    return { ...snapshot, providers: snapshot.providers.map(p => p.engine === 'codex' ? { ...p, usageCredits: credits } : p) };
 }
 
 export function createAccountQuotaHandler(read = readDashboardQuota) {

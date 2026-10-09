@@ -520,9 +520,11 @@ function resolveCodexExecutable(): { executable: string; extraPathDirs: string[]
         : '@openai/codex-darwin-x64'
     const packageJson = nodeRequire.resolve(`${pkg}/package.json`)
     const vendorRoot = join(dirname(packageJson), 'vendor', targetTriple)
+    // Newer Codex packages ship bin/codex and codex-path; older ones codex/codex and path.
+    const current = join(vendorRoot, 'bin', 'codex')
     return {
-        executable: join(vendorRoot, 'codex', 'codex'),
-        extraPathDirs: [join(vendorRoot, 'path')],
+        executable: existsSync(current) ? current : join(vendorRoot, 'codex', 'codex'),
+        extraPathDirs: [join(vendorRoot, 'codex-path'), join(vendorRoot, 'path')],
     }
 }
 

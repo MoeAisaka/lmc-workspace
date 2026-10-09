@@ -20,6 +20,27 @@ describe('native background lifecycle', () => {
         tasks.endTurn(); expect(tasks.active).toBe(true);
         tasks.complete({ taskId: 'agent-2', toolUseId: 'tool-2' }); expect(tasks.active).toBe(false);
     });
+    it('does not pin a task whose end is recorded before its start', () => {
+        // The order one real transcript had them in: the command exited at once.
+        const tasks = new NativeBackgroundTasks();
+        tasks.observe({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'tool-1', input: { run_in_background: true } }] } });
+        tasks.complete({ taskId: 'bzpct83po', toolUseId: 'tool-1' });
+        tasks.observe({ type: 'user', toolUseResult: { backgroundTaskId: 'bzpct83po' }, message: { content: [{ type: 'tool_result', tool_use_id: 'tool-1' }] } });
+        expect(tasks.active).toBe(false);
+        // A different task started afterwards is still tracked, and released normally.
+        tasks.observe({ type: 'user', toolUseResult: { backgroundTaskId: 'later' }, message: { content: [{ type: 'tool_result', tool_use_id: 'tool-2' }] } });
+        expect(tasks.active).toBe(true);
+        tasks.complete({ taskId: 'later' }); expect(tasks.active).toBe(false);
+    });
+    it('does not pin a background launch that was interrupted before it returned', () => {
+        const tasks = new NativeBackgroundTasks();
+        tasks.observe({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'tool-1', input: { run_in_background: true } }] } });
+        expect(tasks.active).toBe(true);
+        tasks.endTurn(); expect(tasks.active).toBe(false);
+        // Had it returned after all, the task it reports is tracked as usual.
+        tasks.observe({ type: 'user', toolUseResult: { backgroundTaskId: 'task-1' }, message: { content: [{ type: 'tool_result', tool_use_id: 'tool-1' }] } });
+        tasks.endTurn(); expect(tasks.active).toBe(true);
+    });
     it('accepts terminal internal notifications but never quoted chat or still-running status', () => {
         const content = '<task-notification>\n<task-id>b123</task-id>\n<tool-use-id>tool-1</tool-use-id>\n<status>completed</status>\n</task-notification>';
         expect(parseNativeTaskNotification({ type: 'queue-operation', operation: 'enqueue', content })).toEqual({ taskId: 'b123', toolUseId: 'tool-1' });

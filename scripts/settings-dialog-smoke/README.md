@@ -30,3 +30,21 @@ real account mutations, daemon upgrades, device pairing or physical iOS keyboard
 For settings exit animation only, run `verify-exit.cjs` against the same fixture
 server. It samples intermediate opacity before unmount for close, Escape and
 backdrop at mobile/desktop sizes and light/dark themes.
+
+Personalization (presets + per-control adjustments):
+
+```sh
+LMC_SETTINGS_FIXTURE_PORT=4198 node scripts/settings-dialog-smoke/serve.cjs /path/to/candidate-export
+LMC_SETTINGS_FIXTURE_URL=http://127.0.0.1:4198/app node scripts/settings-dialog-smoke/verify-personalization.cjs
+```
+
+The real personalization runtime is mounted in the fixture. This verifier adds
+synthetic Claude/Codex messages, checks live text rendering, all controls,
+persistence, reset, system reduced motion and mobile bounds. It makes no
+provider calls. `verify-exit.cjs` also accepts `LMC_SETTINGS_FIXTURE_URL` and
+`LMC_SETTINGS_EXIT_EVIDENCE` so independent local runs do not overwrite evidence.
+
+Additional fonts: `verify-fonts.cjs` uses the same fixture URL/module environment
+variables. It checks lazy same-origin font loading, actual rendered glyph fonts
+via Chrome DevTools, both engine message renderers, persisted selections and
+explicit Claude local-font fallback at phone/desktop sizes in light/dark mode.

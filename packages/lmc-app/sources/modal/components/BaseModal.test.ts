@@ -33,6 +33,9 @@ vi.mock('@/components/AnimatedOverlay', async () => {
     };
 });
 
+// This test exercises request-close policy, not the persisted preference store.
+vi.mock('@/hooks/usePersonalizationMotion', () => ({ usePersonalizationMotion: () => 'full' }));
+
 import { BaseModal } from './BaseModal';
 
 beforeAll(() => {

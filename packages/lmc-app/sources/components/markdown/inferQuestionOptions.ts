@@ -10,11 +10,14 @@ const yesNoQuestion = /能否|是否|要不要|可不可以|(?:你|您)能|能[^
 const affirmative = /^(?:能|可以|已|是|需要|同意|确认|继续|保留|yes\b|i can\b|able\b)/i;
 const negative = /^(?:不|无法|没|完全没有|尚未|无需|no\b|not\b|cannot\b|unable\b|i can['’]t\b)/i;
 const unknown = /^(?:不确定|未知|还不清楚|部分|unsure\b|not sure\b|maybe\b)/i;
+const scopeQuestion = /(?:是否|是不是|要不要)(?:只|仅)/;
+const restrictedScope = /^(?:仅|只|限于)/;
+const expandedScope = /^(?:同时|也|还)(?:支持|包括|包含|面向|允许|开放)/;
 
 /**
  * Models sometimes ask a mid-turn question as bullets, saving <options> for
  * their final answer. Recover only a short, trailing answer list after a direct
- * choice prompt (or a yes/no question with affirmative/negative answers).
+ * choice prompt, a yes/no answer pair, or a restricted/expanded scope pair.
  *
  * Opt in only for assistant prose. User text, tool output, quotes, code, links,
  * nested lists and longer explanations must keep their Markdown semantics.
@@ -46,7 +49,14 @@ export function inferQuestionOptions(blocks: MarkdownBlock[]): MarkdownBlock[] {
         && labels.some(label => affirmative.test(label))
         && labels.some(label => negative.test(label))
         && labels.every(label => affirmative.test(label) || negative.test(label) || unknown.test(label));
-    if (!directChoice && !binaryChoice) return blocks;
+    // "是否只面向…？ / 仅… / 同时支持…" answers the question without
+    // starting with 是/否. Require both sides of that scope choice so ordinary
+    // feature lists after a question are not turned into send buttons.
+    const scopeChoice = /[?？]/.test(question) && scopeQuestion.test(question)
+        && labels.some(label => restrictedScope.test(label))
+        && labels.some(label => expandedScope.test(label))
+        && labels.every(label => restrictedScope.test(label) || expandedScope.test(label) || unknown.test(label));
+    if (!directChoice && !binaryChoice && !scopeChoice) return blocks;
 
     return [...blocks.slice(0, start), { type: 'options', items: labels }];
 }

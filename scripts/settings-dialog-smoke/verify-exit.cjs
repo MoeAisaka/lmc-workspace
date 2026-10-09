@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { chromium } = require(process.env.LMC_PLAYWRIGHT_MODULE || 'playwright-core');
-const url = 'http://127.0.0.1:4187/app';
+const url = process.env.LMC_SETTINGS_FIXTURE_URL || 'http://127.0.0.1:4187/app';
 (async () => {
  const browser = await chromium.launch({headless:true, executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});
  const evidence=[];
@@ -26,7 +26,7 @@ const url = 'http://127.0.0.1:4187/app';
    }
    assert.deepEqual(errors,[]);await context.close();
   }
-  fs.writeFileSync('/tmp/lmc-settings-exit-v229.json',JSON.stringify(evidence,null,2));
+  fs.writeFileSync(process.env.LMC_SETTINGS_EXIT_EVIDENCE || '/tmp/lmc-settings-exit.json',JSON.stringify(evidence,null,2));
   console.log('PASS settings exit: button, Escape and backdrop; mobile/desktop, light/dark; fade frames precede unmount (12 cases)');
  } finally {await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

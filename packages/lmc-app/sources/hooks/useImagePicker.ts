@@ -17,7 +17,7 @@ import { Platform } from 'react-native';
 import { Modal } from '@/modal';
 import { generateThumbhash } from '@/utils/thumbhash';
 import { t } from '@/text';
-import { attachmentSizeLimit, MAX_ATTACHMENT_FILE_SIZE, MAX_FILE_SIZE, MAX_IMAGES_PER_MESSAGE, type AttachmentPreview } from '@/sync/attachmentTypes';
+import { attachmentSizeLimit, formatSizeLimit, MAX_ATTACHMENT_FILE_SIZE, MAX_FILE_SIZE, MAX_IMAGES_PER_MESSAGE, type AttachmentPreview } from '@/sync/attachmentTypes';
 
 export { attachmentSizeLimit, MAX_ATTACHMENT_FILE_SIZE, MAX_FILE_SIZE, MAX_IMAGES_PER_MESSAGE };
 
@@ -81,6 +81,13 @@ export async function normalizePickedAssetForUpload(asset: ImagePicker.ImagePick
  * unloads, so a reload still starts empty.
  */
 const attachmentDrafts = new Map<string, AttachmentPreview[]>();
+
+/** How many picked files are waiting unsent in session composers; a reload loses them. */
+export function countAttachmentDrafts(): number {
+    let count = 0;
+    for (const drafts of attachmentDrafts.values()) count += drafts.length;
+    return count;
+}
 
 export function useImagePicker(draftKey?: string): UseImagePickerResult {
     const [selectedImages, setSelectedImages] = useState<AttachmentPreview[]>(() => (draftKey && attachmentDrafts.get(draftKey)) || []);
@@ -197,8 +204,10 @@ export function useImagePicker(draftKey?: string): UseImagePickerResult {
         for (const asset of result.assets.slice(0, remaining)) {
             const size = asset.size ?? 0;
             const pickedType = asset.mimeType || 'application/octet-stream';
-            if (size > attachmentSizeLimit(pickedType)) {
-                Modal.alert(t('lmc.common.fileTooLarge'), t('lmc.common.fileTooLargeBody', { name: asset.name }), [{ text: t('common.ok') }]);
+            // Only the web build can read a file piece by piece.
+            const limit = attachmentSizeLimit(pickedType, Platform.OS === 'web');
+            if (size > limit) {
+                Modal.alert(t('lmc.common.fileTooLarge'), t('lmc.common.fileTooLargeBody', { name: asset.name, limit: formatSizeLimit(limit) }), [{ text: t('common.ok') }]);
                 continue;
             }
             const mimeType = pickedType;

@@ -1,4 +1,4 @@
-import { ModelCatalogsSchema, type ModelCatalogs } from 'lmc-wire';
+import { ModelCatalogsSchema, MachineSystemDiagnosticsSchema, type ModelCatalogs, type EngineDiagnostics, type AgentMailInbox } from 'lmc-wire';
 import type { CodexServiceTier } from '@/codex/serviceTier';
 import type { CodexContextLimits } from '@/codex/contextLimits';
 import { z } from 'zod'
@@ -67,6 +67,7 @@ export interface ServerToClientEvents {
  * Socket events from client to server
  */
 export interface ClientToServerEvents {
+  'usage-report-v2': (data: import('lmc-wire').UsageRecord, callback: (response: { success: boolean }) => void) => void
   message: (data: { sid: string, message: any }) => void
   'session-alive': (data: {
     sid: string;
@@ -137,6 +138,7 @@ export type Session = {
  * Machine metadata - static information (rarely changes)
  */
 export const MachineMetadataSchema = z.object({
+    systemDiagnostics: MachineSystemDiagnosticsSchema.optional().catch(undefined),
     accountQuota: z.boolean().optional(),
     engineLogin: z.object({claude: z.boolean(), codex: z.boolean()}).optional(),
     modelDiscovery: z.boolean().optional(),
@@ -180,7 +182,33 @@ export type MachineMetadata = z.infer<typeof MachineMetadataSchema>
 /**
  * Daemon state - dynamic runtime information (frequently updated)
  */
+/** Resident set of one session's process tree: lmc runtime + engine + tools. */
+export const SessionResourceUsageSchema = z.object({
+  rssBytes: z.number(),
+  processes: z.number()
+})
+export type SessionResourceUsage = z.infer<typeof SessionResourceUsageSchema>
+
+/** Machine memory and per-session usage, sampled by the daemon (approximate, see machineResources.ts). */
+export const MachineResourcesSchema = z.object({
+  sampledAt: z.number(),
+  memory: z.object({ totalBytes: z.number(), availableBytes: z.number() }),
+  sessions: z.record(z.string(), SessionResourceUsageSchema),
+  daemonRssBytes: z.number().optional()
+})
+export type MachineResources = z.infer<typeof MachineResourcesSchema>
+
+/** Bytes one AI provider cost on one local day: `up` is sent to the model, `down` is what came back. */
+const AiTrafficBytesSchema = z.object({ up: z.number(), down: z.number() })
+export const AiTrafficDaySchema = z.object({ claude: AiTrafficBytesSchema, openai: AiTrafficBytesSchema })
+export type AiTrafficDay = z.infer<typeof AiTrafficDaySchema>
+/** The last weeks of the daemon's AI traffic ledger, keyed by local day (see aiTraffic.ts). */
+export const AiTrafficSchema = z.object({ updatedAt: z.number(), days: z.record(z.string(), AiTrafficDaySchema) })
+export type AiTraffic = z.infer<typeof AiTrafficSchema>
+
 export const DaemonStateSchema = z.object({
+  resources: MachineResourcesSchema.optional().catch(undefined),
+  aiTraffic: AiTrafficSchema.optional().catch(undefined),
   status: z.union([
     z.enum(['running', 'shutting-down']),
     z.string() // Forward compatibility
@@ -281,6 +309,8 @@ export const FileEventMessageSchema = z.object({
         name: z.string(),
         size: z.number(),
         mimeType: z.string().optional(),
+        // Ordered pieces of a large file; absent for a single blob.
+        parts: z.array(z.string()).min(1).max(4096).optional(),
         image: z.object({
           width: z.number(),
           height: z.number(),
@@ -378,6 +408,8 @@ export type Orchestration =
 export type Metadata = {
   /** Agent-to-agent mail; on unless this is explicitly false. */
   agentMail?: boolean;
+  /** Recipient receipts; encrypted and retained across refreshes and engine switches. */
+  agentMailInbox?: AgentMailInbox;
   /** Permission / model / effort picks, mirrored for every device's model panel (#1492); the runner records what it was started with. */
   permissionMode?: string | null;
   /** Launch inheritance versus an explicit picker/hub choice; never inferred from its spelling. */
@@ -387,7 +419,7 @@ export type Metadata = {
   agentBuild?: string;
   claudeNativeActive?: boolean;
   engineRuntime?: {engine:string;version:string;packageVersion?:string;source:string;path:string};
-  sessionCapabilities?: { automaticGoals?: boolean; authenticationRecovery?: boolean; modelDiscovery?: boolean; refresh: boolean; authentication: boolean; runtimeConfiguration: boolean; resourceFiles?: boolean; resourceSearch?: boolean; fileInbox?: boolean; resume?:boolean;model?:boolean;effort?:boolean;context?:boolean;serviceTier?:boolean;
+  sessionCapabilities?: { largeFiles?: boolean; automaticGoals?: boolean; authenticationRecovery?: boolean; modelDiscovery?: boolean; refresh: boolean; authentication: boolean; runtimeConfiguration: boolean; resourceFiles?: boolean; resourceSearch?: boolean; fileInbox?: boolean; resume?:boolean;model?:boolean;effort?:boolean;context?:boolean;serviceTier?:boolean;
     /** The runner answers `cancel-session-refresh` while a refresh or switch is still queued. */
     cancelRefresh?: boolean;
     nativeComputer?: boolean;
@@ -414,6 +446,13 @@ export type Metadata = {
   sessionConfigErrorKind?: 'auth' | 'preflight' | 'relaunch' | 'verify';
   /** When the refresh was asked for — set as it enters `queued`, kept until it ends, so its duration can be measured on any device. */
   sessionConfigRequestedAt?: number;
+  /**
+   * Claude's own background work (scheduled tasks, background shells) holding
+   * a refresh, as Claude listed it when it declined to exit. Present while the
+   * refresh is queued behind or failed on that work; empty when the work is
+   * known only by its existence.
+   */
+  sessionConfigBackgroundWork?: string[];
 
   codexServiceTier?: CodexServiceTier; codexContextLimits?: CodexContextLimits,
   /**
@@ -573,6 +612,7 @@ export type AgentGoalStatus = {
 );
 
 export type AgentState = {
+  engineDiagnostics?: EngineDiagnostics;
   runtime?: {phase:'working'|'idle';pid:number;updatedAt:number};
   controlledByUser?: boolean | null | undefined
   /**

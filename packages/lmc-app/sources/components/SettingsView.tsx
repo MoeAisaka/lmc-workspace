@@ -9,7 +9,7 @@ import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
 import { Avatar } from '@/components/Avatar';
 import { openExternalUrl } from '@/utils/openExternalUrl';
-import { useAllMachines, useProfile, useSetting } from '@/sync/storage';
+import { useAllMachines, useProfile } from '@/sync/storage';
 import { getAvatarUrl, getDisplayName } from '@/sync/profile';
 import { getServerUrl } from '@/sync/serverConfig';
 import { machineAgentVersion, machineDisplayName } from '@/utils/lmc/deviceEngineGroups';
@@ -41,7 +41,6 @@ export const SettingsView = React.memo(({ topContentInset = 0, bottomContentInse
     const { theme } = useUnistyles();
     const profile = useProfile();
     const machines = useAllMachines({ includeOffline: true });
-    const experiments = useSetting('experiments');
 
     const subtitles: Record<LmcSettingsSection, string | undefined> = {
         general: t('lmc.settings.generalSubtitle'),
@@ -86,11 +85,11 @@ export const SettingsView = React.memo(({ topContentInset = 0, bottomContentInse
                 ))}
             </ItemGroup>
 
-            {experiments && (
+            {(
                 <ItemGroup>
                     <Item
-                        title={t('settings.usage')}
-                        subtitle={t('settings.usageSubtitle')}
+                        title="用量看板"
+                        subtitle="Claude 与 Codex 的用量、趋势和会话明细"
                         icon={<Ionicons name="analytics-outline" size={22} color={theme.colors.textSecondary} />}
                         onPress={() => router.push('/settings/usage')}
                     />

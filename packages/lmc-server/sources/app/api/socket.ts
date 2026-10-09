@@ -10,6 +10,7 @@ import { log } from "@/utils/log";
 import { auth } from "@/app/auth/auth";
 import { getMetricsLabelsFromSocket, redisStreamLagMsGauge, websocketConnectionsGauge, websocketEventsCounter } from "../monitoring/metrics2";
 import { usageHandler } from "./socket/usageHandler";
+import { usageAnalyticsHandler } from './usageAnalytics';
 import { rpcHandler } from "./socket/rpcHandler";
 import { pingHandler } from "./socket/pingHandler";
 import { sessionUpdateHandler } from "./socket/sessionUpdateHandler";
@@ -225,6 +226,7 @@ export function startSocket(app: Fastify) {
         // Handlers
         rpcHandler(userId, socket, io);
         usageHandler(userId, socket);
+        usageAnalyticsHandler(userId, connection);
         sessionUpdateHandler(userId, socket, connection);
         pingHandler(socket);
         machineUpdateHandler(userId, socket);

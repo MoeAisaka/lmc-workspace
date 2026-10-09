@@ -1,3 +1,4 @@
+import { Text } from '@/components/StyledText';
 /**
  * The pull-request view: every changed file, one after another.
  *
@@ -14,7 +15,7 @@
  */
 
 import * as React from 'react';
-import { ActivityIndicator, Platform, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, View } from 'react-native';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';

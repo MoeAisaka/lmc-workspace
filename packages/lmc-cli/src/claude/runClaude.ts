@@ -1,3 +1,6 @@
+import { isLargeFileEvent, receiveLargeFileEvent } from '@/modules/common/largeFileEvent';
+import type { PendingAttachment } from '@/utils/MessageQueue2';
+import { resolveSessionChoice } from './utils/launchChoice';
 import { cachedModel, cachedDefaultEffort, readModelCatalogs } from '@/runtime/modelCatalogCache';
 import { engineCapabilities } from '@/runtime/managedRuntime';
 import { readComputerUseSetup, withClaudeChromeDefault } from '@/runtime/computerUse';
@@ -626,6 +629,8 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     let currentDisallowedTools: string[] | undefined = undefined; // Track current disallowed tools
     let currentEffort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined = options.effort ?? cachedDefaultEffort('claude', options.model, DEFAULT_CLAUDE_EFFORT) as typeof options.effort; // Track current Claude effort (thinking depth)
 
+    // The watcher applies the current snapshot synchronously before it returns.
+    let initialConfiguration = true;
     const stopWatchingConfiguration = watchSessionConfiguration(session, 'claude', metadata => {
         if (metadata.permissionMode !== undefined) {
             const chosen = normalizeRemotePermissionMode(metadata.permissionMode ?? undefined);
@@ -633,10 +638,11 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
             // ambient `default` attached to an old app's ordinary message.
             currentPermissionMode = applySandboxPermissionPolicy(chosen, sandboxEnabled);
         }
-        if (metadata.modelMode !== undefined) currentModel = metadata.modelMode || undefined;
-        if (metadata.effortLevel === null) currentEffort = undefined;
+        if (metadata.modelMode !== undefined) currentModel = resolveSessionChoice({ initial: initialConfiguration, launched: options.model, current: currentModel, picked: metadata.modelMode });
+        if (metadata.effortLevel === null) currentEffort = resolveSessionChoice({ initial: initialConfiguration, launched: options.effort, current: currentEffort, picked: null });
         else if ((cachedModel('claude', currentModel)?.efforts ?? ['low', 'medium', 'high', 'xhigh', 'max']).includes(metadata.effortLevel ?? '')) currentEffort = metadata.effortLevel as typeof currentEffort;
     });
+    initialConfiguration = false;
 
     const resetCurrentModeDefaults = () => {
         // Model and effort are deliberately NOT reset here. The app sends them
@@ -732,7 +738,8 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     session.onFileEvent((fileEvent) => {
         const ev = fileEvent.content.data.ev;
         logger.debug(`[loop] File event received: ${ev.name} (${ev.size} bytes, ref: ${ev.ref})`);
-        const downloadPromise = (async (): Promise<{ data: Uint8Array; mimeType: string; name: string } | null> => {
+        const downloadPromise = (async (): Promise<PendingAttachment | null> => {
+            if (isLargeFileEvent(fileEvent)) return receiveLargeFileEvent(session, fileEvent, workingDirectory);
             try {
                 const decrypted = await session.downloadAndDecryptAttachment(ev.ref);
                 if (!decrypted) {

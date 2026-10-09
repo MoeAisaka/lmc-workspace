@@ -15,6 +15,12 @@ describe('Markdown image delivery', () => {
     it('decodes file URLs and relative file paths without changing HTTP URLs', () => {
         expect(parseMarkdownImageSource('file:///tmp/Preview%20Page.jpg')).toEqual({ kind: 'file', path: '/tmp/Preview Page.jpg', mime: 'image/jpeg' });
         expect(parseMarkdownImageSource('./screens/preview.webp')).toEqual({ kind: 'file', path: './screens/preview.webp', mime: 'image/webp' });
+        // Windows session hosts: a drive letter is a path, not a scheme (2026-10-08, Work-PC).
+        expect(parseMarkdownImageSource('D:/Services/LLM/integration/nmem-ui-diagnostics/processing-current.png')).toEqual({ kind: 'file', path: 'D:/Services/LLM/integration/nmem-ui-diagnostics/processing-current.png', mime: 'image/png' });
+        expect(parseMarkdownImageSource('C:\\Users\\MoeAi\\shot.jpg')).toEqual({ kind: 'file', path: 'C:\\Users\\MoeAi\\shot.jpg', mime: 'image/jpeg' });
+        expect(parseMarkdownImageSource('file:///D:/out/My%20Shot.png')).toEqual({ kind: 'file', path: 'D:/out/My Shot.png', mime: 'image/png' });
+        expect(parseMarkdownImageSource('mailto:a@b.png')).toBeNull();
+        expect(parseMarkdownImageSource('d:relative.png')).toBeNull();
         expect(parseMarkdownImageSource('<https://example.com/image.png?size=2>')).toEqual({ kind: 'uri', uri: 'https://example.com/image.png?size=2' });
     });
     it('does not read non-image files or unsupported schemes as local previews', () => {

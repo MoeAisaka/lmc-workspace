@@ -1,6 +1,8 @@
+import { Typography } from '@/constants/Typography';
+import { Text } from '@/components/StyledText';
 import { parseCallbackUrl, generatePKCE, generateState, PKCECodes, ClaudeAuthTokens } from '@/utils/oauth';
 import * as React from 'react';
-import { ActivityIndicator, Platform, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Platform, TouchableOpacity, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import Animated, {
     useSharedValue,
@@ -92,12 +94,12 @@ const styles = StyleSheet.create((theme) => ({
         borderColor: 'rgba(255, 255, 255, 0.1)',
     },
     terminalPrompt: {
-        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+        ...Typography.mono(),
         fontSize: 14,
         color: '#00ff00',
     },
     terminalCommand: {
-        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+        ...Typography.mono(),
         fontSize: 14,
         color: '#ffffff',
     },

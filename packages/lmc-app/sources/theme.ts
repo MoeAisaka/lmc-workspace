@@ -1,7 +1,9 @@
 import { Platform } from 'react-native';
+import { personalizationDefaults, personalizationMetrics } from './sync/personalization';
 
 // Shared spacing, sizing constants (DRY - used by both themes)
 const sharedSpacing = {
+    personalization: personalizationMetrics(personalizationDefaults),
     // Spacing scale (based on actual usage patterns in codebase)
     margins: {
         xs: 4,   // Tight spacing, status indicators

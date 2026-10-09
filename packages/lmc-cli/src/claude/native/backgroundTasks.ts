@@ -9,6 +9,14 @@ export class NativeBackgroundTasks {
     private untracked = new Set<string>();
     private taskTools = new Map<string, string>();
     private controls = new Map<string, { name: string; taskId: string }>();
+    /**
+     * Tasks that have already reported their end. A command that exits at once
+     * has its notification written to the transcript *before* the tool result
+     * that announces it, so the end is seen first and the start second; taken
+     * at face value that start pins a task nothing will ever release. One such
+     * task held a session's refresh for a whole evening (2026-10-08).
+     */
+    private ended = new Set<string>();
 
     get active(): boolean { return !!(this.tasks.size || this.starting.size || this.untracked.size); }
 
@@ -30,8 +38,10 @@ export class NativeBackgroundTasks {
         if (toolUseId) this.starting.delete(toolUseId);
         const taskId = result?.backgroundTaskId ?? (result?.isAsync === true ? result.agentId : undefined);
         if (typeof taskId === 'string') {
-            this.tasks.set(taskId, true);
-            if (toolUseId) this.taskTools.set(taskId, toolUseId);
+            if (!this.ended.has(taskId)) {
+                this.tasks.set(taskId, true);
+                if (toolUseId) this.taskTools.set(taskId, toolUseId);
+            }
         }
         else if (result?.isAsync === true) this.untracked.add(toolUseId ?? 'unknown');
         const control = this.controls.get(toolUseId);
@@ -48,6 +58,9 @@ export class NativeBackgroundTasks {
     }
 
     complete(event: NativeTaskNotification): void {
+        this.ended.add(event.taskId);
+        // Insertion-ordered: forget the oldest once the set is large. Ids are not reused.
+        if (this.ended.size > 512) this.ended.delete(this.ended.values().next().value as string);
         this.tasks.delete(event.taskId);
         const originalTool = this.taskTools.get(event.taskId);
         this.taskTools.delete(event.taskId);
@@ -58,5 +71,10 @@ export class NativeBackgroundTasks {
         }
     }
 
-    endTurn(): void { releaseForegroundTasks(this.tasks); }
+    /**
+     * A launch is only "starting" between its tool call and that call's result,
+     * and both belong to the turn. Once the turn is over a call still marked
+     * starting was interrupted before it returned, and will never report.
+     */
+    endTurn(): void { releaseForegroundTasks(this.tasks); this.starting.clear(); }
 }

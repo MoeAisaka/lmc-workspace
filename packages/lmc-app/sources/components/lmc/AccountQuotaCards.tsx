@@ -7,15 +7,16 @@ import { Text } from '@/components/StyledText';
 import { ProviderIcon } from '@/components/ProviderIcon';
 import { Typography } from '@/constants/Typography';
 import { t, getCurrentLanguage } from '@/text';
-import { exhaustedWindow, quotaTone, quotaToneColor, resetCountdown, weeklyResetLabel } from '@/sync/quotaDisplay';
+import { exhaustedWindow, usageCreditLabel, quotaTone, quotaToneColor, resetCountdown, weeklyResetLabel } from '@/sync/quotaDisplay';
 import { lmcColors } from './lmcColors';
 
 const styles = StyleSheet.create(theme => ({
     section: { gap: 10, paddingVertical: 4 },
     heading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     card: { backgroundColor: theme.dark ? 'rgba(255,255,255,0.045)' : '#F8F8F8', borderRadius: 14, borderWidth: 1, borderColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', padding: 10 },
-    provider: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
+    provider: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 10 },
     plan: { color: theme.colors.textSecondary, fontSize: 10, lineHeight: 14, paddingHorizontal: 4, paddingVertical: 1, borderRadius: 4, backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.045)', maxWidth: 56, ...Typography.default() },
+    supplemental: { fontSize: 10, lineHeight: 16, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: theme.dark ? 'rgba(61,190,139,0.12)' : 'rgba(33,160,107,0.08)', ...Typography.default('semiBold') },
     sampled: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1, marginLeft: 'auto' },
     name: { color: theme.colors.text, fontSize: 15, ...Typography.default('semiBold') },
     label: { color: theme.colors.textSecondary, fontSize: 12, lineHeight: 16, ...Typography.default() },
@@ -88,10 +89,15 @@ export function AccountQuotaCards({ snapshot, loading, failed, available, now, o
             const today = weekly?.remaining != null && pace ? weekly.remaining - pace.floor : null;
             const showStatus = !p?.capturedAt || failed || p.refreshFailed || stale;
             const exhausted = exhaustedWindow(p, now);
+            const credits = usageCreditLabel(p, now);
             return <View key={engine} style={styles.card} testID={`quota-${engine}`}>
                 <View style={styles.provider}>
                     <ProviderIcon kind={engine} size={18} /><Text style={styles.name}>{engine === 'codex' ? 'Codex' : 'Claude'}</Text>
                     {p?.plan && <Text numberOfLines={1} style={styles.plan}>{p.plan.toUpperCase()}</Text>}
+                    {engine === 'codex' && <Text testID="quota-supplemental" style={[styles.supplemental, { color: credits === '—' ? theme.colors.textSecondary : quotaToneColor(p?.usageCredits?.balance === 0 ? 'low' : 'good', theme.dark) }]}
+                        accessibilityLabel={`${t('localFeatures.quotaUsageCredits', { value: credits })} · ${p?.usageCredits?.capturedAt ? t('localFeatures.quotaSampled', { date: date(p.usageCredits.capturedAt, now) }) : t('localFeatures.quotaUnknown')}`}>
+                        {t('localFeatures.quotaUsageCredits', { value: credits })}
+                    </Text>}
                     <View style={styles.sampled} accessibilityLabel={p?.capturedAt
                         ? `${showStatus ? `${t('localFeatures.quotaStale')} · ` : ''}${t('localFeatures.quotaSampled', { date: date(p.capturedAt, now) })}`
                         : t('localFeatures.quotaWaiting')}>

@@ -109,12 +109,15 @@ describe('modelModeOptions', () => {
     it('only offers the curated codex harness models', () => {
         const models = getCodexModelModes();
         expect(models.map((model) => model.key)).toEqual([
+            'gpt-6.1-sol',
             'gpt-6-astra',
+            'gpt-6-sol',
+            'gpt-6-luna',
             'gpt-5.6-sol',
             'gpt-5.6-terra',
             'gpt-5.6-luna',
         ]);
-        expect(models[0].name).toBe('GPT-6 Astra');
+        expect(models[0].name).toBe('GPT-6.1 Sol');
     });
 
     it('adds a configured custom codex model without expanding the shared catalog', () => {
@@ -122,13 +125,16 @@ describe('modelModeOptions', () => {
         const withCustom = includeConfiguredModel('codex', models, 'my-workspace-model');
 
         expect(withCustom.map((model) => model.key)).toEqual([
+            'gpt-6.1-sol',
             'gpt-6-astra',
+            'gpt-6-sol',
+            'gpt-6-luna',
             'gpt-5.6-sol',
             'gpt-5.6-terra',
             'gpt-5.6-luna',
             'my-workspace-model',
         ]);
-        expect(models).toHaveLength(4);
+        expect(models).toHaveLength(7);
         expect(includeConfiguredModel('claude', models, 'my-workspace-model')).toBe(models);
     });
 
@@ -142,14 +148,18 @@ describe('modelModeOptions', () => {
     it('only offers the current-generation claude models', () => {
         const models = getClaudeModelModes();
         expect(models.map((model) => model.key)).toEqual([
+            'claude-opus-5-5',
             'claude-fable-5-1',
+            'claude-sonnet-5-5',
             'claude-fable-5',
             'claude-opus-5',
             'claude-opus-5[1m]',
             'claude-sonnet-5',
         ]);
         expect(models.map((model) => model.name)).toEqual([
+            'Opus 5.5',
             'Fable 5.1',
+            'Sonnet 5.5',
             'Fable 5',
             'Opus 5',
             'Opus 5 [1M]',
@@ -193,10 +203,10 @@ describe('modelModeOptions', () => {
 
     it('uses code defaults for agent defaults', () => {
         expect(getDefaultPermissionModeKey('claude')).toBe('auto');
-        expect(getDefaultModelKey('claude')).toBe('claude-opus-5');
+        expect(getDefaultModelKey('claude')).toBe('claude-opus-5-5');
         expect(getDefaultEffortKey('claude')).toBe('medium');
         expect(getDefaultPermissionModeKey('codex')).toBe('auto');
-        expect(getDefaultModelKey('codex')).toBe('gpt-6-astra');
+        expect(getDefaultModelKey('codex')).toBe('gpt-6.1-sol');
         expect(getDefaultEffortKey('codex')).toBe('medium');
     });
 

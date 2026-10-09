@@ -10,6 +10,13 @@ export const SESSION_SCOPED_ENV_KEYS = [
     'HAPPY_RECONNECT_SEQ',
     'HAPPY_RECONNECT_METADATA_VERSION',
     'HAPPY_RECONNECT_AGENT_STATE_VERSION',
+    // One refresh's receive cursor and switch flag. A refreshed runner that
+    // restarts the daemon would otherwise hand its own cursor to every session
+    // that daemon later starts without one, and each would re-read its own
+    // history from another session's position (2026-10-08, Agent 1.2.97: the
+    // startup recovery replayed 418 old user messages into a live session).
+    'HAPPY_REFRESH_RECEIVE_SEQ',
+    'HAPPY_REFRESH_ENGINE_SWITCH',
     'HAPPY_FORKED_FROM_SESSION_ID',
     'HAPPY_FORKED_FROM_MESSAGE_ID',
     'HAPPY_FORK_CLAUDE_SESSION_ID',

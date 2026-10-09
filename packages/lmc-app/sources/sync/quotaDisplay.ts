@@ -74,3 +74,18 @@ export function weeklyResetLabel(resetsAt: number, chinese: boolean): string {
     if (chinese) return `${d.getMonth() + 1}/${d.getDate()} ${WEEKDAYS_ZH[d.getDay()]} ${time}`;
     return `${d.toLocaleDateString('en', { weekday: 'short' })} ${d.getMonth() + 1}/${d.getDate()} ${time}`;
 }
+
+/** Supplemental quota has its own sample; a newer session window cannot freshen it. */
+export function supplementalRemaining(provider: AccountQuotaProvider | undefined, now: number): number | null {
+    const reserve = provider?.supplemental;
+    if (!reserve || reserve.stale || !reserve.capturedAt || now - reserve.capturedAt > 65 * 60_000 || reserve.capturedAt > now + 60_000) return null;
+    if (reserve.resetsAt && reserve.resetsAt <= now && !reserve.pending) return null;
+    return reserve.remaining;
+}
+
+export function usageCreditLabel(provider: AccountQuotaProvider | undefined, now: number): string {
+    const credits = provider?.usageCredits;
+    if (!credits || credits.stale || now - credits.capturedAt > 5 * 60_000 || credits.capturedAt > now + 60_000) return '—';
+    if (credits.unlimited) return '∞';
+    return credits.balance === null ? '—' : credits.balance.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}

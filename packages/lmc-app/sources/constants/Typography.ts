@@ -59,11 +59,11 @@ export const FontFamilies = {
 
 // Helper functions for easy access to font families
 export const getDefaultFont = (weight: 'regular' | 'italic' | 'semiBold' = 'regular') => {
-  return FontFamilies.default[weight];
+  return Platform.OS === 'web' ? `var(--lmc-font-${weight}, ${FontFamilies.default[weight]})` : FontFamilies.default[weight];
 };
 
 export const getMonoFont = (weight: 'regular' | 'italic' | 'semiBold' = 'regular') => {
-  return FontFamilies.mono[weight];
+  return Platform.OS === 'web' ? `var(--lmc-code-${weight}, ${FontFamilies.mono[weight]})` : FontFamilies.mono[weight];
 };
 
 export const getLogoFont = () => {
@@ -82,11 +82,15 @@ export const Typography = {
   // Default font styles (IBM Plex Sans)
   default: (weight: 'regular' | 'italic' | 'semiBold' = 'regular') => ({
     fontFamily: getDefaultFont(weight),
+    ...(Platform.OS === 'web' ? ({ fontSynthesis: 'var(--lmc-font-synthesis, none)' } as object) : {}),
+    ...(Platform.OS === 'web' ? (weight === 'semiBold' ? { fontWeight: '600' as const } : weight === 'italic' ? { fontStyle: 'italic' as const } : {}) : {}),
   }),
   
   // Monospace font styles (IBM Plex Mono)
   mono: (weight: 'regular' | 'italic' | 'semiBold' = 'regular') => ({
     fontFamily: getMonoFont(weight),
+    ...(Platform.OS === 'web' ? ({ fontSynthesis: 'var(--lmc-code-synthesis, none)' } as object) : {}),
+    ...(Platform.OS === 'web' ? (weight === 'semiBold' ? { fontWeight: '600' as const } : weight === 'italic' ? { fontStyle: 'italic' as const } : {}) : {}),
   }),
   
   // Logo font style (Bricolage Grotesque)

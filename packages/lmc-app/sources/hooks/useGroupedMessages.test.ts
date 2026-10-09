@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { generateGroupSummary, groupMessagesForDisplay, groupToolCallsForDisplay } from './useGroupedMessages';
 import { Message, ToolCallMessage } from '@/sync/typesMessage';
+import { visibleTranscriptMessages } from '@/sync/queuedMessageVisibility';
+import { buildAgentTurnCopyTextByMessageId } from '@/utils/agentTurnCopy';
 
 vi.mock('@/components/tools/knownTools', () => ({
     knownTools: {
@@ -52,6 +54,21 @@ function namedToolMessage(id: string, name: string, createdAt: number): ToolCall
 }
 
 describe('useGroupedMessages', () => {
+    it.each(['Bash', 'exec_command'])('groups %s work and turn-copy text at queue release, not original input', name => {
+        const queued: Message = { kind: 'user-text', id: 'queued', localId: 'key', createdAt: 2, text: 'next', meta: { queueKey: 'key' } };
+        const before: Message = { kind: 'agent-text', id: 'before', localId: null, createdAt: 4, text: 'Before release' };
+        const after: Message = { kind: 'agent-text', id: 'after', localId: null, createdAt: 7, text: 'After release' };
+        const messages: Message[] = [after, namedToolMessage('new-tool', name, 6),
+            { kind: 'agent-event', id: 'released', createdAt: 5, event: { type: 'queue-released', keys: ['key'] } },
+            before, namedToolMessage('old-tool-2', name, 3), queued, namedToolMessage('old-tool-1', name, 1)];
+        const visible = visibleTranscriptMessages(messages);
+        const items = groupMessagesForDisplay(visible, true, { timelineCurrentTurn: true });
+        expect(items.map(item => item.id)).toEqual(['after', 'work-new-tool', 'queued', 'before', 'work-old-tool-1']);
+        expect(items.at(-1)).toMatchObject({ messages: [{ id: 'old-tool-2' }, { id: 'old-tool-1' }] });
+        expect([...buildAgentTurnCopyTextByMessageId(visible, { currentTurnComplete: true })])
+            .toEqual([['after', 'After release'], ['before', 'Before release']]);
+    });
+
     it.each(['Bash', 'exec_command'])('keeps the %s timeline identity through streaming and completion', name => {
         const user: Message = { kind: 'user-text', id: 'prompt', localId: null, createdAt: 1, text: 'check' };
         const call = namedToolMessage('first', name, 2);

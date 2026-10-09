@@ -195,3 +195,72 @@ it('names the step an untagged failure happened in', async () => {
     await refresh.request();
     expect(deps.state).toHaveBeenLastCalledWith('error', 'daemon offline', 'relaunch');
 });
+
+it('gives up a plain refresh held only by standing background work, and keeps waiting otherwise', async () => {
+    const { deps } = fixture();
+    let now = 0; let standing = true;
+    const refresh = new SafeSessionRefresh({ ...deps, standingBlocker: () => standing }, 0, 300_000, () => now);
+    deps.isIdle.mockReturnValue(false);
+    await refresh.request();
+    now = 299_000; await refresh.drain();
+    expect(refresh.pending).toBe(true);
+    // A turn or a queued message interrupts the wait; the clock starts over.
+    standing = false; now = 400_000; await refresh.drain();
+    standing = true; now = 500_000; await refresh.drain();
+    now = 700_000; await refresh.drain();
+    expect(refresh.pending).toBe(true);
+    now = 800_000; await refresh.drain();
+    expect(refresh.pending).toBe(false);
+    expect(deps.state).toHaveBeenLastCalledWith('error', expect.stringContaining('后台任务仍在运行'));
+    expect(deps.prepare).not.toHaveBeenCalled(); expect(deps.exit).not.toHaveBeenCalled();
+    // Asking again starts a fresh wait rather than failing at once.
+    await refresh.request(); expect(refresh.pending).toBe(true);
+});
+
+it('never gives up an engine switch a person asked for', async () => {
+    const { deps } = fixture();
+    let now = 0;
+    const refresh = new SafeSessionRefresh({ ...deps, standingBlocker: () => true }, 0, 300_000, () => now);
+    deps.isIdle.mockReturnValue(false);
+    await refresh.request('codex');
+    now = 3_600_000; await refresh.drain(); await refresh.drain();
+    expect(refresh.pending).toBe(true);
+    expect(deps.state).not.toHaveBeenCalledWith('error', expect.anything());
+});
+
+it('takes the session back when the engine declines to exit after the hand-off was prepared', async () => {
+    const { deps, refresh } = fixture();
+    deps.exit.mockRejectedValueOnce(new Error('engine kept its scheduled work'));
+    await refresh.request();
+    expect(deps.prepare).toHaveBeenCalledTimes(1);
+    expect(deps.state).toHaveBeenLastCalledWith('error', 'engine kept its scheduled work', 'relaunch');
+    expect(deps.resume).toHaveBeenCalledWith(42); // The cursor is released, so chat keeps arriving.
+    expect(refresh.pending).toBe(false);
+    expect(refresh.blocksSteering).toBe(false);
+    await refresh.request(); // Not wedged: a later refresh can run.
+    expect(deps.exit).toHaveBeenCalledTimes(2);
+});
+
+it('publishes a fresh queued receipt on retry even when the idle blocker is unchanged', async () => {
+    for (const failure of ['preflight', 'prepare', 'exit'] as const) {
+        const { deps, refresh } = fixture();
+        deps[failure].mockRejectedValueOnce(new Error('original session preserved'));
+        await refresh.request();
+        expect(deps.state).toHaveBeenLastCalledWith('error', 'original session preserved', failure === 'preflight' ? 'preflight' : 'relaunch');
+
+        deps.state.mockClear();
+        let finishPreflight!: () => void;
+        deps.preflight.mockImplementationOnce(() => new Promise<void>(resolve => { finishPreflight = resolve; }));
+        const retried = refresh.request();
+        await vi.waitFor(() => expect(finishPreflight).toBeDefined());
+        try {
+            // Clear the old failure/start time before waiting on login or exit.
+            expect(deps.state).toHaveBeenNthCalledWith(1, 'queued', undefined);
+            await refresh.request();
+            expect(deps.state).toHaveBeenCalledTimes(1);
+        } finally {
+            finishPreflight();
+            await retried;
+        }
+    }
+});

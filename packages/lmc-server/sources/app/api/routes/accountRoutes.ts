@@ -7,10 +7,12 @@ import { randomKeyNaked } from "@/utils/randomKeyNaked";
 import { allocateUserSeq } from "@/storage/seq";
 import { log } from "@/utils/log";
 import { AccountProfile } from "@/types";
+import { usageAnalyticsRoutes } from '../usageAnalytics';
 
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
 
 export function accountRoutes(app: Fastify) {
+    usageAnalyticsRoutes(app);
     app.get('/v1/account/profile', {
         preHandler: app.authenticate,
     }, async (request, reply) => {

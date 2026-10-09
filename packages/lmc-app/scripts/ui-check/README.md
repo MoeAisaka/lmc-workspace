@@ -68,3 +68,24 @@ Additional context-menu checks:
 - Right-click a worker row and verify only its menu opens, with group order and saved settings unchanged.
 
 Run this manual script after changes to SortableHubGroups gestures or session-row menu wiring.
+
+## Session header browser checks
+
+`session-header.cjs` loads the actual modules and CSS from a Web release export,
+without starting the app or loading an account. It renders `SessionView` with
+synthetic Claude/Codex sessions, login/refresh errors, the real drawer, resource
+window and session menu. All non-loopback requests are blocked. It saves
+screenshots and `results.json` in a fresh temporary directory.
+
+```sh
+node packages/lmc-app/scripts/ui-check/session-header.cjs /path/to/web-export
+LMC_WEBKIT=1 node packages/lmc-app/scripts/ui-check/session-header.cjs /path/to/web-export
+```
+
+Use `LMC_PLAYWRIGHT_MODULE` and optionally `LMC_CHROME_PATH` as above; the WebKit
+run needs Playwright's matching WebKit browser installed. Each run checks 14
+states, including actual control clicks, drawer masking, viewport restoration,
+stale RN dimensions, draft preservation and desktop layout. One case explicitly
+sets a screen container's scroll offset to 56px to model scroll restoration.
+That is a controlled regression case, not a reproduction of a particular iPhone
+gesture or an end-to-end test on iOS.

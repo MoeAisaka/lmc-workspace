@@ -1,6 +1,9 @@
+import { Typography } from '@/constants/Typography';
+import { Text } from '@/components/StyledText';
+import { conversationMessagePadding } from '@/constants/PersonalizationStyles';
 import { useChatMaxWidth } from './ChatWidthContext';
 import * as React from "react";
-import { Platform, Pressable, Text, View } from "react-native";
+import { Platform, Pressable, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { MarkdownView } from "./markdown/MarkdownView";
@@ -55,8 +58,10 @@ export const MessageView = React.memo((props: {
   copyText?: string;
 }) => {
   const chatMaxWidth = useChatMaxWidth();
+  const animateEntry = React.useRef(Date.now() - props.message.createdAt < 10_000).current;
   return (
     <View
+      {...(Platform.OS === 'web' && animateEntry ? { dataSet: { lmcMessage: 'true' } } : {})}
       style={styles.messageContainer}
       renderToHardwareTextureAndroid={Platform.OS !== 'web'}
     >
@@ -163,7 +168,7 @@ function UserTextBlock(props: {
   // Mail from another session arrives as a user message with the runner's
   // framing; drawn as a card that names the sender, not as the user's bubble.
   if (isMailDelivery(props.message.text)) {
-    return <MailBlock text={props.message.text} />;
+    return <MailBlock text={props.message.text} sessionId={props.sessionId} />;
   }
 
   const parsed = parseLocalCommandMessage(props.message.displayText || props.message.text);
@@ -177,8 +182,8 @@ function UserTextBlock(props: {
     return (
       <View style={styles.userMessageContainer}>
         <LongPressCopyable style={styles.userCopyTarget} text={parsed.goal}>
-          <View style={[styles.userMessageBubble, styles.userMessageBubbleSolid, bubbleStyle, styles.goalMessageBubble]}>
-            <MarkdownView externalCopyHandler markdown={parsed.goal} onOptionPress={handleOptionPress} sessionId={props.sessionId} />
+          <View {...(Platform.OS === 'web' ? {dataSet: {lmcSurface: 'panel'}} : {})} style={[styles.userMessageBubble, styles.userMessageBubbleSolid, bubbleStyle, styles.goalMessageBubble]}>
+            <MarkdownView presentation="plain" externalCopyHandler markdown={parsed.goal} onOptionPress={handleOptionPress} sessionId={props.sessionId} />
           </View>
           <View style={styles.goalSentRow}>
             <Ionicons name="locate-outline" size={16} color={styles.goalSentText.color} />
@@ -195,8 +200,8 @@ function UserTextBlock(props: {
       <View style={styles.userMessageContainer}>
         <LongPressCopyable style={styles.userCopyTarget} text={commandText}>
           {parsed.args ? (
-            <View style={[styles.userMessageBubble, styles.userMessageBubbleSolid, bubbleStyle, styles.commandMessageBubble]}>
-              <MarkdownView externalCopyHandler markdown={parsed.args} onOptionPress={handleOptionPress} sessionId={props.sessionId} />
+            <View {...(Platform.OS === 'web' ? {dataSet: {lmcSurface: 'panel'}} : {})} style={[styles.userMessageBubble, styles.userMessageBubbleSolid, bubbleStyle, styles.commandMessageBubble]}>
+              <MarkdownView presentation="plain" externalCopyHandler markdown={parsed.args} onOptionPress={handleOptionPress} sessionId={props.sessionId} />
             </View>
           ) : null}
           <View style={[styles.commandChip, styles.userMessageBubbleSolid, bubbleStyle]}>
@@ -213,8 +218,8 @@ function UserTextBlock(props: {
       {/* Native long-press remains available; the visible button also works in
           phone browsers, where the OS can swallow long-press gestures. */}
       <LongPressCopyable style={styles.userCopyTarget} text={parsed.text}>
-        <View style={[styles.userMessageBubble, styles.userMessageBubbleSolid, bubbleStyle]}>
-          <MarkdownView externalCopyHandler markdown={parsed.text} onOptionPress={handleOptionPress} sessionId={props.sessionId} />
+        <View {...(Platform.OS === 'web' ? {dataSet: {lmcSurface: 'panel'}} : {})} style={[styles.userMessageBubble, styles.userMessageBubbleSolid, bubbleStyle]}>
+          <MarkdownView presentation="plain" externalCopyHandler markdown={parsed.text} onOptionPress={handleOptionPress} sessionId={props.sessionId} />
         </View>
       </LongPressCopyable>
       {parsed.text ? <MessageCopyButton text={parsed.text} style={styles.userCopyAction} /> : null}
@@ -228,7 +233,7 @@ function AgentTextBlock(props: {
   copyText?: string;
 }) {
   const handleOptionPress = React.useCallback((option: Option) => {
-    sync.sendMessage(props.sessionId, option.title, { source: 'option' });
+    sync.sendMessage(props.sessionId, option.prompt ?? option.title, { source: 'option' });
   }, [props.sessionId]);
 
   // Hide thinking messages
@@ -355,13 +360,13 @@ function ToolCallBlock(props: {
   if (props.message.tool.name.endsWith('send_to_session') && typeof props.message.tool.input?.text === 'string') {
     const envelope = parseEnvelope(props.message.tool.input.text);
     if (envelope) {
-      return <EnvelopeCard envelope={envelope} direction="out" counterpartId={typeof props.message.tool.input.sessionId === 'string' ? props.message.tool.input.sessionId : null} />;
+      return <EnvelopeCard sessionId={props.sessionId} envelope={envelope} direction="out" counterpartId={typeof props.message.tool.input.sessionId === 'string' ? props.message.tool.input.sessionId : null} />;
     }
   }
   // The structured tools carry the envelope as fields; drawn as the same card.
   const structured = envelopeFromToolInput(props.message.tool.name, props.message.tool.input);
   if (structured) {
-    return <EnvelopeCard envelope={structured.envelope} direction="out" counterpartId={structured.counterpartId} />;
+    return <EnvelopeCard sessionId={props.sessionId} envelope={structured.envelope} direction="out" counterpartId={structured.counterpartId} />;
   }
   return (
     <View style={styles.toolContainer}>
@@ -378,6 +383,7 @@ function ToolCallBlock(props: {
 
 const styles = StyleSheet.create((theme) => ({
   messageContainer: {
+    paddingVertical: conversationMessagePadding(),
     flexDirection: 'row',
     justifyContent: 'center',
   },
@@ -440,7 +446,7 @@ const styles = StyleSheet.create((theme) => ({
   commandChipText: {
     color: theme.colors.input.text,
     fontSize: 13,
-    fontFamily: 'monospace',
+    ...Typography.mono(),
   },
   agentMessageContainer: {
     // Symmetric, so a tool row reads the same distance from the text whether
@@ -461,12 +467,18 @@ const styles = StyleSheet.create((theme) => ({
   },
   agentEventContainer: {
     marginHorizontal: 16,
-    alignItems: 'center',
+    alignItems: 'stretch',
+    minWidth: 0,
     paddingVertical: 8,
   },
   agentEventText: {
     color: theme.colors.agentEventText,
     fontSize: 14,
+    lineHeight: 22,
+    maxWidth: '100%',
+    minWidth: 0,
+    flexShrink: 1,
+    ...Platform.select({ web: { overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' } as any }),
   },
   handoffContainer: { marginHorizontal: 16, paddingVertical: 10, gap: 8 },
   handoffHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },

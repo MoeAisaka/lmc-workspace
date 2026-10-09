@@ -1,24 +1,8 @@
+import { Text } from '@/components/StyledText';
 import { machineModelMetadata } from '@/sync/modelCatalogMetadata';
 import { getAvailableModels, getCatalogDefaultEffort } from '@/components/modelModeOptions';
 import React from 'react';
-import {
-    View,
-    Text,
-    Platform,
-    Pressable,
-    Modal as RNModal,
-    TouchableWithoutFeedback,
-    Animated,
-    TextInput,
-    ScrollView,
-    LayoutAnimation,
-    ActivityIndicator,
-    TextInputSelectionChangeEventData,
-    NativeSyntheticEvent,
-    Image as RNImage,
-    Keyboard,
-    useWindowDimensions,
-} from 'react-native';
+import { View, Platform, Pressable, Modal as RNModal, TouchableWithoutFeedback, Animated, TextInput, ScrollView, LayoutAnimation, ActivityIndicator, TextInputSelectionChangeEventData, NativeSyntheticEvent, Image as RNImage, Keyboard, useWindowDimensions } from 'react-native';
 import { GlassView } from 'expo-glass-effect';
 import { Ionicons, Octicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
@@ -750,7 +734,8 @@ function NewSessionScreen() {
     // composer never offered a way to add any.
     const { selectedImages, pickFiles, removeImage, clearImages, addImages } = useImagePicker();
     // Paste and drop, the same as the in-session composer.
-    useComposerFileTransfer(addImages, selectedImages.length);
+    const transferScopeRef = React.useRef<View>(null);
+    useComposerFileTransfer(addImages, selectedImages.length, transferScopeRef);
     const clipboardImage = useClipboardImage(addImages);
     const setDraftAttachments = useNewSessionDraft((s) => s.setAttachments);
     React.useEffect(() => { setDraftAttachments(selectedImages); }, [selectedImages, setDraftAttachments]);
@@ -1059,7 +1044,7 @@ function NewSessionScreen() {
             modelMode: rigCreation.defaultModelKey ?? '',
             effortLevel: rigCreation.defaultEffortForModel(rigCreation.defaultModelKey),
         }
-        : resolveAgentDefaultConfig(agentDefaultOverrides, selectedAgent, happyCliVersion), [agentDefaultOverrides, happyCliVersion, selectedAgent, rigCreation]);
+        : resolveAgentDefaultConfig(agentDefaultOverrides, selectedAgent, happyCliVersion, machineModelMetadata(selectedChoice?.lmcMachine?.metadata).modelCatalogs), [agentDefaultOverrides, happyCliVersion, selectedAgent, rigCreation, selectedChoice]);
     const modelModes = React.useMemo<ModelMode[]>(
         () => rigCreation?.models ?? includeConfiguredModel(
             selectedAgent,
@@ -2533,6 +2518,8 @@ function NewSessionScreen() {
                 isNativeMobile && { backgroundColor: 'transparent' },
             ]}
         >
+            {/* Marks this screen for paste and drop ownership; see useComposerFileTransfer. */}
+            <View ref={transferScopeRef} style={{ display: 'none' }} />
             {isNativeMobile && (
                 <Header
                     title={<Text style={styles.mobileHeaderTitle}>{t('newSession.title')}</Text>}

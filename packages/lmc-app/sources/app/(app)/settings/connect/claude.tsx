@@ -1,3 +1,4 @@
+import { Typography } from '@/constants/Typography';
 import React from 'react';
 import { useRouter } from 'expo-router';
 import { OAuthView } from '@/components/OAuthView';
@@ -172,12 +173,12 @@ const styles = StyleSheet.create((theme) => ({
         shadowRadius: 24,
     },
     terminalPrompt: {
-        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+        ...Typography.mono(),
         fontSize: 14,
         color: '#00ff00',
     },
     terminalCommand: {
-        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+        ...Typography.mono(),
         fontSize: 14,
         color: '#ffffff',
     },

@@ -7,6 +7,7 @@ import { boardUpdate } from '@/modules/orchestration/board';
 import { formatReportEnvelope, parseEnvelope } from '@/modules/orchestration/envelope';
 import { applyWorkerConfig, configDirectives, hasConfig, isConfigMail, WorkerConfigValidationError, type WorkerConfig } from '@/modules/orchestration/workerConfig';
 import type { Metadata } from '@/api/types';
+import { acknowledgeProcessedMail, processReliableMail } from './reliableInbox';
 
 const POLL_MS = 10_000;
 
@@ -60,20 +61,21 @@ export function startAgentMail(session: ApiSessionClient, token: string, describ
         return sent;
     });
 
-    const accepting = () => {
+    const accepting = async () => {
         const metadata = session.getMetadata();
         if (metadata?.agentMail === false) return false;
-        // Not while the session is being handed to another process. Fetching
-        // marks mail delivered, and this process is about to exit — the letter
-        // would be gone without anyone having read it. It waits instead: the
-        // engine that takes over collects it on its first tick.
-        return metadata?.sessionConfigState !== 'queued' && metadata?.sessionConfigState !== 'refreshing';
+        // Receipt-capable centers can keep delivering through a handoff:
+        // unacknowledged mail and persistent identities survive this process.
+        // Legacy take-and-mark centers must wait for the successor instead.
+        return await mail.supportsReceipts() || (metadata?.sessionConfigState !== 'queued' && metadata?.sessionConfigState !== 'refreshing');
     };
 
     const tick = async () => {
         if (stopped) return;
         try {
-            if (accepting()) {
+            if (await accepting() && !stopped) {
+                const reliable = await mail.supportsReceipts();
+                if (reliable) await acknowledgeProcessedMail(session, mail, () => !stopped);
                 const descriptor = describe();
                 const fingerprint = JSON.stringify(descriptor);
                 if (fingerprint !== published) {
@@ -94,6 +96,12 @@ export function startAgentMail(session: ApiSessionClient, token: string, describ
                     }
                 }
                 for (const message of await mail.receive()) {
+                    if (stopped) break;
+                    if (reliable) {
+                        try { await processReliableMail(session, mail, message, validateConfig, () => !stopped); }
+                        catch { logger.debug('[agent-mail] Processing is unconfirmed; retain this mail and its persistent identity'); }
+                        continue;
+                    }
                     try {
                     logger.debug(`[agent-mail] Delivering mail from ${message.fromSessionId}`);
                     let relation = relationTo(session.getMetadata()?.orchestration, message.fromSessionId);
@@ -172,6 +180,7 @@ export function startAgentMail(session: ApiSessionClient, token: string, describ
                         }
                     }
                 }
+                if (reliable && !stopped) await acknowledgeProcessedMail(session, mail, () => !stopped);
             }
         } catch (error) {
             logger.debug('[agent-mail] Poll failed', error);

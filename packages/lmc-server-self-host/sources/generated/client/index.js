@@ -603,7 +603,7 @@ const config = {
       "value": "prisma-client-js"
     },
     "output": {
-      "value": "/Volumes/OC-WORK-4T/Work/MacMini Codex/LMC-Happy/packages/lmc-server-self-host/sources/generated/client",
+      "value": "/workspace/lmc/packages/lmc-server-self-host/sources/generated/client",
       "fromEnvVar": null
     },
     "config": {
@@ -621,7 +621,7 @@ const config = {
       "metrics",
       "relationJoins"
     ],
-    "sourceFilePath": "/Volumes/OC-WORK-4T/Work/MacMini Codex/LMC-Happy/packages/lmc-server-self-host/prisma/schema.prisma",
+    "sourceFilePath": "/workspace/lmc/packages/lmc-server-self-host/prisma/schema.prisma",
     "isCustomOutput": true
   },
   "relativeEnvPaths": {

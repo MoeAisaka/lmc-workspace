@@ -1,5 +1,5 @@
 import type { SwitchableEngine } from '@/daemon/sessionRefresh';
-import { refreshErrorKind, tagRefreshError, type RefreshErrorKind } from './refreshErrors';
+import { isRefreshRetryLater, refreshErrorKind, tagRefreshError, type RefreshErrorKind } from './refreshErrors';
 
 type RefreshDependencies = {
     isIdle(): boolean;
@@ -10,6 +10,12 @@ type RefreshDependencies = {
      * busy — the operator is left guessing at a predicate they cannot see.
      */
     idleBlocker?(): string | null;
+    /**
+     * True when the only thing holding the refresh is background work that may
+     * never end by itself (a dev server). A plain refresh gives up on that
+     * after a while instead of leaving the session queued for good.
+     */
+    standingBlocker?(): boolean;
     pause(): number;
     drain(): Promise<void>;
     resume(seq: number): void;
@@ -37,6 +43,14 @@ type RefreshDependencies = {
  */
 const BOUNDARY_RECHECK_MS = 60_000;
 
+/**
+ * How long a plain refresh waits on background work alone. Long enough for a
+ * build or a test run to finish; a service left running would hold it forever,
+ * and nothing in a refresh is worth ending someone's service for.
+ */
+const STANDING_GIVE_UP_MS = 5 * 60_000;
+export const STANDING_REFRESH_ERROR = '后台任务仍在运行，本次刷新已放弃，原会话保留。任务结束后可再次刷新；Agent 升级会在会话下次重启时生效。';
+
 /** Only the runtime knows a real turn boundary. Never infer it from a UI heartbeat. */
 export class SafeSessionRefresh {
     pending = false;
@@ -48,7 +62,9 @@ export class SafeSessionRefresh {
     private held: number | undefined;
     private recheck: ReturnType<typeof setInterval> | undefined;
     private published: string | null | undefined;
-    constructor(private readonly deps: RefreshDependencies, private readonly recheckMs = BOUNDARY_RECHECK_MS) {}
+    private standingSince: number | undefined;
+    constructor(private readonly deps: RefreshDependencies, private readonly recheckMs = BOUNDARY_RECHECK_MS,
+        private readonly standingGiveUpMs = STANDING_GIVE_UP_MS, private readonly now: () => number = Date.now) {}
 
     /** A queued CLI upgrade still accepts current-turn input. Once an engine
      * switch or its boundary work begins, keep the handoff/cursor frozen. */
@@ -72,6 +88,10 @@ export class SafeSessionRefresh {
         if (this.pending || this.applying || this.handedOff) return;
         this.pending = true;
         this.target = target;
+        this.standingSince = undefined;
+        // Deduplication belongs to one attempt. A retry must clear the old
+        // error and stamp its own start before asynchronous preflight begins.
+        this.published = undefined;
         try { await this.publishWait(); }
         catch (error) { this.pending = false; throw error; }
         await this.drain();
@@ -126,7 +146,24 @@ export class SafeSessionRefresh {
 
     async drain() {
         if (!this.pending || this.applying || this.handedOff) return;
-        if (!this.deps.isIdle()) { await this.publishWait(); return; }
+        if (!this.deps.isIdle()) {
+            // An engine switch was asked for by a person and stays their call.
+            if (this.target === undefined && this.deps.standingBlocker?.()) {
+                this.standingSince ??= this.now();
+                if (this.now() - this.standingSince >= this.standingGiveUpMs) {
+                    this.pending = false;
+                    this.published = undefined;
+                    this.standingSince = undefined;
+                    this.stopWatching();
+                    if (this.held !== undefined) { this.deps.resume(this.held); this.held = undefined; }
+                    await this.deps.state('error', STANDING_REFRESH_ERROR);
+                    return;
+                }
+            } else this.standingSince = undefined;
+            await this.publishWait();
+            return;
+        }
+        this.standingSince = undefined;
         this.applying = true;
         const seq = this.held ?? this.deps.pause();
         this.held = undefined;
@@ -147,11 +184,24 @@ export class SafeSessionRefresh {
             this.handedOff = true;
             this.pending = false;
             this.stopWatching();
-            await this.deps.exit();
+            // The engine may decline to leave (it asks before stopping its own
+            // scheduled work). Then nothing was handed off: take the session
+            // back, or it would sit in `refreshing` with its cursor held.
+            try { await this.deps.exit(); }
+            catch (error) { this.handedOff = false; throw tagRefreshError(error, 'relaunch'); }
         } catch (error) {
+            this.held = undefined;
+            if (isRefreshRetryLater(error)) {
+                // Not a failure: the boundary said "not now". Back to the queue
+                // with the reason showing; the boundary watch tries again.
+                this.pending = true;
+                this.published = error.message;
+                await this.deps.state('queued', error.message);
+                this.watchForBoundary();
+                return;
+            }
             this.pending = false;
             this.target = undefined;
-            this.held = undefined;
             this.stopWatching();
             const message = error instanceof Error ? error.message : '刷新检查失败，原会话已保留';
             const kind = refreshErrorKind(error);

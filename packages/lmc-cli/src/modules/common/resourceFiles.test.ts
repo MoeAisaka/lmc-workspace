@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, writeFile, symlink, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, basename } from 'node:path';
-import { resolveResourceFile, readResourceFile, registerResourceHandlers } from './resourceFiles';
+import { isUrlLike, resolveResourceFile, readResourceFile, registerResourceHandlers } from './resourceFiles';
 const roots: string[] = [];
 it('daemon serves bounded absolute reads and refuses relative paths and host actions', async () => {
  const dir = await setup(); const file = join(dir, 'preview.png'); await writeFile(file, 'fixture');
@@ -27,6 +27,10 @@ describe('scoped resource files', () => {
   expect(await resolveResourceFile(dir, join(other,'secret'))).toBe(target);
   expect(await resolveResourceFile(dir, 'link')).toBe(target);
   expect(await resolveResourceFile(dir, join('..', basename(other), 'secret'))).toBe(target);
+ });
+ it('treats a drive letter as a path and every scheme as a URL', () => {
+  for (const path of ['D:/Services/LLM/shot.png', 'C:\\Users\\MoeAi\\shot.png', 'out/shot.png', '/tmp/shot.png']) expect(isUrlLike(path)).toBe(false);
+  for (const path of ['https://example.com/a.png', 'file:///tmp/a.png', 'mailto:a@b', 'data:image/png;base64,AA', 'd:relative.png']) expect(isUrlLike(path)).toBe(true);
  });
  it('rejects directories, nonexistent files, URLs and oversized downloads', async () => {
   const dir = await setup(); await writeFile(join(dir,'large'), '12345');

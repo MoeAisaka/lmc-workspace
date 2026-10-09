@@ -8,6 +8,8 @@ import { logger } from '@/ui/logger';
 import { clearDaemonState, readDaemonState } from '@/persistence';
 import { Metadata } from '@/api/types';
 import { configuration } from '@/configuration';
+import { listSessionProcesses } from './sessionProcesses';
+import { isLmcDaemonProcess } from './sessionSpawnGuard';
 
 async function daemonPost(path: string, body?: any): Promise<{ error?: string } | any> {
   const state = await readDaemonState();
@@ -158,7 +160,7 @@ export async function checkIfDaemonRunningAndCleanupStaleState(): Promise<boolea
     process.kill(state.pid, 0);
   } catch {
     logger.debug('[DAEMON RUN] Daemon PID not running, cleaning up state');
-    await cleanupDaemonState();
+    await cleanupDaemonState(state.pid);
     return false;
   }
 
@@ -175,12 +177,22 @@ export async function checkIfDaemonRunningAndCleanupStaleState(): Promise<boolea
       if (response.ok) {
         return true;
       }
+    } catch { /* A timeout is not evidence that the process is unrelated. */ }
+
+    let owner;
+    try {
+      owner = (await listSessionProcesses()).find(item => item.pid === state.pid);
+      if (owner && !owner.cmd?.trim()) throw new Error('Command unavailable');
     } catch {
-      // HTTP check failed - the PID is not our daemon (likely reused by OS after reboot)
-      logger.debug(`[DAEMON RUN] PID ${state.pid} is alive but HTTP health check failed on port ${state.httpPort}, cleaning up stale state`);
-      await cleanupDaemonState();
-      return false;
+      throw new Error('Cannot verify existing daemon process; keeping its state and refusing a duplicate. Retry when process discovery is available.');
     }
+    if (owner && isLmcDaemonProcess(owner)) {
+      logger.debug(`[DAEMON RUN] Control probe unavailable, but PID ${state.pid} is a verified LMC daemon; keeping its state`);
+      return true;
+    }
+    logger.debug(`[DAEMON RUN] PID ${state.pid} no longer belongs to an LMC daemon, cleaning up stale state`);
+    await cleanupDaemonState(state.pid);
+    return false;
   }
 
   return true;
@@ -226,9 +238,9 @@ export async function isDaemonRunningCurrentlyInstalledLmcVersion(): Promise<boo
   return currentCliVersion === state.startedWithCliVersion;
 }
 
-export async function cleanupDaemonState(): Promise<void> {
+export async function cleanupDaemonState(expectedPid = process.pid): Promise<void> {
   try {
-    await clearDaemonState();
+    await clearDaemonState(expectedPid);
     logger.debug('[DAEMON RUN] Daemon state file removed');
   } catch (error) {
     logger.debug('[DAEMON RUN] Error cleaning up daemon metadata', error);

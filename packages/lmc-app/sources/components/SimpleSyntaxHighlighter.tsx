@@ -1,5 +1,6 @@
+import { Text } from '@/components/StyledText';
 import React from 'react';
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 
@@ -299,8 +300,8 @@ export const SimpleSyntaxHighlighter: React.FC<SimpleSyntaxHighlighterProps> = (
         selectable={selectable}
         style={{ 
           fontFamily: Typography.mono().fontFamily,
-          fontSize: 14,
-          lineHeight: 20,
+          fontSize: 14 * theme.personalization.textScale,
+          lineHeight: 20 * theme.personalization.textScale * theme.personalization.lineScale,
         }}
       >
         {tokens.map((token, index) => (

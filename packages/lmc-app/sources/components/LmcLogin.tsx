@@ -1,5 +1,6 @@
+import { Text } from '@/components/StyledText';
 import React, { useState } from 'react';
-import { View, Text, TextInput, Pressable, ActivityIndicator } from 'react-native';
+import { View, TextInput, Pressable, ActivityIndicator } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import { useAuth } from '@/auth/AuthContext';
 import { lmcLogin } from '@/auth/lmcAuth';

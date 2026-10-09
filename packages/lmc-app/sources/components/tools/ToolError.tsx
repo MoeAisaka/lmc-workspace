@@ -1,4 +1,5 @@
-import { Text, View } from "react-native";
+import { Text } from '@/components/StyledText';
+import { View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { parseToolUseError } from '@/utils/toolErrorParser';

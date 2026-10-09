@@ -1,9 +1,10 @@
+import { Text } from '@/components/StyledText';
 /**
  * Native fallback for CodeEditor — should never be rendered on native.
  * The file edit feature is web-only. This stub prevents import errors.
  */
 import * as React from 'react';
-import { View, Text } from 'react-native';
+import { View } from 'react-native';
 
 interface CodeEditorProps {
     value: string;

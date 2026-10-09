@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -75,7 +75,7 @@ export const SidebarView = React.memo(() => {
 
     return (
         <View style={[styles.container, { paddingTop: safeArea.top + 8 }]}>
-            <View
+            <View {...(Platform.OS === 'web' ? {dataSet: {lmcSurface: 'panel'}} : {})}
                 onLayout={(event) => setHeaderCardHeight(event.nativeEvent.layout.height)}
                 style={[styles.card, styles.headerCard, lmcSurfaceBorder(theme), lmcElevation(theme, 1)]}
             >
@@ -90,11 +90,11 @@ export const SidebarView = React.memo(() => {
                 <VoiceAssistantStatusBar variant="sidebar" />
             )}
 
-            <View style={[styles.card, styles.listCard, lmcSurfaceBorder(theme), lmcElevation(theme, 1)]}>
+            <View {...(Platform.OS === 'web' ? {dataSet: {lmcSurface: 'panel'}} : {})} style={[styles.card, styles.listCard, lmcSurfaceBorder(theme), lmcElevation(theme, 1)]}>
                 <DeviceEngineSessionList hideSearch hideAccount query={query} />
             </View>
 
-            <View ref={accountCardRef} style={[styles.card, styles.accountCard, lmcSurfaceBorder(theme), lmcElevation(theme, 1)]}>
+            <View {...(Platform.OS === 'web' ? {dataSet: {lmcSurface: 'panel'}} : {})} ref={accountCardRef} style={[styles.card, styles.accountCard, lmcSurfaceBorder(theme), lmcElevation(theme, 1)]}>
                 <AccountSettingsRow menuCardRef={accountCardRef} />
             </View>
         </View>

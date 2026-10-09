@@ -1,5 +1,8 @@
+import { conversationRowPadding } from '@/constants/PersonalizationStyles';
+import { usePersonalizationMotion } from '@/hooks/usePersonalizationMotion';
+import { motionDuration } from '@/sync/personalization';
 import * as React from 'react';
-import { View, Pressable, ScrollView, TextInput, Platform, Text as RNText } from 'react-native';
+import { View, Pressable, ScrollView, TextInput, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { usePathname, useRouter } from 'expo-router';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -106,7 +109,7 @@ const styles = StyleSheet.create((theme) => ({
     engineGuide: { position: 'absolute', left: 19, top: 2, bottom: 6, width: StyleSheet.hairlineWidth, zIndex: 2 },
     engineAvatar: { width: 22, height: 22, borderRadius: 7, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
     engineName: { fontSize: 12, color: theme.colors.textSecondary, ...Typography.default('semiBold') },
-    row: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 24, paddingLeft: 4, paddingRight: 6, paddingVertical: 8, borderRadius: 12, alignSelf: 'stretch', minHeight: 40 },
+    row: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 24, paddingLeft: 4, paddingRight: 6, paddingVertical: conversationRowPadding(), borderRadius: 12, alignSelf: 'stretch', minHeight: 40 },
     // The list's type scale: titles 14, meta 11, pills 10.5. Three steps and no others.
     rowLine: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
     metaText: { fontSize: 11, lineHeight: 15, ...Typography.default() },
@@ -149,19 +152,20 @@ export const SessionSearchRow = React.memo(({ query, onQueryChange, onNavigate }
     const [rowWidth, setRowWidth] = React.useState(0);
     const inputRef = React.useRef<TextInput>(null);
     const open = searching || !!query;
+    const motion = usePersonalizationMotion();
     const progress = useSharedValue(0);
     const [mounted, setMounted] = React.useState(false);
 
     React.useEffect(() => {
         if (open) {
             setMounted(true);
-            progress.value = withTiming(1, { duration: 260, easing: Easing.out(Easing.cubic) });
+            progress.value = withTiming(1, { duration: motionDuration(motion, 260), easing: Easing.out(Easing.cubic) });
         } else {
-            progress.value = withTiming(0, { duration: 190, easing: Easing.in(Easing.cubic) }, (done) => {
+            progress.value = withTiming(0, { duration: motionDuration(motion, 190), easing: Easing.in(Easing.cubic) }, (done) => {
                 if (done) runOnJS(setMounted)(false);
             });
         }
-    }, [open, progress]);
+    }, [open, progress, motion]);
 
     // The panel grows leftward out of the toggle, so the glyph reads as the
     // seed of the field rather than a button that swaps a panel in.
@@ -179,6 +183,7 @@ export const SessionSearchRow = React.memo(({ query, onQueryChange, onNavigate }
             <Animated.View style={[{ flex: 1, minWidth: 0 }, composeStyle]} pointerEvents={open ? 'none' : 'auto'}>
                 <Pressable
                     accessibilityRole="button"
+                    {...(Platform.OS === 'web' ? {dataSet: {lmcAccentAction: 'true'}} : {})}
                     accessibilityLabel={t('lmc.list.newSession')}
                     onPress={() => { onNavigate?.(); router.navigate('/new'); }}
                     style={({ pressed }) => [
@@ -311,18 +316,18 @@ const SessionRow = React.memo(({ session, selected, now, onNavigate, engineBadge
                 <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
                     <View style={styles.rowLine}>
                         {engineBadge && !meta && <EngineBadge session={session} />}
-                        <RNText numberOfLines={1} style={[styles.title, { flexShrink: 1 }, bracketTrim(title), tone === 'attention' && styles.titleStrong, tone === 'offline' && { color: colors.placeholder }]}>{title}</RNText>
+                        <Text numberOfLines={1} style={[styles.title, { flexShrink: 1 }, bracketTrim(title), tone === 'attention' && styles.titleStrong, tone === 'offline' && { color: colors.placeholder }]}>{title}</Text>
                         <View style={{ flex: 1 }} />
-                        {!!suffix && !meta && <RNText numberOfLines={1} style={[styles.suffix, { color: colors.tertiary }]}>{suffix}</RNText>}
+                        {!!suffix && !meta && <Text numberOfLines={1} style={[styles.suffix, { color: colors.tertiary }]}>{suffix}</Text>}
                     </View>
                     {secondLine && (
                         <View style={styles.rowLine}>
-                            {!!meta!.device && <><Ionicons name="laptop-outline" size={12} color={colors.tertiary} /><RNText numberOfLines={1} style={[styles.metaText, { color: colors.tertiary, maxWidth: 96 }]}>{meta!.device}</RNText></>}
+                            {!!meta!.device && <><Ionicons name="laptop-outline" size={12} color={colors.tertiary} /><Text numberOfLines={1} style={[styles.metaText, { color: colors.tertiary, maxWidth: 96 }]}>{meta!.device}</Text></>}
                             {!!meta!.engine && <ProviderIcon kind={meta!.engine} size={12} />}
-                            {(meta!.extras ?? []).map((extra, index) => <RNText key={index} numberOfLines={1} style={[styles.metaText, { color: colors.tertiary, flexShrink: 1 }]}>{extra}</RNText>)}
+                            {(meta!.extras ?? []).map((extra, index) => <Text key={index} numberOfLines={1} style={[styles.metaText, { color: colors.tertiary, flexShrink: 1 }]}>{extra}</Text>)}
                             {meta!.toggle && (
                                 <Pressable accessibilityRole="button" accessibilityState={{ expanded: meta!.toggle.open }} onPress={(e) => { e.stopPropagation?.(); meta!.toggle!.onToggle(); }} hitSlop={6} style={({ pressed }) => [styles.toggle, pressed && { opacity: 0.6 }]}>
-                                    {!!meta!.toggle.label && <RNText style={[styles.metaText, { color: colors.tertiary }]}>{meta!.toggle.label}</RNText>}
+                                    {!!meta!.toggle.label && <Text style={[styles.metaText, { color: colors.tertiary }]}>{meta!.toggle.label}</Text>}
                                     <Ionicons name={meta!.toggle.open ? 'chevron-down' : 'chevron-forward'} size={12} color={colors.tertiary} />
                                 </Pressable>
                             )}
@@ -395,15 +400,16 @@ const DeviceSection = React.memo(({ group, selectedSessionId, now, onNavigate, o
     // its header, and the chevron turns with them.
     const [bodyHeight, setBodyHeight] = React.useState(0);
     const [expandedSettled, setExpandedSettled] = React.useState(true);
+    const motion = usePersonalizationMotion();
     const progress = useSharedValue(1);
     React.useEffect(() => {
         if (collapsed) setExpandedSettled(false);
         progress.value = withTiming(
             collapsed ? 0 : 1,
-            { duration: collapsed ? 200 : 260, easing: Easing.out(Easing.cubic) },
+            { duration: motionDuration(motion, collapsed ? 200 : 260), easing: Easing.out(Easing.cubic) },
             (done) => { if (done && !collapsed) runOnJS(setExpandedSettled)(true); },
         );
-    }, [collapsed, progress]);
+    }, [collapsed, progress, motion]);
     // Once open, the wrapper hands height back to the content so a dragged row
     // can lift out of it without being clipped.
     const bodyStyle = useAnimatedStyle(() => (expandedSettled
@@ -546,15 +552,16 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
     const [collapsed, setCollapsed] = React.useState(() => hubCollapsedById.get(group.hub.id) ?? true);
     const [bodyHeight, setBodyHeight] = React.useState(0);
     const [expandedSettled, setExpandedSettled] = React.useState(!collapsed);
+    const motion = usePersonalizationMotion();
     const progress = useSharedValue(collapsed ? 0 : 1);
     React.useEffect(() => {
         if (collapsed) setExpandedSettled(false);
         progress.value = withTiming(
             collapsed ? 0 : 1,
-            { duration: collapsed ? 200 : 260, easing: Easing.out(Easing.cubic) },
+            { duration: motionDuration(motion, collapsed ? 200 : 260), easing: Easing.out(Easing.cubic) },
             (done) => { if (done && !collapsed) runOnJS(setExpandedSettled)(true); },
         );
-    }, [collapsed, progress]);
+    }, [collapsed, progress, motion]);
     // Once open the wrapper hands height back, so a dragged row can lift out
     // of the group without being clipped.
     const hubBodyStyle = useAnimatedStyle(() => (expandedSettled
@@ -584,7 +591,7 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
                         style={[styles.taskRow, { marginLeft: indent }]}
                     >
                         <HorizontalScrollView testID="worker-task-name-scroll" style={styles.taskScroll} contentContainerStyle={{ alignItems: 'center' }}>
-                            <RNText selectable numberOfLines={1} style={styles.taskTitle}>{taskStepName(entry)}</RNText>
+                            <Text selectable numberOfLines={1} style={styles.taskTitle}>{taskStepName(entry)}</Text>
                         </HorizontalScrollView>
                         <View style={{ flexShrink: 0 }}><SessionStatusRing tone={taskTone(entry)} size={10} /></View>
                     </View>
@@ -609,7 +616,7 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
                 >
                     <View style={styles.rowLine}>
                         <Ionicons name="disc-outline" size={18} color={colors.brand} />
-                        <RNText numberOfLines={1} style={[styles.hubName, { flexShrink: 1 }, bracketTrim(getSessionName(group.hub))]}>{getSessionName(group.hub)}</RNText>
+                        <Text numberOfLines={1} style={[styles.hubName, { flexShrink: 1 }, bracketTrim(getSessionName(group.hub))]}>{getSessionName(group.hub)}</Text>
                         <View style={{ flex: 1 }} />
                         <View style={styles.dots}>
                             {!showHubChevron && hubRingTone && <SessionStatusRing tone={hubRingTone} size={14} />}
@@ -632,12 +639,12 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
                     </View>
                     <View style={[styles.rowLine, { paddingLeft: 26 }]}>
                         <Ionicons name="laptop-outline" size={12} color={colors.tertiary} />
-                        <RNText numberOfLines={1} style={[styles.metaText, { color: colors.tertiary, maxWidth: 96 }]}>{deviceOf(group.hub)}</RNText>
+                        <Text numberOfLines={1} style={[styles.metaText, { color: colors.tertiary, maxWidth: 96 }]}>{deviceOf(group.hub)}</Text>
                         {engineOf(group.hub) && <ProviderIcon kind={engineOf(group.hub)} size={12} />}
                         {hubModel && (
-                            <RNText numberOfLines={1} ellipsizeMode="tail" style={[styles.metaText, { color: colors.tertiary, flexShrink: 1 }]}>
+                            <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.metaText, { color: colors.tertiary, flexShrink: 1 }]}>
                                 {hubModel}{hubEffort ? ` · ${hubEffort}` : ''}
-                            </RNText>
+                            </Text>
                         )}
                     </View>
                 </Pressable>
@@ -645,7 +652,7 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
                     <SessionActionsPopover anchor={headerAnchor} onClose={closeHeaderMenu} sessionId={group.hub.id} visible={headerAnchor !== null} />
                 )}
             </View>
-            {hovered && <RNText style={[styles.dropHint, { color: colors.brand }]}>{t('lmc.orchestration.dropToBind')}</RNText>}
+            {hovered && <Text style={[styles.dropHint, { color: colors.brand }]}>{t('lmc.orchestration.dropToBind')}</Text>}
             <Animated.View pointerEvents={collapsed ? 'none' : 'auto'} aria-hidden={collapsed} importantForAccessibility={collapsed ? 'no-hide-descendants' : 'auto'} style={[{ overflow: expandedSettled ? 'visible' : 'hidden' }, hubBodyStyle]}>
             <View onLayout={(event) => {
                 const next = Math.round(event.nativeEvent.layout.height);
@@ -688,7 +695,7 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
             </View>
             {unassigned.length > 0 && (
                 <>
-                    <RNText style={[styles.metaText, { color: colors.tertiary, paddingLeft: 48, paddingTop: 6 }]}>{t('lmc.orchestration.unassigned')}</RNText>
+                    <Text style={[styles.metaText, { color: colors.tertiary, paddingLeft: 48, paddingTop: 6 }]}>{t('lmc.orchestration.unassigned')}</Text>
                     {renderTaskRows(unassigned, 48)}
                 </>
             )}
@@ -719,6 +726,7 @@ const ArchivedSection = React.memo(({ sessions, open, onToggle, selectedSessionI
     const [mounted, setMounted] = React.useState(open);
     const [bodyHeight, setBodyHeight] = React.useState(0);
     const [openSettled, setOpenSettled] = React.useState(open);
+    const motion = usePersonalizationMotion();
     const progress = useSharedValue(open ? 1 : 0);
 
     React.useEffect(() => {
@@ -726,10 +734,10 @@ const ArchivedSection = React.memo(({ sessions, open, onToggle, selectedSessionI
         else setOpenSettled(false);
         progress.value = withTiming(
             open ? 1 : 0,
-            { duration: open ? 260 : 200, easing: Easing.out(Easing.cubic) },
+            { duration: motionDuration(motion, open ? 260 : 200), easing: Easing.out(Easing.cubic) },
             (done) => { if (done) runOnJS(open ? setOpenSettled : setMounted)(open); },
         );
-    }, [open, progress]);
+    }, [open, progress, motion]);
 
     const bodyStyle = useAnimatedStyle(() => (openSettled
         // 'auto', not an omitted key: Reanimated keeps the last height it

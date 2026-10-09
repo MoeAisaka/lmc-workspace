@@ -1,5 +1,6 @@
+import { Text } from '@/components/StyledText';
 import React from 'react';
-import {View,Text} from 'react-native';
+import { View } from 'react-native';
 import {t} from '@/text';
 import {StatusDot} from './StatusDot';
 export interface SessionStatusIndicatorProps {state:string; showLabel?:boolean; unread?:boolean}

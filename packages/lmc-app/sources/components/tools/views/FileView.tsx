@@ -1,3 +1,4 @@
+import { Text } from '@/components/StyledText';
 /**
  * View for 'file' tool calls (image attachments sent by user).
  * Downloads and decrypts the encrypted blob via apiAttachments + sessionBlobKey,
@@ -8,7 +9,7 @@
  * ratio is used until the actual image lands and contentFit shows it.
  */
 import * as React from 'react';
-import { View, Text, Pressable } from 'react-native';
+import { View, Pressable } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';

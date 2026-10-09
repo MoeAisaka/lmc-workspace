@@ -30,6 +30,23 @@ export class RefreshStepError extends Error {
     }
 }
 
+/**
+ * A boundary that refused this attempt but may accept a later one — Claude
+ * kept its background work, and the person asked to wait for that work rather
+ * than stop it. The refresh goes back to the queue instead of failing.
+ */
+export class RefreshRetryLaterError extends Error {
+    readonly retryLater = true as const;
+    constructor(message: string, readonly cause?: unknown) {
+        super(message);
+        this.name = 'RefreshRetryLaterError';
+    }
+}
+
+export function isRefreshRetryLater(error: unknown): error is RefreshRetryLaterError {
+    return error instanceof RefreshRetryLaterError;
+}
+
 export function refreshErrorKind(error: unknown): RefreshErrorKind | undefined {
     if (error instanceof EngineAuthPreflightError || error instanceof RefreshStepError) return error.kind;
     return undefined;
@@ -37,6 +54,6 @@ export function refreshErrorKind(error: unknown): RefreshErrorKind | undefined {
 
 /** Tags an error with a step unless it already names one. */
 export function tagRefreshError(error: unknown, kind: Exclude<RefreshErrorKind, 'auth'>): Error {
-    if (refreshErrorKind(error)) return error as Error;
+    if (refreshErrorKind(error) || isRefreshRetryLater(error)) return error as Error;
     return new RefreshStepError(error instanceof Error ? error.message : String(error), kind, error);
 }

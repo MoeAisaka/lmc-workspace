@@ -1,5 +1,6 @@
+import { Text } from '@/components/StyledText';
 import React from 'react';
-import { View, Text } from 'react-native';
+import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { useAcceptedFriends, useFriendRequests, useRequestedFriends } from '@/sync/storage';
 import { UserCard } from '@/components/UserCard';

@@ -1,5 +1,6 @@
 import type { BoardEntry, Metadata, Orchestration } from '@/api/types';
 import { parseEnvelope, type Envelope } from './envelope';
+import { isQuotaReport, type DelegationRecord } from 'lmc-wire';
 
 /**
  * The task board, kept in the session's metadata by its runner.
@@ -46,7 +47,7 @@ export function applyEnvelope(board: BoardEntry[], envelope: Envelope, counterpa
     } else {
         // A report or a review: either way the status is the new state.
         entry.state = envelope.status;
-        if (envelope.kind === 'report' && envelope.status === 'blocked' && /quota|rate[ _-]?limit|429/i.test(envelope.fields.blocked ?? '')) entry.reason = 'quota';
+        if (envelope.kind === 'report' && envelope.status === 'blocked' && isQuotaReport(envelope.fields.blocked)) entry.reason = 'quota';
         else delete entry.reason;
         if (envelope.kind === 'report' && envelope.fields.cost) entry.cost = envelope.fields.cost.split('\n')[0].trim();
         if (envelope.kind === 'report' && envelope.fields.model) entry.model = envelope.fields.model.split('\n')[0].trim();
@@ -63,13 +64,22 @@ export function boardUpdate(text: string, counterpart: string | null, now = Date
         const orchestration = metadata.orchestration;
         if (!orchestration) return metadata;
         const ledger = metadata.delegationLedger;
-        const reservation = ledger?.[envelope.id];
+        const reservation = ledger?.[envelope.id] as DelegationRecord | undefined;
         const canUpdate = reservation && envelope.kind !== 'task'
             && envelope.attempt === reservation.attempt
             && envelope.fields.dispatch === reservation.dispatch
+            && (orchestration.role !== 'hub' || counterpart === reservation.worker)
             && !(envelope.kind === 'report' && ['accepted', 'rejected'].includes(reservation.state));
+        let updatedReservation: DelegationRecord | undefined;
+        if (canUpdate) {
+            updatedReservation = { ...reservation, state: envelope.status };
+            delete updatedReservation.quotaReport;
+            if (envelope.kind === 'report' && envelope.status === 'blocked' && isQuotaReport(envelope.fields.blocked)) {
+                updatedReservation.quotaReport = { worker: reservation.worker, attempt: reservation.attempt, dispatch: reservation.dispatch };
+            }
+        }
         return { ...metadata,
-            ...(canUpdate ? { delegationLedger: { ...ledger, [envelope.id]: { ...reservation, state: envelope.status } } } : {}),
+            ...(updatedReservation ? { delegationLedger: { ...ledger, [envelope.id]: updatedReservation } } : {}),
             orchestration: { ...orchestration, board: applyEnvelope(boardOf(orchestration), envelope, counterpart, now) } };
     };
 }

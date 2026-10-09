@@ -63,6 +63,8 @@ export function LmcSettingsDialog({ section: initial = 'general', onClose }: { s
     // (and starting device/account requests) for a search.
     const terms: Record<LmcSettingsSection, string[]> = {
         general: [
+            t('personalization.chrome'), t('personalization.terminal'),
+            t('personalization.title'), t('personalization.motion'), t('personalization.typography'), t('personalization.colors'), t('personalization.layout'), t('personalization.uiFont'), t('personalization.textSize'),
             t('settings.appearance'), t('settingsLanguage.currentLanguage'),
             t('settingsAppearance.userMessageBubbleColor'),
             t('settingsAppearance.alwaysShowContextSize'), t('settingsFeatures.enterToSend'),
@@ -100,7 +102,7 @@ export function LmcSettingsDialog({ section: initial = 'general', onClose }: { s
                     <Ionicons name="close" size={22} color={theme.colors.text} />
                 </Pressable>
             </View>
-            <View style={styles.search}>
+            <View {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={styles.search}>
                 <Ionicons name="search-outline" size={20} color={colors.tertiary} />
                 <TextInput accessibilityLabel={t('lmc.settings.search')} placeholder={t('lmc.settings.search')} placeholderTextColor={colors.tertiary} value={query} onChangeText={setQuery} autoCorrect={false} autoCapitalize="none" style={styles.searchInput} />
             </View>

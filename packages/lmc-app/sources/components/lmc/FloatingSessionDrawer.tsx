@@ -3,6 +3,7 @@ import { Pressable, useWindowDimensions, View, Platform } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming, runOnJS } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { overlayHeight, readOverlayViewport, subscribeOverlayViewport } from '@/utils/browserLayoutViewport';
 import { useKeyboardState } from 'react-native-keyboard-controller';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { DeviceEngineSessionList } from './DeviceEngineSessionList';
@@ -41,7 +42,14 @@ export const FloatingSessionDrawer = React.memo(() => {
     const open = useSessionDrawer((s) => s.open);
     const setOpen = useSessionDrawer((s) => s.setOpen);
     const composer = useSessionDrawer((s) => s.composer);
-    const { width, height } = useWindowDimensions();
+    const { width, height: visualHeight } = useWindowDimensions();
+    // See overlayHeight: the visual viewport is not a safe height for an overlay on iOS.
+    const [viewport, setViewport] = React.useState(readOverlayViewport);
+    React.useEffect(() => subscribeOverlayViewport(() => setViewport(current => {
+        const next = readOverlayViewport();
+        return next && current && next.layoutHeight === current.layoutHeight && next.editing === current.editing ? current : next;
+    })), []);
+    const height = viewport ? overlayHeight(visualHeight, viewport.layoutHeight, viewport.editing) : visualHeight;
     const insets = useSafeAreaInsets();
     const keyboard = useKeyboardState();
     const { theme } = useUnistyles();

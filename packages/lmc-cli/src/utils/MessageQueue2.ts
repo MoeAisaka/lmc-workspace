@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { logger } from "@/ui/logger";
 
-export type PendingAttachment = { data: Uint8Array; mimeType: string; name: string };
+/** `file` is set for a large attachment already written to the session's inbox; `data` is then empty. */
+export type PendingAttachment = { data: Uint8Array; mimeType: string; name: string; file?: { path: string; size: number } };
 
 /**
  * How queued prompts are handed to the engine once it is free.

@@ -1,5 +1,7 @@
+import { Typography } from '@/constants/Typography';
+import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import { Pressable, View, Text } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Octicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -247,7 +249,7 @@ const styles = StyleSheet.create((theme) => ({
     filePath: {
         fontSize: 13,
         color: theme.colors.text,
-        fontFamily: 'monospace',
+        ...Typography.mono(),
         flex: 1,
     },
     kindLabel: {
@@ -259,7 +261,7 @@ const styles = StyleSheet.create((theme) => ({
     movePath: {
         fontSize: 12,
         color: theme.colors.textSecondary,
-        fontFamily: 'monospace',
+        ...Typography.mono(),
     },
     stats: {
         flexDirection: 'row',
@@ -279,12 +281,12 @@ const styles = StyleSheet.create((theme) => ({
     },
     added: {
         fontSize: 12,
-        fontFamily: 'monospace',
+        ...Typography.mono(),
         color: '#34C759',
     },
     removed: {
         fontSize: 12,
-        fontFamily: 'monospace',
+        ...Typography.mono(),
         color: '#FF3B30',
     },
 }));

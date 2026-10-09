@@ -1,5 +1,7 @@
+import { Typography } from '@/constants/Typography';
+import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import { View, Text } from 'react-native';
+import { View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import { ToolCall } from '@/sync/typesMessage';
 import { ToolSectionView } from '../ToolSectionView';
@@ -108,7 +110,7 @@ const styles = StyleSheet.create((theme) => ({
         flex: 1,
         fontSize: 13,
         color: theme.colors.textSecondary,
-        fontFamily: 'monospace',
+        ...Typography.mono(),
     },
     stats: {
         flexDirection: 'row',
@@ -116,12 +118,12 @@ const styles = StyleSheet.create((theme) => ({
     },
     added: {
         fontSize: 12,
-        fontFamily: 'monospace',
+        ...Typography.mono(),
         color: '#34C759',
     },
     removed: {
         fontSize: 12,
-        fontFamily: 'monospace',
+        ...Typography.mono(),
         color: '#FF3B30',
     },
 }));
