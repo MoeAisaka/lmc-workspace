@@ -1,9 +1,11 @@
 import { readFileSync, existsSync, realpathSync } from 'node:fs';
 import { join, isAbsolute } from 'node:path';
 import { createRequire } from 'node:module';
-import { probeCommand } from '@/utils/probeCommand';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { configuration } from '@/configuration';
 import { projectPath } from '@/projectPath';
+const run = promisify(execFile);
 const require = createRequire(import.meta.url);
 export type Engine = 'claude' | 'codex';
 export type Component = Engine | 'agent';
@@ -29,7 +31,7 @@ export function sdkRequire(release:Release|null=runtimeRelease('claude')??null) 
 }
 export function claudeExecutable(release:Release|null=runtimeRelease('claude')??null) {
     const relative=createRequire(sdkRequire(release).resolve('@anthropic-ai/claude-agent-sdk'));
-    return relative.resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/claude${process.platform === 'win32' ? '.exe' : ''}`);
+    return relative.resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/claude`);
 }
 export function codexExecutable(release:Release|null=runtimeRelease('codex')??null) {
     return release ? join(release.directory,'node_modules','.bin','codex') : 'codex';
@@ -52,8 +54,7 @@ export function engineCapabilities(engine:Engine) {
 export async function runtimeVersion(engine:Engine, fresh=false) {
     const release=runtimeRelease(engine,fresh)??null;
     const command=engine==='claude'?claudeExecutable(release):codexExecutable(release);
-    const {code,stdout}=await probeCommand(command,['--version'],{timeout:10000,maxBuffer:8192});
-    if(code!==0)throw new Error('无法读取引擎版本');
+    const {stdout}=await run(command,['--version'],{timeout:10000,maxBuffer:8192});
     const version=stdout.match(/\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?/)?.[0];
     if(!version)throw new Error('无法识别引擎版本');
     return {engine,version,packageVersion:release?.version,source:release?'lmc-managed':engine==='claude'?'sdk-bundled':'system-path',path:command==='codex'?command:realpathSync(command)};

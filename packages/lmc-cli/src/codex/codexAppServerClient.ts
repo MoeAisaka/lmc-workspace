@@ -19,8 +19,8 @@ import { engineLoginContext } from '@/utils/engineLoginContext';
  * app-server wrapper or approval callbacks. See docs/plans/codex-app-server-migration.md.
  */
 
-import { execSync, type ChildProcess } from 'node:child_process';
-import { spawn as crossSpawn, sync as crossSpawnSync } from 'cross-spawn';
+import { execSync, execFileSync, type ChildProcess } from 'node:child_process';
+import { spawn as crossSpawn } from 'cross-spawn';
 import { createInterface, type Interface as ReadlineInterface } from 'node:readline';
 import { logger } from '@/ui/logger';
 import type {
@@ -119,11 +119,8 @@ function parseCodexCliVersion(version: string): { major: number; minor: number; 
 
 function readCodexCliVersion(): { major: number; minor: number; patch: number } | null {
     try {
-        // npm installs a .cmd shim on Windows, which execFileSync cannot launch.
-        // Use the same platform-aware resolution as the app-server transport.
-        const result = crossSpawnSync(codexExecutable(), ['--version'], { encoding: 'utf8', windowsHide: true });
-        if (result.error || result.status !== 0) return null;
-        return parseCodexCliVersion(result.stdout.trim());
+        const version = execFileSync(codexExecutable(), ['--version'], { encoding: 'utf8', windowsHide: true }).trim();
+        return parseCodexCliVersion(version);
     } catch {
         return null;
     }

@@ -3,14 +3,12 @@ import type { SandboxConfig } from '@/persistence';
 
 const {
     mockExecSync,
-    mockVersionSpawn,
     mockInitializeSandbox,
     mockWrapForMcpTransport,
     mockSandboxCleanup,
     mockSpawn,
 } = vi.hoisted(() => ({
     mockExecSync: vi.fn(),
-    mockVersionSpawn: vi.fn(),
     mockInitializeSandbox: vi.fn(),
     mockWrapForMcpTransport: vi.fn(),
     mockSandboxCleanup: vi.fn(),
@@ -26,7 +24,6 @@ vi.mock('node:child_process', async importOriginal => ({
 
 vi.mock('cross-spawn', () => ({
     spawn: mockSpawn,
-    sync: mockVersionSpawn,
 }));
 
 // The real machine may select a managed Codex release; these tests describe the plain PATH case.
@@ -140,7 +137,6 @@ describe('CodexAppServerClient sandbox integration', () => {
         vi.spyOn(process, 'kill').mockImplementation(() => true);
         process.env.RUST_LOG = originalRustLog;
         mockExecSync.mockReturnValue('codex-cli 0.107.0');
-        mockVersionSpawn.mockReturnValue({ status: 0, stdout: 'codex-cli 0.107.0' });
         mockInitializeSandbox.mockResolvedValue(mockSandboxCleanup);
         mockWrapForMcpTransport.mockResolvedValue({ command: 'sh', args: ['-c', 'wrapped codex app-server'] });
         mockSpawn.mockImplementation(() => createMockProcess());
@@ -149,25 +145,6 @@ describe('CodexAppServerClient sandbox integration', () => {
     afterAll(() => {
         vi.restoreAllMocks();
         process.env.RUST_LOG = originalRustLog;
-    });
-
-    it('starts through the platform-aware probe when execFile cannot resolve an npm shim', async () => {
-        mockExecSync.mockImplementation(() => { throw Object.assign(new Error('spawnSync codex ENOENT'), { code: 'ENOENT' }); });
-        const { CodexAppServerClient } = await import('./codexAppServerClient');
-        const client = new CodexAppServerClient();
-        await client.connect();
-        expect(mockVersionSpawn).toHaveBeenCalledWith('codex', ['--version'], { encoding: 'utf8', windowsHide: true });
-        await client.disconnect();
-    });
-
-    it.each([
-        { status: 1, stdout: 'codex-cli 0.160.1' },
-        { status: null, stdout: '', error: new Error('ENOENT') },
-    ])('rejects unsuccessful version probes without spawning an app server', async result => {
-        mockVersionSpawn.mockReturnValue(result);
-        const { CodexAppServerClient } = await import('./codexAppServerClient');
-        await expect(new CodexAppServerClient().connect()).rejects.toThrow('Codex CLI is not installed');
-        expect(mockSpawn).not.toHaveBeenCalled();
     });
 
     it('observes engine activity and exposes only its own PID, ignoring health replies', async () => {
@@ -338,10 +315,10 @@ describe('CodexAppServerClient sandbox integration', () => {
     it('reports goal action support for Codex versions with goal action requests', async () => {
         const { CodexAppServerClient } = await import('./codexAppServerClient');
 
-        mockVersionSpawn.mockReturnValue({ status: 0, stdout: 'codex-cli 0.140.0' });
+        mockExecSync.mockReturnValue('codex-cli 0.140.0');
         expect(new CodexAppServerClient().supportsGoalActions()).toBe(true);
 
-        mockVersionSpawn.mockReturnValue({ status: 0, stdout: 'codex-cli 0.130.0' });
+        mockExecSync.mockReturnValue('codex-cli 0.130.0');
         expect(new CodexAppServerClient().supportsGoalActions()).toBe(false);
     });
 
