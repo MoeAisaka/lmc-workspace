@@ -1,4 +1,6 @@
 import { DetailSummary } from '@/components/lmc/DetailSummary';
+import { openResourceSharing } from '@/components/lmc/ResourceSharingDialog';
+import { accountMe } from '@/sync/apiAccounts';
 import { Text } from '@/components/StyledText';
 import { RuntimeUpdatesPanel } from '@/components/RuntimeUpdatesPanel';
 import React, { useState, useMemo } from 'react';
@@ -22,9 +24,10 @@ import { t } from '@/text';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { MOBILE_GLASS_HEADER_HEIGHT } from '@/components/navigation/headerMetrics';
 
-export default function MachineDetailScreen() {
+export default function MachineDetailScreen({ machineId: suppliedId, onClose }: { machineId?: string; onClose?: () => void } = {}) {
     const { theme } = useUnistyles();
-    const { id: machineId } = useLocalSearchParams<{ id: string }>();
+    const { id } = useLocalSearchParams<{ id: string }>();
+    const machineId = suppliedId ?? id;
     const router = useRouter();
     const sessions = useSessions();
     const machine = useMachine(machineId!);
@@ -33,6 +36,8 @@ export default function MachineDetailScreen() {
     const [isStoppingDaemon, setIsStoppingDaemon] = useState(false);
     const [isRenamingMachine, setIsRenamingMachine] = useState(false);
     const [isDeletingMachine, setIsDeletingMachine] = useState(false);
+    const [sharingEnabled, setSharingEnabled] = useState(false);
+    React.useEffect(() => { let active = true; void accountMe().then(() => { if (active) setSharingEnabled(true); }).catch(() => {}); return () => { active = false; }; }, []);
 
     const machineSessions = useMemo(() => {
         if (!sessions || !machineId) return [];
@@ -100,7 +105,7 @@ export default function MachineDetailScreen() {
         try {
             const result = await machineDelete(machineId);
             if (result.success) {
-                router.back();
+                if (onClose) onClose(); else router.back();
             } else {
                 Modal.alert(t('common.error'), result.message || t('machine.deleteFailed'));
             }
@@ -159,13 +164,13 @@ export default function MachineDetailScreen() {
     if (!machine) {
         return (
             <>
-                <Stack.Screen
+                {!suppliedId && <Stack.Screen
                     options={{
                         headerShown: true,
                         headerTitle: '',
                         headerBackTitle: t('machine.back')
                     }}
-                />
+                />}
                 <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.groupped.background }}>
                     <Text style={[Typography.default(), { fontSize: 16, color: '#666' }]}>
                         Machine not found
@@ -182,7 +187,7 @@ export default function MachineDetailScreen() {
 
     return (
         <>
-            <Stack.Screen
+            {!suppliedId && <Stack.Screen
                 options={{
                     headerShown: true,
                     headerTitle: machineName,
@@ -204,10 +209,10 @@ export default function MachineDetailScreen() {
                     ),
                     headerBackTitle: t('machine.back')
                 }}
-            />
+            />}
             <ItemList
                 containerStyle={{
-                    paddingTop: Platform.OS === 'ios' ? MOBILE_GLASS_HEADER_HEIGHT : 0,
+                    paddingTop: !suppliedId && Platform.OS === 'ios' ? MOBILE_GLASS_HEADER_HEIGHT : 0,
                 }}
                 refreshControl={
                     <RefreshControl
@@ -221,8 +226,10 @@ export default function MachineDetailScreen() {
                     icon={<Ionicons name="desktop-outline" size={26} color={theme.colors.textSecondary} />}
                     status={machineOnline ? t('status.online') : t('status.offline')}
                     statusColor={machineOnline ? theme.colors.success : theme.colors.textSecondary} />}
+                {!!suppliedId && <Item title={t('common.rename')} onPress={handleRenameMachine} disabled={isRenamingMachine} />}
                 {/* Daemon */}
                 <ItemGroup>
+                        {sharingEnabled && <Item title="共享设置" subtitle="指定账号可以共用设备；新会话仍默认独占" onPress={() => openResourceSharing('machine', machineId!)} />}
                         <Item
                             title={t('machine.status')}
                             detail={machineOnline ? t('status.online') : t('status.offline')}
@@ -304,7 +311,7 @@ export default function MachineDetailScreen() {
                                     title={getSessionName(session)}
                                     subtitle={getSessionSubtitle(session)}
                                     detail={formatBytes(resources.sessions[session.id].rssBytes)}
-                                    onPress={() => navigateToSession(session.id)}
+                                    onPress={() => { onClose?.(); navigateToSession(session.id); }}
                                 />
                             ))}
                         <Item title={t('machine.resourcesSampledAt')} detail={new Date(resources.sampledAt).toLocaleTimeString()} showChevron={false} />
@@ -377,7 +384,7 @@ export default function MachineDetailScreen() {
                                 key={session.id}
                                 title={getSessionName(session)}
                                 subtitle={getSessionSubtitle(session)}
-                                onPress={() => navigateToSession(session.id)}
+                                onPress={() => { onClose?.(); navigateToSession(session.id); }}
                                 rightElement={<Ionicons name="chevron-forward" size={20} color="#C7C7CC" />}
                             />
                         ))}

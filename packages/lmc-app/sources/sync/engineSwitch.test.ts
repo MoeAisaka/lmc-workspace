@@ -2,6 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { isEngineSwitchRequest, isSwitchableEngine, mapPermissionMode } from './engineSwitch';
 
 describe('mapPermissionMode', () => {
+    it('handles a pick already named for the target engine', () => {
+        expect(mapPermissionMode('claude', 'codex', 'yolo')).toBe('yolo');
+        expect(mapPermissionMode('codex', 'claude', 'plan')).toBe('plan');
+    });
+
+    it('repairs a stale foreign pick even when the engine is unchanged', () => {
+        expect(mapPermissionMode('codex', 'codex', 'bypassPermissions')).toBe('yolo');
+        expect(mapPermissionMode('claude', 'claude', 'read-only')).toBe('plan');
+    });
+
     it('carries each mode to the one that lets the agent do the same amount', () => {
         expect(mapPermissionMode('claude', 'codex', 'acceptEdits')).toBe('safe-yolo');
         expect(mapPermissionMode('claude', 'codex', 'plan')).toBe('read-only');

@@ -2,11 +2,13 @@ import { logger } from '@/ui/logger'
 import { checkIfDaemonRunningAndCleanupStaleState, isDaemonRunningCurrentlyInstalledLmcVersion } from './controlClient'
 import { spawnLmcCLI } from '@/utils/spawnLmcCLI'
 import { sanitizeSessionEnvironment } from './sessionEnvironment'
+import { getSharedRuntime } from './sharedRuntime'
 
 const DAEMON_READY_TIMEOUT_MS = 5000
 const DAEMON_READY_POLL_INTERVAL_MS = 100
 
 export async function ensureDaemonRunning(): Promise<void> {
+  if (getSharedRuntime()) return;
   logger.debug('Ensuring the LMC background service is running & matches our version...')
 
   if (await isDaemonRunningCurrentlyInstalledLmcVersion()) {

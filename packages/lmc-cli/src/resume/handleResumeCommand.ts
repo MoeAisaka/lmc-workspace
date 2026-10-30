@@ -48,12 +48,12 @@ export function parseResumeCommandArgs(args: string[]): { showHelp: boolean; ses
     };
 }
 
-function resolveFlavor(metadata: Metadata): 'codex' | 'claude' | null {
+function resolveFlavor(metadata: Metadata): 'codex' | 'claude' | 'agy' | null {
     // The declared flavor wins over a thread id. They used to agree, because a
     // session never changed engines; now a switch leaves the previous engine's
     // id behind for a moment, and reading that first would relaunch the engine
     // the session just moved off.
-    if (metadata.flavor === 'codex' || metadata.flavor === 'claude') {
+    if (metadata.flavor === 'codex' || metadata.flavor === 'claude' || metadata.flavor === 'agy') {
         return metadata.flavor;
     }
     if (metadata.codexThreadId) {
@@ -68,6 +68,14 @@ function resolveFlavor(metadata: Metadata): 'codex' | 'claude' | null {
 export function buildResumeLaunch(session: ResumableLmcSession, options: ResumeLaunchOptions = {}): ResumeLaunch {
     const { metadata } = session;
     const flavor = resolveFlavor(metadata);
+
+    if (flavor === 'agy') {
+        if (!metadata.agyConversationId && !options.startFresh) throw new Error(`LMC session ${session.id} is missing its Antigravity conversation ID.`);
+        const args = ['agy'];
+        if (!options.startFresh && metadata.agyConversationId) args.push('--resume', metadata.agyConversationId);
+        if (options.startedBy) args.push('--started-by', options.startedBy);
+        return { cwd: metadata.path, args };
+    }
 
     if (flavor === 'codex') {
         if (!metadata.codexThreadId && !options.startFresh) {

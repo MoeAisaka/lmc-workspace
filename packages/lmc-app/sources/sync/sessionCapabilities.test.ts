@@ -9,3 +9,6 @@ it('uses explicit capabilities for both engines and refuses unadvertised Claude 
     expect(sessionCapabilities({flavor:'codex',sessionConfiguration:true} as Metadata).refresh).toBe(true);
     expect(sessionCapabilities(undefined).refresh).toBe(false);
 });
+it('shared-device sessions keep the device login and do not offer identity-losing relaunches', () => {
+    expect(sessionCapabilities({ sharedDevice: true, sessionCapabilities: { refresh: true, authentication: true, runtimeConfiguration: true, fileInbox: true } } as Metadata)).toMatchObject({ refresh: false, authentication: false, runtimeConfiguration: false, fileInbox: true });
+});

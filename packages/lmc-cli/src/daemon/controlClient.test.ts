@@ -9,7 +9,7 @@ vi.mock('./sessionProcesses', () => ({ listSessionProcesses: mocks.processes }))
 import { checkIfDaemonRunningAndCleanupStaleState, cleanupDaemonState } from './controlClient';
 
 const state = { pid: 123, httpPort: 5001, startedWithCliVersion: '1.2.96' };
-const daemon = { pid: 123, cmd: String.raw`"C:\Program Files\nodejs\node.exe" --no-warnings C:\Users\MoeAi\AppData\Roaming\npm\node_modules\link-my-cli\dist\index.mjs daemon start-sync` };
+const daemon = { pid: 123, cmd: String.raw`"C:\Program Files\nodejs\node.exe" --no-warnings C:\Users\alice\AppData\Roaming\npm\node_modules\link-my-cli\dist\index.mjs daemon start-sync` };
 beforeEach(() => {
     vi.clearAllMocks();
     mocks.read.mockResolvedValue(state);

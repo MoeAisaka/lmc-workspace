@@ -1,3 +1,5 @@
+import { openMachineDetails } from '@/components/lmc/MachineDialog';
+import { openSessionChanges } from '@/components/lmc/SessionChangesDialog';
 import { lmcColors } from '@/components/lmc/lmcColors';
 import { DetailSummary } from '@/components/lmc/DetailSummary';
 import { ProviderIcon } from '@/components/ProviderIcon';
@@ -5,7 +7,8 @@ import { Text } from '@/components/StyledText';
 import React, { useCallback } from 'react';
 import { useAllSessions } from '@/sync/storage';
 import { openCollaborationSheet } from '@/components/lmc/CollaborationSheet';
-import { View, Animated, Platform, Switch } from 'react-native';
+import { View, Animated, Platform } from 'react-native';
+import { Switch } from '@/components/Switch';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons, Octicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
@@ -134,7 +137,20 @@ function formatDangerouslySkipPermissionsMetadata(
     return 'Unknown';
 }
 
-export function SessionInfoContent({ session }: { session: Session }) {
+export function SessionInfoContent(props: { session: Session; onClose?: () => void }) {
+    return props.session.shared ? <SharedSessionInfo session={props.session} /> : <OwnedSessionInfoContent {...props} />;
+}
+
+function SharedSessionInfo({ session }: { session: Session }) {
+    const { theme } = useUnistyles();
+    return <View style={{ padding: 24, gap: 16 }}>
+        <Text style={{ fontSize: 22, fontWeight: '600', color: theme.colors.text }}>{getSessionName(session)}</Text>
+        <Text style={{ color: theme.colors.textSecondary }}>共享会话 · 只读</Text>
+        <Text style={{ color: theme.colors.textSecondary }}>可以查看会话历史和附件。发送消息、审批、运行命令和设备文件浏览暂不开放。</Text>
+    </View>;
+}
+
+function OwnedSessionInfoContent({ session, onClose }: { session: Session; onClose?: () => void }) {
     const { theme } = useUnistyles();
     const router = useRouter();
     const projectAvatar = useSessionProjectAvatar(session.id);
@@ -192,14 +208,11 @@ export function SessionInfoContent({ session }: { session: Session }) {
         // Prompt for worktree cleanup before killing (needs an active machine connection)
         await maybeCleanupWorktree(session.id, session.metadata?.path, session.metadata?.machineId);
 
-        // Try to kill the CLI process; if it's already dead, force-archive via server
-        const killResult = await sessionKill(session.id);
-        if (!killResult.success) {
-            await sessionArchive(session.id);
-        }
+        const archived = await sessionArchive(session.id);
+        if (!archived.success) throw new LmcError(archived.message || t('sessionInfo.failedToArchiveSession'), false);
         // Success - navigate back
-        router.back();
-        router.back();
+        if (onClose) { onClose(); router.replace('/'); }
+        else { router.back(); router.back(); }
     });
 
     const handleArchiveSession = useCallback(() => {
@@ -212,8 +225,8 @@ export function SessionInfoContent({ session }: { session: Session }) {
         await maybeCleanupWorktree(session.id, session.metadata?.path, session.metadata?.machineId);
 
         // Navigate back optimistically
-        router.back();
-        router.back();
+        if (onClose) { onClose(); router.replace('/'); }
+        else { router.back(); router.back(); }
 
         // Kill session first if it's still active (best-effort)
         if (sessionStatus.isConnected || session.active) {
@@ -260,7 +273,7 @@ export function SessionInfoContent({ session }: { session: Session }) {
             <SettingsMenuHost>
             <ItemList
                 containerStyle={{
-                    paddingTop: Platform.OS === 'ios' ? MOBILE_GLASS_HEADER_HEIGHT : 0,
+                    paddingTop: !onClose && Platform.OS === 'ios' ? MOBILE_GLASS_HEADER_HEIGHT : 0,
                 }}
             >
                 {/* Compact Web identity; native keeps its platform header. */}
@@ -435,14 +448,14 @@ export function SessionInfoContent({ session }: { session: Session }) {
                         title={t('sessionInfo.viewChanges')}
                         subtitle={changedFilesSubtitle}
                         icon={<Octicons name="file-diff" size={26} color="#0060F0" />}
-                        onPress={() => router.push(`/session/${session.id}/changes`)}
+                        onPress={() => openSessionChanges(session.id)}
                     />
                     {session.metadata?.machineId && (
                         <Item
                             title={t('sessionInfo.viewMachine')}
                             subtitle={t('sessionInfo.viewMachineSubtitle')}
                             icon={<Ionicons name="server-outline" size={29} color="#0060F0" />}
-                            onPress={() => router.push(`/machine/${session.metadata?.machineId}`)}
+                            onPress={() => session.metadata?.machineId && openMachineDetails(session.metadata.machineId)}
                         />
                     )}
                     {canShowResume && (
@@ -450,7 +463,7 @@ export function SessionInfoContent({ session }: { session: Session }) {
                             title={t('sessionInfo.resumeSession')}
                             subtitle={resumeSessionSubtitle}
                             icon={<Ionicons name="play-circle-outline" size={29} color="#0060F0" />}
-                            onPress={resumeSession}
+                            onPress={() => { onClose?.(); void resumeSession(); }}
                         />
                     )}
                     {canFork && (
@@ -458,7 +471,7 @@ export function SessionInfoContent({ session }: { session: Session }) {
                             title={t('session.forkAction')}
                             subtitle={t('session.forkSubtitle')}
                             icon={<Ionicons name="git-branch-outline" size={29} color="#0060F0" />}
-                            onPress={forkSession}
+                            onPress={() => { onClose?.(); void forkSession(); }}
                             loading={forking}
                         />
                     )}
@@ -467,7 +480,7 @@ export function SessionInfoContent({ session }: { session: Session }) {
                             title={t('session.duplicateAction')}
                             subtitle={t('session.duplicateSubtitle')}
                             icon={<Ionicons name="time-outline" size={29} color="#0060F0" />}
-                            onPress={openDuplicateSheet}
+                            onPress={() => { onClose?.(); openDuplicateSheet(); }}
                         />
                     )}
                     {session.metadata?.parentSessionId && (
@@ -475,7 +488,7 @@ export function SessionInfoContent({ session }: { session: Session }) {
                             title={t('session.forkedFromLabel')}
                             subtitle={t('session.forkedFromSubtitle')}
                             icon={<Ionicons name="return-up-back-outline" size={29} color="#5856D6" />}
-                            onPress={() => router.push(`/session/${session.metadata!.parentSessionId}`)}
+                            onPress={() => { onClose?.(); router.push(`/session/${session.metadata!.parentSessionId}`); }}
                         />
                     )}
                     <Item
@@ -484,6 +497,7 @@ export function SessionInfoContent({ session }: { session: Session }) {
                         subtitle={t('sessionInfo.archiveSessionSubtitle')}
                         icon={<Ionicons name="archive-outline" size={29} color="#FF3B30" />}
                         onPress={handleArchiveSession}
+                        loading={archivingSession}
                     />
                     <Item
                         title={t('sessionInfo.deleteSession')}

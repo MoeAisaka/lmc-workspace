@@ -9,7 +9,13 @@ export const AccountQuotaWindowSchema = z.object({
     pending: z.boolean(),
 });
 export const AccountQuotaProviderSchema = z.object({
-    engine: z.enum(['codex', 'claude']),
+    engine: z.enum(['codex', 'claude', 'agy']),
+    status: z.enum(['ready', 'region_restricted', 'sign_in_required', 'unavailable', 'not_installed']).optional(),
+    checkedAt: z.number().finite().positive().optional(),
+    groups: z.array(z.object({
+        id: z.enum(['gemini', 'claude_gpt']),
+        windows: z.array(AccountQuotaWindowSchema).max(2),
+    })).max(2).optional(),
     plan: z.string().max(40).nullable(),
     capturedAt: z.number().finite().positive().nullable(),
     refreshFailed: z.boolean(),
@@ -29,7 +35,8 @@ export const AccountQuotaProviderSchema = z.object({
     resetCredits: z.object({ count: z.number().int().min(0), expiresAt: z.number().finite().positive().nullable() }).nullable(),
 });
 export const AccountQuotaSnapshotSchema = z.object({
-    providers: z.array(AccountQuotaProviderSchema).max(2),
+    providers: z.array(AccountQuotaProviderSchema).max(3),
+    refreshing: z.boolean().optional(),
 });
 export type AccountQuotaWindow = z.infer<typeof AccountQuotaWindowSchema>;
 export type AccountQuotaProvider = z.infer<typeof AccountQuotaProviderSchema>;

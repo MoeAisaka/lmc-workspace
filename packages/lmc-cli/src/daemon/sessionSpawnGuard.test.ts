@@ -174,9 +174,9 @@ describe('findOrphanedSessionPid', () => {
         '/opt/node --no-warnings --no-deprecation /opt/happy/dist/index.mjs codex --resume abc',
         '/opt/node /Volumes/Work SSD/happy-cli/dist/index.mjs claude --resume abc',
         '/opt/node /opt/happy/dist/index.mjs --happy-starting-mode remote --resume abc',
-        String.raw`node --no-warnings --no-deprecation C:\Users\MoeAi\AppData\Roaming\npm\node_modules\link-my-cli\dist\index.mjs codex --started-by daemon`,
+        String.raw`node --no-warnings --no-deprecation C:\Users\alice\AppData\Roaming\npm\node_modules\link-my-cli\dist\index.mjs codex --started-by daemon`,
         String.raw`"C:\Program Files\nodejs\node.exe" --no-warnings "C:\Users\Test User\AppData\Roaming\npm\node_modules\link-my-cli\dist\index.mjs" codex --started-by daemon`,
-        String.raw`"C:\Program Files\nodejs\node.exe" "C:\Users\MoeAi\.lmc\agent-releases\release-123\dist\index.mjs" claude --resume abc`,
+        String.raw`"C:\Program Files\nodejs\node.exe" "C:\Users\alice\.lmc\agent-releases\release-123\dist\index.mjs" claude --resume abc`,
     ])('recognizes the actual session wrapper: %s', async (cmd) => {
         expect(await findOrphanedSessionPid(persisted(52272), async () => [
             { pid: 52272, name: 'node', cmd },
@@ -204,7 +204,7 @@ describe('finding a wrapper by the conversation it resumes', () => {
     });
 
     it('finds an orphaned Windows wrapper by its original provider thread', () => {
-        const cmd = String.raw`"C:\Program Files\nodejs\node.exe" "C:\Users\MoeAi\AppData\Roaming\npm\node_modules\link-my-cli\dist\index.mjs" codex --resume ${thread}`;
+        const cmd = String.raw`"C:\Program Files\nodejs\node.exe" "C:\Users\alice\AppData\Roaming\npm\node_modules\link-my-cli\dist\index.mjs" codex --resume ${thread}`;
         expect(findProviderSessionPid([{pid: 13656, cmd}], thread)).toBe(13656);
         expect(findProviderSessionPid([{pid: 13656, cmd: cmd.replace(' codex --resume', ' daemon --resume')}], thread)).toBeUndefined();
     });

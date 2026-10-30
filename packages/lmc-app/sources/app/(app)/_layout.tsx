@@ -1,6 +1,7 @@
 import { Text } from '@/components/StyledText';
 import { useAuth } from '@/auth/AuthContext';
 import { LmcLogin } from '@/components/LmcLogin';
+import { currentInvitation } from '@/auth/invitation';
 import { Stack } from 'expo-router';
 import 'react-native-reanimated';
 import * as React from 'react';
@@ -52,7 +53,7 @@ export default function RootLayout() {
         >
             <MobileGlassBackdrop enabled={!isDesktop} />
         <Stack
-            screenLayout={({ children }) => auth.isAuthenticated ? <>{children}</> : <LmcLogin />}
+            screenLayout={({ children }) => auth.isAuthenticated && !currentInvitation() ? <>{children}</> : <LmcLogin />}
             initialRouteName='index'
             screenOptions={{
                 header: shouldUseCustomHeader ? createHeader : undefined,

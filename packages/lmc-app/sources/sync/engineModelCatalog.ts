@@ -12,7 +12,7 @@ export type EngineModelGroup = {
     models: ModelMode[];
 };
 
-export const ENGINE_NAMES: Record<SwitchableEngine, string> = { claude: 'Claude Code', codex: 'Codex' };
+export const ENGINE_NAMES: Record<SwitchableEngine, string> = { claude: 'Claude Code', codex: 'Codex', agy: 'Antigravity' };
 
 /**
  * Every model a session could be answered by, grouped by the engine that would
@@ -32,29 +32,22 @@ export function engineModelGroups(
     translate: (key: any) => string,
     selectedKey?: string | null,
 ): EngineModelGroup[] | null {
-    if (flavor !== 'claude' && flavor !== 'codex') return null;
-    const other: SwitchableEngine = flavor === 'claude' ? 'codex' : 'claude';
-    const groups: EngineModelGroup[] = [
-        {
-            engine: flavor,
-            label: ENGINE_NAMES[flavor],
-            current: true,
-            models: getAvailableModels(flavor, metadata, translate, selectedKey),
-        },
-        {
-            engine: other,
-            label: ENGINE_NAMES[other],
-            current: false,
-            models: getAvailableModels(other, { ...metadata, models: undefined } as Metadata, translate),
-        },
-    ];
-    return groups.every((group) => group.models.length > 0) ? groups : null;
+    if (flavor !== 'claude' && flavor !== 'codex' && flavor !== 'agy') return null;
+    if (flavor === 'agy' && !metadata?.sessionCapabilities?.engineHandoff) return null;
+    const engines: SwitchableEngine[] = ['claude', 'codex'];
+    if (metadata?.sessionCapabilities?.engineHandoff && metadata.modelCatalogs?.agy?.models.length) engines.push('agy');
+    if (!engines.includes(flavor)) engines.unshift(flavor);
+    return ([flavor, ...engines.filter(engine => engine !== flavor)] as SwitchableEngine[]).map(engine => ({
+        engine, label: ENGINE_NAMES[engine], current: engine === flavor,
+        models: getAvailableModels(engine, engine === flavor ? metadata : { ...metadata, models: undefined } as Metadata, translate, engine === flavor ? selectedKey : undefined),
+    })).filter(group => group.models.length > 0);
+
 }
 
 /** The engine that would run a given model key, or null when no group claims it. */
 export function engineForModelKey(groups: EngineModelGroup[], key: string): SwitchableEngine | null {
     for (const group of groups) {
-        if (group.models.some((model) => model.key === key)) return group.engine;
+        if (group.models.some((model) => model.key === key || model.aliases?.includes(key))) return group.engine;
     }
     return null;
 }

@@ -6,7 +6,7 @@ import type { AccountQuotaSnapshot } from 'lmc-wire';
 import { Text } from '@/components/StyledText';
 import { ProviderIcon } from '@/components/ProviderIcon';
 import { Typography } from '@/constants/Typography';
-import { weeklyRemaining, quotaTone, quotaToneColor } from '@/sync/quotaDisplay';
+import { weeklyRemaining, antigravityPoolRemaining, quotaTone, quotaToneColor } from '@/sync/quotaDisplay';
 import { t } from '@/text';
 
 const SIZE = 22;
@@ -41,11 +41,26 @@ export const QuotaRings = React.memo(function QuotaRings({ snapshot, now, showPe
     const track = theme.dark ? '#3A3A3F' : '#E8E8E8';
     return (
         <View testID="avatar-quota-rings" style={{ flexDirection: 'row', alignItems: 'center', gap: showPercent ? 10 : 6 }}>
-            {(['claude', 'codex'] as const).map((engine) => {
-                const remaining = weeklyRemaining(snapshot.providers.find((p) => p.engine === engine), now);
+            {snapshot.providers.map((provider) => {
+                const engine = provider.engine;
+                const remaining = weeklyRemaining(provider, now);
                 const tone = quotaTone(remaining);
                 const color = quotaToneColor(tone, theme.dark);
                 const value = remaining == null ? '—' : `${Math.round(remaining)}%`;
+                if (engine === 'agy') {
+                    const pools = (['gemini', 'claude_gpt'] as const).map(id => ({
+                        id, name: id === 'gemini' ? 'Gemini' : 'Claude / GPT',
+                        short: id === 'gemini' ? 'G' : 'C/G', remaining: antigravityPoolRemaining(provider, id, now),
+                    }));
+                    return <View key={engine} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                        accessibilityLabel={`Antigravity · ${pools.map(p => `${p.name} ${p.remaining === null ? '—' : `${Math.round(p.remaining)}%`}`).join(' · ')}`}>
+                        <ProviderIcon kind="agy" size={16} />
+                        {showPercent && <View style={{ gap: 1 }}>{pools.map(p => <Text key={p.id} numberOfLines={1} style={{
+                            fontSize: 10, lineHeight: 12, ...Typography.default('semiBold'),
+                            color: p.remaining === null ? theme.colors.textSecondary : quotaToneColor(quotaTone(p.remaining), theme.dark),
+                        }}>{p.short} {p.remaining === null ? '—' : `${Math.round(p.remaining)}%`}</Text>)}</View>}
+                    </View>;
+                }
                 return (
                     <View key={engine} accessibilityLabel={t('localFeatures.quotaRing', { engine: engine === 'claude' ? 'Claude' : 'Codex', value })}
                         style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>

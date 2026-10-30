@@ -8,17 +8,12 @@
 import type { PermissionMode } from '@/api/types';
 
 /**
- * LMC permission modes that map to agy's `--dangerously-skip-permissions`
- * (auto-approve every tool). Everything else falls back to `--sandbox`, letting
- * agy's own settings.json govern. Note: agy `--print` is one-shot and cannot
- * surface an interactive approval prompt, so non-skip modes auto-proceed under
- * agy's policy rather than gating per-tool in LMC.
+ * Only explicit bypass intent skips permissions. Reviewed edits and planning
+ * use the native execution modes, with the terminal sandbox still enabled.
  */
 const SKIP_PERMISSION_MODES: ReadonlySet<PermissionMode> = new Set<PermissionMode>([
   'yolo',
-  'safe-yolo',
   'bypassPermissions',
-  'acceptEdits',
 ]);
 
 export interface BuildAgyArgsOptions {
@@ -41,18 +36,22 @@ export interface BuildAgyArgsOptions {
  * last (as the value of `--print`) so all preceding flags parse cleanly.
  */
 export function buildAgyArgs(opts: BuildAgyArgsOptions): string[] {
-  const args: string[] = [];
+  const args: string[] = ['--output-format', 'stream-json'];
 
   if (opts.conversationId) {
     args.push('--conversation', opts.conversationId);
   }
-  if (opts.model) {
+  if (opts.model && opts.model !== 'default') {
     args.push('--model', opts.model);
   }
   if (SKIP_PERMISSION_MODES.has(opts.permissionMode)) {
     args.push('--dangerously-skip-permissions');
   } else {
     args.push('--sandbox');
+    const mode = opts.permissionMode;
+    if (mode === 'acceptEdits' || mode === 'safe-yolo') args.push('--mode', 'accept-edits');
+    else if (mode === 'plan' || mode === 'read-only') args.push('--mode', 'plan');
+    else if (mode === 'auto') args.push('--mode', 'auto');
   }
   for (const dir of opts.addDirs ?? []) {
     args.push('--add-dir', dir);

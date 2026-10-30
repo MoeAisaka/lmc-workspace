@@ -1,3 +1,5 @@
+import { useSession } from '@/sync/storage';
+import { SharedPermissionControl } from '@/components/lmc/SharedPermissionControl';
 import { Text } from '@/components/StyledText';
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, ScrollView, StyleSheet, TouchableOpacity, View, Platform, useWindowDimensions, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
@@ -124,6 +126,9 @@ export const PermissionFooter: React.FC<PermissionFooterProps> = ({ permission, 
     const [loadingBypass, setLoadingBypass] = useState(false);
     const [loadingForSession, setLoadingForSession] = useState(false);
     
+    const session = useSession(sessionId);
+    if (session?.shared && permission.status === 'pending') return <SharedPermissionControl sessionId={sessionId} id={permission.id} allowed={session.accessActions?.includes('approve') ?? false} />;
+
     // Check if this is a Codex session - check both metadata.flavor and tool name prefix
     const isCodex = metadata?.flavor === 'codex' || toolName.startsWith('Codex');
 

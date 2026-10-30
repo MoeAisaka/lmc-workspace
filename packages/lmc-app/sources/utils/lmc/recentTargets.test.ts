@@ -18,6 +18,11 @@ const session = (id: string, machineId: string | null, flavor: string, path: str
 });
 
 describe('collectRecentTargets', () => {
+    it('does not offer shared sessions or shared-device directories as native launch shortcuts', () => {
+        const shared = { ...session('s', 'host', 'codex', '/shared', 100), shared: true };
+        const run = session('r', 'host', 'codex', '/private-run', 200, { sharedDevice: true });
+        expect(collectRecentTargets({ sessions: [shared, run], machines: [] })).toEqual([]);
+    });
     it('keeps one entry per device + project + engine, newest first', () => {
         const targets = collectRecentTargets({
             sessions: [

@@ -1,7 +1,10 @@
+import { openChangelog } from '@/components/lmc/ChangelogDialog';
 import * as React from 'react';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
+import { Switch } from '@/components/Switch';
+import { clearWebInputProbeQuery, setWebInputProbeEnabled, webInputProbeQueryEnabled } from '@/utils/webInputProbeBootstrap';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { useLocalSettingMutable } from '@/sync/storage';
@@ -19,16 +22,28 @@ export function AboutPane({ onNavigate }: { onNavigate?: () => void }) {
     const appVersion = Constants.expoConfig?.version || '1.0.0';
     const marker = readLmcReleaseMarker();
     const [devModeEnabled, setDevModeEnabled] = useLocalSettingMutable('devModeEnabled');
+    const [queryEnabled, setQueryEnabled] = React.useState(() => Platform.OS === 'web' && webInputProbeQueryEnabled());
+    const enabled = devModeEnabled || queryEnabled;
+    const changeDeveloperMode = (next: boolean) => {
+        if (Platform.OS === 'web') {
+            clearWebInputProbeQuery();
+            setQueryEnabled(false);
+            setWebInputProbeEnabled(next);
+        }
+        setDevModeEnabled(next);
+    };
     const tapVersion = useMultiClick(() => {
-        const next = !devModeEnabled; setDevModeEnabled(next);
+        const next = !enabled; changeDeveloperMode(next);
         Modal.alert(next ? t('lmc.about.devModeOn') : t('lmc.about.devModeOff'));
     }, { requiredClicks: 7 });
     return (
         <View>
             <ItemGroup title={t('lmc.about.title')} footer={t('lmc.settings.selfHostBlurb')}>
-                <Item title={t('lmc.about.changelog')} subtitle={t('lmc.about.changelogSubtitle')} onPress={() => { onNavigate?.(); router.push('/changelog'); }} />
+                <Item title={t('lmc.about.changelog')} subtitle={t('lmc.about.changelogSubtitle')} onPress={() => openChangelog()} />
                 <Item title={t('lmc.about.webVersion')} subtitle={marker ?? t('lmc.about.localBuild')} detail={appVersion} showChevron={false} onPress={tapVersion} />
-                {devModeEnabled && <Item title={t('lmc.about.devTools')} onPress={() => { onNavigate?.(); router.push('/dev'); }} />}
+                <Item title={t('lmc.about.developerMode')} subtitle={t('lmc.about.developerModeSubtitle')}
+                    rightElement={<Switch value={enabled} onValueChange={changeDeveloperMode} />} showChevron={false} />
+                {enabled && <Item title={t('lmc.about.devTools')} onPress={() => { onNavigate?.(); router.push('/dev'); }} />}
             </ItemGroup>
         </View>
     );

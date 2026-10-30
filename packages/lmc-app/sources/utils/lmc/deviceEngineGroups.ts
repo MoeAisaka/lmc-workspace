@@ -11,7 +11,7 @@ import { compareSessionCreation, compareStableIds } from '@/sync/sessionOrder';
  * a group of its own; it only colours the row. Archived sessions are excluded
  * unless asked for, and side chats never appear.
  */
-export type LmcEngineKey = 'claude' | 'codex' | 'other';
+export type LmcEngineKey = 'claude' | 'codex' | 'agy' | 'other';
 
 export interface LmcEngineGroup {
     key: LmcEngineKey;
@@ -19,7 +19,11 @@ export interface LmcEngineGroup {
     sessions: Session[];
 }
 
+const SHARED_GROUP = '__lmc_shared_sessions__';
+
 export interface LmcDeviceGroup {
+    shared?: boolean;
+    sharedDevice?: boolean;
     machineId: string | null;
     name: string;
     online: boolean;
@@ -28,12 +32,13 @@ export interface LmcDeviceGroup {
     engines: LmcEngineGroup[];
 }
 
-const ENGINE_ORDER: LmcEngineKey[] = ['claude', 'codex', 'other'];
-const ENGINE_LABEL: Record<LmcEngineKey, string> = { claude: 'Claude', codex: 'Codex', other: t('lmc.common.otherEngine') };
+const ENGINE_ORDER: LmcEngineKey[] = ['claude', 'codex', 'agy', 'other'];
+const ENGINE_LABEL: Record<LmcEngineKey, string> = { claude: 'Claude', codex: 'Codex', agy: 'Antigravity', other: t('lmc.common.otherEngine') };
 
 export function engineKeyForSession(session: Session): LmcEngineKey {
     const flavor = session.metadata?.flavor;
-    if (flavor === 'claude' || flavor === 'codex') return flavor;
+    if (flavor === 'claude' || flavor === 'codex' || flavor === 'agy') return flavor;
+    if (flavor === 'antigravity') return 'agy';
     return 'other';
 }
 
@@ -48,16 +53,17 @@ export function machineAgentVersion(machine: Machine | undefined): string | null
 export { isArchivedForList };
 
 /** Archived sessions, newest first, for the collapsed section under the device groups. */
-export function collectArchivedSessions(sessions: Session[]): Session[] {
+export function collectArchivedSessions(sessions: Session[], isArchived: (session: Session) => boolean = isArchivedForList): Session[] {
     // lastMessageSentAt is local to the sending device. Only shared fields
     // can determine the archive order consistently on phone and desktop.
     const activityAt = (session: Session) => session.metadata?.lastMeaningfulMessageAt ?? session.createdAt;
     return sessions
-        .filter((s) => !s.metadata?.isSideChat && isArchivedForList(s))
+        .filter((s) => !s.metadata?.isSideChat && isArchived(s))
         .sort((a, b) => activityAt(b) - activityAt(a) || compareStableIds(a.id, b.id));
 }
 
 export function sessionNeedsReply(session: Session): boolean {
+    if (session.shared) return false;
     const state = resolveSessionState({ agentState: session.agentState, thinking: session.thinking, isOnline: session.presence === 'online' });
     return state === 'permission_required' || state === 'input_required';
 }
@@ -79,14 +85,14 @@ export function projectGroupIdForSession(session: Session): string {
 export function buildDeviceEngineGroups(
     sessions: Session[],
     machines: Machine[],
-    options: { includeArchived?: boolean; unknownDeviceLabel?: string; hideIdleOfflineDevices?: boolean } = {},
+    options: { includeArchived?: boolean; unknownDeviceLabel?: string; hideIdleOfflineDevices?: boolean; isArchived?: (session: Session) => boolean } = {},
 ): LmcDeviceGroup[] {
     const byMachine = new Map<string, Machine>(machines.map((m) => [m.id, m]));
     const buckets = new Map<string | null, Map<LmcEngineKey, Session[]>>();
     for (const session of sessions) {
-        if (session.metadata?.isSideChat) continue;
-        if (!options.includeArchived && isArchivedForList(session)) continue;
-        const machineId = session.metadata?.machineId ?? null;
+        if (session.metadata?.isSideChat && !session.shared) continue;
+        if (!options.includeArchived && (options.isArchived ?? isArchivedForList)(session)) continue;
+        const machineId = session.shared ? SHARED_GROUP : session.metadata?.machineId ?? null;
         const engines = buckets.get(machineId) ?? new Map<LmcEngineKey, Session[]>();
         const key = engineKeyForSession(session);
         engines.set(key, [...(engines.get(key) ?? []), session]);
@@ -98,7 +104,8 @@ export function buildDeviceEngineGroups(
 
     const groups: LmcDeviceGroup[] = [];
     for (const [machineId, engines] of buckets) {
-        const machine = machineId ? byMachine.get(machineId) : undefined;
+        const shared = machineId === SHARED_GROUP;
+        const machine = !shared && machineId ? byMachine.get(machineId) : undefined;
         const engineGroups: LmcEngineGroup[] = ENGINE_ORDER
             .filter((key) => (engines.get(key)?.length ?? 0) > 0)
             .map((key) => ({
@@ -111,10 +118,13 @@ export function buildDeviceEngineGroups(
                 sessions: [...engines.get(key)!].sort(compareSessionCreation),
             }));
         const attentionCount = engineGroups.reduce((n, g) => n + g.sessions.filter(sessionNeedsReply).length, 0);
+        const deviceSessions = engineGroups.flatMap(g => g.sessions);
+        const sharedDevice = !shared && !machine && deviceSessions.some(s => s.metadata?.sharedDevice);
+        const sharedDeviceName = sharedDevice ? deviceSessions.find(s => s.metadata?.sharedDevice && s.metadata.host)?.metadata?.host : undefined;
         groups.push({
-            machineId,
-            name: machineId ? machineDisplayName(machine, machineId.slice(0, 8)) : (options.unknownDeviceLabel ?? t('lmc.common.unknownDevice')),
-            online: machine ? machine.active : false,
+            machineId, shared, sharedDevice,
+            name: shared ? '共享会话' : sharedDevice ? (sharedDeviceName || '共享设备') : machineId ? machineDisplayName(machine, machineId.slice(0, 8)) : (options.unknownDeviceLabel ?? t('lmc.common.unknownDevice')),
+            online: shared || (machine ? machine.active : sharedDevice && deviceSessions.some(s => s.presence === 'online')),
             agentVersion: machineAgentVersion(machine),
             attentionCount,
             engines: engineGroups,

@@ -7,7 +7,7 @@ import { t } from '@/text';
 import { apiSocket } from './apiSocket';
 import { sync } from './sync';
 import { storage } from './storage';
-import type { AgentQuestionAnswer, MachineMetadata, SessionAgentModesPatch } from './storageTypes';
+import type { AgentQuestionAnswer, MachineMetadata, Metadata, SessionAgentModesPatch } from './storageTypes';
 import { markAgentModePushPending, clearAgentModePushPending, type AgentModeField } from './agentModesPending';
 import {
     isRigMetadata,
@@ -163,7 +163,7 @@ interface SessionKillResponse {
 // Response types for spawn session
 export type SpawnSessionResult =
     | { type: 'success'; sessionId: string }
-    | { type: 'pending'; clientRequestId: string; retryAfterMs: number }
+    | { type: 'pending'; clientRequestId: string; retryAfterMs?: number }
     | { type: 'requestToApproveDirectoryCreation'; directory: string }
     | { type: 'error'; errorMessage: string };
 
@@ -333,12 +333,34 @@ export async function machineSpawnNewSession(options: SpawnSessionOptions): Prom
                 ...((effort ?? effortLevel) ? { effort: effort ?? effortLevel } : {}),
             }
             : { type: 'spawn-in-directory', directory, approvedNewDirectoryCreation, token, agent, permissionMode, modelMode, effortLevel, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId, isSideChat, hubSessionId, title };
-        const result = await apiSocket.machineRPC<SpawnSessionResult, SpawnRequest>(
+        const result = await apiSocket.machineRPC<unknown, SpawnRequest>(
             machineId,
             'spawn-happy-session',
             request,
         );
-        return result;
+        // RpcHandlerManager encrypts thrown errors as { error }, even though the
+        // transport ACK is successful. Casting that to SpawnSessionResult made
+        // both creation screens silently skip every switch branch on timeout.
+        if (result && typeof result === 'object') {
+            const response = result as Record<string, unknown>;
+            if (typeof response.error === 'string') {
+                return { type: 'error', errorMessage: response.error };
+            }
+            if (response.type === 'success' && typeof response.sessionId === 'string' && response.sessionId) {
+                return { type: 'success', sessionId: response.sessionId };
+            }
+            if (response.type === 'error' && typeof response.errorMessage === 'string') {
+                return { type: 'error', errorMessage: response.errorMessage };
+            }
+            if (response.type === 'requestToApproveDirectoryCreation' && typeof response.directory === 'string') {
+                return { type: 'requestToApproveDirectoryCreation', directory: response.directory };
+            }
+            if (response.type === 'pending' && typeof response.clientRequestId === 'string'
+                && (response.retryAfterMs === undefined || (typeof response.retryAfterMs === 'number' && Number.isFinite(response.retryAfterMs)))) {
+                return { type: 'pending', clientRequestId: response.clientRequestId, ...(typeof response.retryAfterMs === 'number' ? { retryAfterMs: response.retryAfterMs } : {}) };
+            }
+        }
+        return { type: 'error', errorMessage: 'The computer returned an invalid session creation response' };
     } catch (error) {
         // Handle RPC errors
         return {
@@ -503,6 +525,12 @@ export async function machineResumeSession(options: ResumeSessionOptions & { mod
     const { machineId, sessionId, model, permissionMode } = options;
 
     try {
+        if (storage.getState().sessions[sessionId]?.metadata?.sharedDevice || storage.getState().sessions[sessionId]?.shared) {
+            const response = await apiSocket.request(`/v1/lmc/runtime/${encodeURIComponent(sessionId)}/resume`, { method: 'POST', signal: AbortSignal.timeout(120000) });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || '共享设备会话恢复失败');
+            return result;
+        }
         const isCodex = storage.getState().sessions[sessionId]?.metadata?.flavor === 'codex';
         const metadata = storage.getState().sessions[sessionId]?.metadata;
         const result = await apiSocket.machineRPC<SpawnSessionResult, { sessionId: string; model?: string; permissionMode?: string }>(
@@ -716,8 +744,20 @@ export async function sessionUpdateMetadata(sessionId: string, update: (metadata
         const result = await apiSocket.emitWithAck<{ result: 'success' | 'version-mismatch' | 'error'; version?: number; metadata?: string }>(
             'update-metadata',
             { sid: sessionId, metadata: await encryption.encryptRaw(metadata), expectedVersion: version },
+            15_000,
         );
-        if (result.result === 'success') return;
+        if (result.result === 'success') {
+            // An acknowledged write must be visible even if its push event is
+            // delayed/lost. Read the current row so concurrent state is kept;
+            // applySessions guards against a newer metadata version arriving.
+            const current = storage.getState().sessions[sessionId];
+            if (current) storage.getState().applySessions([{
+                ...current,
+                metadata: metadata as Metadata,
+                metadataVersion: result.version ?? version + 1,
+            }]);
+            return;
+        }
         if (result.result !== 'version-mismatch') throw new Error('Failed to update session metadata');
         version = result.version!;
         const latest = await encryption.decryptRaw(result.metadata!);
@@ -1108,11 +1148,23 @@ export async function sessionKill(sessionId: string): Promise<SessionKillRespons
 }
 
 /**
- * Archive a session by deactivating it on the server.
- * Use this when the CLI process is already dead and sessionKill can't reach it.
+ * Manual archive shared by every UI entry. Offline records do not need an
+ * unavailable process RPC; connected sessions still receive the normal stop.
  */
 export async function sessionArchive(sessionId: string): Promise<{ success: boolean; message?: string }> {
     try {
+        if (storage.getState().sessions[sessionId]?.active) {
+            await sessionKill(sessionId);
+        }
+        // Deactivation alone is only a connection state, never an archive.
+        // Save the user's choice even when the CLI is offline or an older agent.
+        await sessionUpdateMetadata(sessionId, (metadata) => ({
+            ...metadata,
+            lifecycleState: 'archived',
+            lifecycleStateSince: Date.now(),
+            archivedBy: 'user',
+            archiveReason: 'User archived',
+        }));
         const response = await apiSocket.request(`/v1/sessions/${sessionId}/archive`, {
             method: 'POST'
         });

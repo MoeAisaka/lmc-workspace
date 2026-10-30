@@ -1,3 +1,4 @@
+import { sanitizeSessionEnvironment } from '@/daemon/sessionEnvironment';
 import { runtimeRelease, sdkRequire } from '@/runtime/managedRuntime';
 /**
  * Query wrapper around official @anthropic-ai/claude-agent-sdk
@@ -56,14 +57,10 @@ export function query(params: { prompt: QueryPrompt; options?: QueryOptions }): 
         sdkOptions.abortController = controller
     }
 
-    // Build env: tag the spawned Claude with an entrypoint that is NOT in
-    // Claude Code's `--resume` picker filter set ({sdk-cli, sdk-ts, sdk-py}),
-    // so sessions Happy starts/continues remain visible to a plain
-    // `claude --resume` picker. The agent SDK would otherwise default to
-    // CLAUDE_CODE_ENTRYPOINT="sdk-ts" and the picker would hide every Happy
-    // session. See slopus/happy#1202.
+    // Preserve the SDK's real transport identity. Resume uses an explicit
+    // session ID rather than changing attribution to affect native pickers.
     const env: Record<string, string> = {}
-    for (const [key, value] of Object.entries(process.env)) {
+    for (const [key, value] of Object.entries(sanitizeSessionEnvironment(process.env))) {
         if (typeof value === 'string') env[key] = value
     }
     env.CLAUDE_CODE_ENTRYPOINT = resolveLmcEntrypoint(process.env.CLAUDE_CODE_ENTRYPOINT)

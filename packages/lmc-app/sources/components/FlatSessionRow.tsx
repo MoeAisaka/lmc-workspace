@@ -14,7 +14,7 @@ import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { SESSION_ROW_MENU_STYLE, useSessionRowMenu } from '@/hooks/useSessionRowMenu';
 import { useLmcAction } from '@/hooks/useLmcAction';
 import { LmcError } from '@/utils/errors';
-import { sessionKill } from '@/sync/ops';
+import { sessionArchive } from '@/sync/ops';
 import type { FlatSessionRowData } from '@/utils/flatSessionList';
 import { formatSessionListTimestamp } from '@/utils/sessionListTimestamp';
 import type { Theme } from '@/theme';
@@ -61,7 +61,7 @@ export const FlatSessionRow = React.memo(({ row, selected, showBorder, archived 
     const navigateToSession = useNavigateToSession();
     const swipeableRef = React.useRef<Swipeable | null>(null);
     const swipeEnabled = Platform.OS !== 'web';
-    const { anchor: actionsAnchor, closeMenu: closeActionsMenu, menuProps } = useSessionRowMenu(session.id);
+    const { anchor: actionsAnchor, closeMenu: closeActionsMenu, contextHitOverlay, menuProps } = useSessionRowMenu(session.id);
 
     // Greying out is about the machine, not the session's own socket. A session
     // idle since yesterday on a machine that is still up is ordinary work you
@@ -107,7 +107,7 @@ export const FlatSessionRow = React.memo(({ row, selected, showBorder, archived 
     );
 
     const [archiving, performArchive] = useLmcAction(async () => {
-        const result = await sessionKill(session.id);
+        const result = await sessionArchive(session.id);
         if (!result.success) {
             throw new LmcError(result.message || t('sessionInfo.failedToArchiveSession'), false);
         }
@@ -128,6 +128,7 @@ export const FlatSessionRow = React.memo(({ row, selected, showBorder, archived 
             onPress={handlePress}
             {...menuProps}
         >
+            {contextHitOverlay}
             <View style={[styles.avatar, faded && styles.avatarFaded]}>
                 <Avatar
                     id={session.avatarId}

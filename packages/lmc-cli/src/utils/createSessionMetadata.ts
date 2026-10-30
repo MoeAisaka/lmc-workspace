@@ -1,6 +1,7 @@
 import { readModelCatalogs } from '@/runtime/modelCatalogCache';
 import { workerBirthFromEnv } from '@/modules/orchestration/workerBirth';
 import { SESSION_STATE_REVISION } from './sessionRuntimeMetadata';
+import { getSharedRuntime } from '@/daemon/sharedRuntime';
 /**
  * Session Metadata Factory
  *
@@ -99,6 +100,7 @@ export function createSessionMetadata(opts: CreateSessionMetadataOptions): Sessi
     const gitBranch = getGitBranch(cwd);
 
     const metadata: Metadata = {
+        ...(getSharedRuntime() ? { sharedDevice: true } : {}),
         modelCatalogs: readModelCatalogs(),
         path: cwd,
         host: os.hostname(),

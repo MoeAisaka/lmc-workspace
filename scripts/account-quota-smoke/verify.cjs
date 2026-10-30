@@ -32,14 +32,14 @@ window.closeQuotaMenu=()=>useAccountMenu.getState().close();
 const {storage}=moduleExport('storage'),{apiSocket}=moduleExport('apiSocket');
 const {UnistylesRuntime}=moduleExport('UnistylesRuntime');
 const {SafeAreaProvider}=moduleExport('SafeAreaProvider');
-window.calls=0;window.replyMode='success';
+window.calls=0;window.replyDelay=0;window.replyMode='success';window.poeCalls=[];
 const now=Date.now();
 const w=(id,left)=>({id,remaining:left,resetsAt:now+4*86400000,durationMins:id==='five_hour'?300:10080,pending:false});
 const snapshot={providers:[
  {engine:'codex',plan:'pro',capturedAt:now-120000,refreshFailed:false,stale:false,windows:[w('five_hour',null),w('seven_day',72)],supplemental:{remaining:100,capturedAt:now-120000,resetsAt:now+86400000,pending:true,stale:false},usageCredits:{balance:53480.07237,capturedAt:now,unlimited:false,stale:false},resetCredits:{count:1,expiresAt:now+86400000}},
  {engine:'claude',plan:'max',capturedAt:now-300000,refreshFailed:false,stale:false,windows:[w('five_hour',98),w('seven_day',21),w('fable_week',60)],resetCredits:null}]};
-apiSocket.machineRPC=async(id,method)=>{if(id!=='quota-fixture'||method!=='account-quota')throw Error('Unexpected RPC');window.calls++;if(replyMode==='failed')throw Error('synthetic');const result=structuredClone(snapshot);const fable=result.providers[1].windows[2];if(replyMode==='zero'){fable.remaining=0;result.providers[0].usageCredits.balance=0;}if(replyMode==='unmatched')fable.resetsAt+=86400000;if(replyMode==='pending')fable.pending=true;return {snapshot:replyMode==='missing'?{providers:[]}:result};};
-storage.setState({isDataReady:true,profile:{id:'demo',firstName:'LMC',lastName:'Demo'},machines:{'quota-fixture':{id:'quota-fixture',active:true,createdAt:1,metadata:{host:'Demo',accountQuota:true,happyCliVersion:'1.2.53'}}}});
+apiSocket.machineRPC=async(id,method)=>{if(method==='poe-balance'){window.poeCalls.push(id);throw Error('Removed Poe card must not request its balance');}if(id!=='quota-fixture'||method!=='account-quota')throw Error('Unexpected RPC');window.calls++;if(window.replyDelay)await new Promise(r=>setTimeout(r,window.replyDelay));if(replyMode==='failed')throw Error('synthetic');const result=structuredClone(snapshot);const fable=result.providers[1].windows[2];if(replyMode==='zero'){fable.remaining=0;result.providers[0].usageCredits.balance=0;}if(replyMode==='unmatched')fable.resetsAt+=86400000;if(replyMode==='pending')fable.pending=true;if(replyMode==='agy-blocked'||replyMode==='agy-ready')result.providers=[result.providers[0],{engine:'agy',plan:'Ultra 20x',status:replyMode==='agy-blocked'?'region_restricted':'ready',capturedAt:replyMode==='agy-ready'?now:null,stale:false,refreshFailed:false,windows:[],resetCredits:null,groups:replyMode==='agy-ready'?[{id:'gemini',windows:[w('five_hour',84),w('seven_day',63)]},{id:'claude_gpt',windows:[w('five_hour',0),w('seven_day',21)]}]:[]}];return {snapshot:replyMode==='missing'?{providers:[]}:result};};
+storage.setState({isDataReady:true,profile:{id:'demo',firstName:'LMC',lastName:'Demo'},machines:{'quota-fixture':{id:'quota-fixture',active:true,createdAt:1,metadata:{host:'Demo',accountQuota:true,poeBalance:true,happyCliVersion:'1.2.53'}}}});
 window.setTheme=theme=>{UnistylesRuntime.setAdaptiveThemes(false);UnistylesRuntime.setTheme(theme);document.body.style.background=theme==='dark'?'#141414':'#efeff2'};
 function App(){const [size,setSize]=React.useState({w:innerWidth,h:innerHeight});React.useEffect(()=>{const f=()=>setSize({w:innerWidth,h:innerHeight});addEventListener('resize',f);return()=>removeEventListener('resize',f)},[]);
 return h(SafeAreaProvider,{initialMetrics:{frame:{x:0,y:0,width:size.w,height:size.h},insets:{top:0,bottom:0,left:0,right:0}}},h(AuthProvider,{initialCredentials:null},h('div',{style:{width:size.w,height:size.h}},size.w>=768?h('div',{style:{display:'flex',height:size.h,width:360}},h(SidebarView,{})):h(GestureHandlerRootView,{style:{flex:1}},h(FloatingSessionDrawer,{})),h(AccountMenuLayer,{}))));}
@@ -81,6 +81,8 @@ const server=http.createServer((req,res)=>{
   await page.getByRole('button',{name:labels.account,exact:true}).click();
   await page.getByTestId('account-quota-cards').getByText('72%',{exact:true}).waitFor();
   assert.equal(await page.getByTestId('quota-fable-legend').count(),1);
+  assert.equal(await page.getByTestId('quota-poe').count(),0,'Poe card must stay removed');
+  assert.deepEqual(await page.evaluate(()=>poeCalls),[],'Opening the account menu must not poll Poe');
   assert.equal(await page.getByRole('progressbar').count(),4,'Fable shares the weekly bar, without a separate progress bar');
   assert.equal(await page.evaluate(()=>isSessionDrawerOpen()),true,'opening quota bubble must preserve its parent entry');
   assert.equal(await page.getByText(labels.gap,{exact:false}).count(),1);
@@ -137,6 +139,20 @@ const server=http.createServer((req,res)=>{
     }
    }
   }
+  // Reopening consumes the existing source sample without starting another RPC.
+  await page.evaluate(()=>{closeQuotaMenu();window.replyDelay=1500;});
+  await page.waitForTimeout(180);
+  const beforeReopen=await page.evaluate(()=>window.calls);
+  await page.getByRole('button',{name:labels.account,exact:true}).click();
+  await page.getByTestId('quota-codex').waitFor();
+  assert.equal(await page.evaluate(()=>window.calls),beforeReopen,'warm reopen must not fetch again');
+  assert.equal(await page.getByRole('button',{name:labels.refresh,exact:true}).isEnabled(),true,'cached card must not show loading');
+  await page.getByRole('button',{name:labels.refresh,exact:true}).click();
+  assert.equal(await page.getByTestId('quota-codex').count(),1,'manual refresh keeps existing card');
+  await page.getByRole('button',{name:labels.refresh,exact:true}).waitFor();
+  await page.waitForTimeout(1700);
+  assert.equal(await page.getByRole('button',{name:labels.refresh,exact:true}).isEnabled(),true);
+  await page.evaluate(()=>{window.replyDelay=0});
   for(const mode of ['zero','unmatched','pending']){
    await page.evaluate(mode=>{replyMode=mode},mode);
    await page.getByRole('button',{name:labels.refresh,exact:true}).click();
@@ -151,6 +167,7 @@ const server=http.createServer((req,res)=>{
    await page.evaluate(()=>{replyMode='success';closeQuotaMenu()});
    await page.waitForTimeout(180);
    await page.getByRole('button',{name:labels.account,exact:true}).click();
+   await page.getByRole('button',{name:labels.refresh,exact:true}).click();
    await page.getByText(labels.gap,{exact:false}).waitFor();
    // Animated parent transforms can introduce sub-pixel floating point noise.
    const sizes=async()=>Promise.all(['quota-codex','quota-claude','account-quota-cards'].map(async id=>Math.round((await page.getByTestId(id).boundingBox()).height*10)/10));
@@ -165,14 +182,35 @@ const server=http.createServer((req,res)=>{
    await page.getByText(labels.retry,{exact:true}).waitFor({state:'hidden'});
    assert.deepEqual(await sizes(),before,`recovery must not shrink quota cards at ${width}px`);
   }
+  for(const theme of ['light','dark'])for(const width of [320,390,1000]){
+   await page.setViewportSize({width,height:width===1000?1100:740});
+   await page.evaluate(theme=>{setTheme(theme);closeQuotaMenu();replyMode='agy-blocked'},theme);
+   await page.waitForTimeout(200);
+   await page.getByRole('button',{name:labels.account,exact:true}).click();
+   await page.getByRole('button',{name:labels.refresh,exact:true}).click();
+   await page.getByTestId('quota-agy-status').waitFor();
+   assert.equal(await page.getByTestId('quota-claude').count(),0,'Disabled Claude is absent');
+   assert.equal(await page.getByTestId('quota-agy').getByRole('progressbar').count(),0,'Restricted account has no fabricated quota');
+   assert.equal(await page.getByTestId('quota-codex').count(),1);
+   const fits=await page.getByTestId('account-menu-scroll').evaluate(n=>n.scrollWidth<=n.clientWidth);
+   assert.ok(fits,'Dynamic providers fit narrow menu');
+   await page.getByTestId('quota-agy').scrollIntoViewIfNeeded();
+   await page.screenshot({path:path.join(out,'agy-blocked-'+theme+'-'+width+'.png')});
+   await page.evaluate(()=>{replyMode='agy-ready'});
+   await page.getByRole('button',{name:labels.refresh,exact:true}).click();
+   await page.getByTestId('quota-agy-gemini').waitFor();
+   assert.equal(await page.getByTestId('quota-agy').getByRole('progressbar').count(),4);
+   assert.match(await page.getByTestId('quota-agy-claude_gpt').innerText(),/0%/);
+   await page.getByTestId('quota-agy').scrollIntoViewIfNeeded();
+   await page.screenshot({path:path.join(out,'agy-ready-'+theme+'-'+width+'.png')});
+  }
   await page.evaluate(()=>{replyMode='missing'});
   await page.getByRole('button',{name:labels.refresh,exact:true}).click();
   await page.waitForTimeout(100);
   assert.equal(await page.getByText('0%',{exact:true}).count(),0);
-  assert.equal(await page.getByTestId('quota-fable-legend').count(),1);
-  assert.equal(await page.getByRole('progressbar').count(),4,'Fable shares the weekly bar, without a separate progress bar');
-  assert.ok((await page.getByTestId('quota-fable-legend').innerText()).includes('Fable —'));
-  assert.match(await page.getByTestId('quota-supplemental').innerText(),/—/);
+  assert.equal(await page.getByTestId('quota-fable-legend').count(),0);
+  assert.equal(await page.getByRole('progressbar').count(),0,'No hardcoded providers when snapshot is empty');
+  assert.equal(await page.getByTestId('quota-agy').count(),0);
   assert.deepEqual(errors,[]);
   console.log('PASS reserved scrollbar lane + real AccountMenu + quota hook, phone top alignment at 320/390/430/667, desktop 1000, light/dark, scrolling, refresh failure preserves data and height, missing is not zero');
  }finally{await browser.close();server.close();}

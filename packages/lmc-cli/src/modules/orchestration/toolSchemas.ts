@@ -6,14 +6,14 @@ import { TASK_STAGES } from './envelope';
  * the Happy MCP server and by the Codex stdio bridge that forwards to it, so
  * the two engines are offered the same tools with the same words.
  */
-export const ORCHESTRATION_TOOL_NAMES = ['spawn_worker', 'assign_task', 'report_task', 'review_report', 'configure_worker'] as const;
+export const ORCHESTRATION_TOOL_NAMES = ['spawn_worker', 'assign_task', 'await_report', 'report_task', 'review_report', 'configure_worker'] as const;
 export type OrchestrationToolName = typeof ORCHESTRATION_TOOL_NAMES[number];
 
 export const spawnWorkerSchema = {
     duty: z.string().min(1).max(12).describe('The worker\'s job in a word or two, shown as the 【…】 prefix of its title: 编码, 评审, 回归部署 …'),
     name: z.string().max(60).optional().describe('The rest of the title after the duty. Defaults to the directory name.'),
     directory: z.string().optional().describe('Working directory for the worker. Defaults to this session\'s own directory. On another machine, give a path that exists there.'),
-    agent: z.enum(['claude', 'codex']).optional().describe('Engine (default claude).'),
+    agent: z.enum(['claude', 'codex', 'agy']).optional().describe('Engine: claude (Claude Code, default), codex, or agy (Antigravity).'),
     model: z.string().trim().min(1).describe('Explicit execution model; no inherited/default model. DIRECT is the default route.'),
     effort: z.string().trim().min(1).describe('Explicit reasoning effort for this executor.'),
     permission_mode: z.string().optional().describe('Permission mode for the worker, e.g. bypassPermissions (Claude) or yolo (Codex). Default: the engine\'s own default, which will stop to ask.'),
@@ -44,6 +44,11 @@ export const configureWorkerSchema = {
     model: z.string().optional().describe('New model id for the worker.'),
     effort: z.string().optional().describe('New thinking depth: low, medium, high (Codex also xhigh; Claude also max).'),
     permission_mode: z.string().optional().describe('New permission mode.'),
+};
+
+export const awaitReportSchema = {
+    id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).optional().describe('Dispatched task id to wait for; omit to wake as soon as any currently dispatched worker task reports.'),
+    timeout_seconds: z.number().int().min(1).max(600).optional().describe('Maximum seconds to wait before returning if still dispatched (default 120, max 600). Returns within seconds as soon as a report arrives.'),
 };
 
 export const reportTaskSchema = {
@@ -79,8 +84,13 @@ export const ORCHESTRATION_TOOL_DEFS: Record<OrchestrationToolName, { title: str
     },
     assign_task: {
         title: 'Assign A Task',
-        description: 'Dispatch a [task …] envelope to one of your workers and record it on the board. Prefer this to send_to_session for tasks: the fields are checked, the attempt is counted, and review_report can later check the diff against the scope you gave.',
+        description: 'Dispatch a [task …] envelope to one of your workers and record it on the board. Prefer this to send_to_session for tasks: the fields are checked, the attempt is counted, and review_report can later check the diff against the scope you gave. Once parallel local work is done, end your turn so [from your worker …] mail wakes your next turn automatically, or call await_report if you must stay in the current turn; never block a turn with native schedule/sleep timers.',
         inputSchema: assignTaskSchema,
+    },
+    await_report: {
+        title: 'Await A Worker Report',
+        description: 'Wait inside the current hub turn until a dispatched worker task reports (or timeout_seconds elapses), waking within seconds of report_task and consuming the queued report mail so it does not trigger a duplicate turn later. Prefer ending your turn when idle so [from your worker …] mail starts the next turn automatically; use await_report instead of native schedule/sleep timers whenever you must stay inside the current turn.',
+        inputSchema: awaitReportSchema,
     },
     report_task: {
         title: 'Report A Task',

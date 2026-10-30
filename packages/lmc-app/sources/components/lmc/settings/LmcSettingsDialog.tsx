@@ -48,7 +48,15 @@ const styles = StyleSheet.create((theme) => ({
  * One settings surface on phones and desktop. Only the content pane scrolls
  * vertically; search, categories and the close action remain in reach.
  */
-export function LmcSettingsDialog({ section: initial = 'general', onClose }: { section?: LmcSettingsSection; onClose?: () => void }) {
+export function LmcSettingsDialog({
+    section: initial = 'general',
+    onSectionChange,
+    onClose,
+}: {
+    section?: LmcSettingsSection;
+    onSectionChange?: (section: LmcSettingsSection) => void;
+    onClose?: () => void;
+}) {
     const { theme } = useUnistyles();
     const colors = lmcColors(theme);
     const { width, height } = useWindowDimensions();
@@ -74,13 +82,13 @@ export function LmcSettingsDialog({ section: initial = 'general', onClose }: { s
         ],
         devices: [t('lmc.menu.devices')],
         agents: [t('localFeatures.model'), t('localFeatures.effort'), t('localFeatures.permission'), 'Claude Code', 'Codex'],
-        account: [t('lmc.profile.name'), t('lmc.profile.changeAvatar'), t('lmc.account.connectDevice'), t('lmc.menu.signOut')],
-        about: [t('lmc.about.webVersion'), t('lmc.about.changelog')],
+        account: [t('lmc.profile.section'), t('lmc.profile.name'), t('lmc.profile.changeAvatar'), t('lmc.account.mySharing'), t('lmc.account.members'), t('lmc.account.connectDevice'), t('lmc.menu.signOut')],
+        about: [t('lmc.about.developerMode'), t('lmc.about.devTools'), t('lmc.about.webVersion'), t('lmc.about.changelog')],
     };
     const visible = LMC_SETTINGS_SECTIONS.filter((s) => [s.label, s.keywords, ...terms[s.key]].some(text => text.toLowerCase().includes(q)));
     const current = LMC_SETTINGS_SECTIONS.find((s) => s.key === section)!;
     const close = () => onClose?.();
-    const select = (next: LmcSettingsSection) => { Keyboard.dismiss(); setSection(next); setQuery(''); };
+    const select = (next: LmcSettingsSection) => { Keyboard.dismiss(); setSection(next); onSectionChange?.(next); setQuery(''); };
     React.useEffect(() => {
         nav.current?.scrollTo({ x: Math.max(0, (tabPositions.current[section] ?? 0) - 12), animated: false });
     }, [section, width]);
@@ -149,5 +157,9 @@ export function LmcSettingsDialog({ section: initial = 'general', onClose }: { s
 }
 
 export function openLmcSettings(section: LmcSettingsSection = 'general') {
-    Modal.show({ component: LmcSettingsDialog, props: { section }, blurBackdrop: true, animateExit: true });
+    const props = {
+        section,
+        onSectionChange: (next: LmcSettingsSection) => { props.section = next; },
+    };
+    Modal.show({ component: LmcSettingsDialog, props, blurBackdrop: true, animateExit: true });
 }

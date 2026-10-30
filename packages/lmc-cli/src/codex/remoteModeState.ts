@@ -1,4 +1,5 @@
 import { cachedModel } from '@/runtime/modelCatalogCache';
+import { normalizePermissionModeForEngine } from 'lmc-wire';
 import type { MessageMeta, PermissionMode } from '@/api/types';
 
 import type { ReasoningEffort } from './codexAppServerTypes';
@@ -44,8 +45,8 @@ export class CodexRemoteModeState {
         effort?: ReasoningEffort;
     }) {
         assertCodexModelEffort(options.model, options.effort);
-        this.initialPermissionMode = options.permissionMode;
-        this.currentPermissionMode = options.permissionMode;
+        this.initialPermissionMode = normalizePermissionModeForEngine('codex', options.permissionMode);
+        this.currentPermissionMode = this.initialPermissionMode;
         this.currentModel = options.model;
         this.currentEffort = options.effort;
     }
@@ -60,8 +61,9 @@ export class CodexRemoteModeState {
         assertCodexModelEffort(candidateModel, candidateEffort);
         let permission: Resolution<PermissionMode>;
         if (meta?.permissionMode) {
-            if (isRemoteCodexPermissionMode(meta.permissionMode)) {
-                this.currentPermissionMode = meta.permissionMode;
+            const incomingMode = normalizePermissionModeForEngine('codex', meta.permissionMode);
+            if (isRemoteCodexPermissionMode(incomingMode)) {
+                this.currentPermissionMode = incomingMode;
                 this.currentPermissionModeExplicitlySet = true;
                 permission = { kind: 'updated', value: this.currentPermissionMode };
             } else {

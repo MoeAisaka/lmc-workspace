@@ -1,3 +1,4 @@
+import { openLmcSettings } from '@/components/lmc/settings/LmcSettingsDialog';
 import * as React from 'react';
 import { View, Pressable, Image, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -78,7 +79,7 @@ export const AccountSettingsRow = React.memo(({ onNavigate, menuCardRef, menuPan
                     });
                     return;
                 }
-                onNavigate?.(); router.push('/settings');
+                onNavigate?.(); openLmcSettings();
             }}
             onLayout={(e) => setRowWidth(e.nativeEvent.layout.width)}
             style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}

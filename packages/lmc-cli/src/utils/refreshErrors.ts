@@ -16,7 +16,7 @@ export type RefreshErrorKind = 'auth' | 'preflight' | 'relaunch' | 'verify';
  */
 export class EngineAuthPreflightError extends Error {
     readonly kind = 'auth' as const;
-    constructor(message: string, readonly engine: 'claude' | 'codex') {
+    constructor(message: string, readonly engine: 'claude' | 'codex' | 'agy') {
         super(message);
         this.name = 'EngineAuthPreflightError';
     }

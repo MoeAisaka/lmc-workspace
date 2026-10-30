@@ -29,7 +29,7 @@ describe('scoped resource files', () => {
   expect(await resolveResourceFile(dir, join('..', basename(other), 'secret'))).toBe(target);
  });
  it('treats a drive letter as a path and every scheme as a URL', () => {
-  for (const path of ['D:/Services/LLM/shot.png', 'C:\\Users\\MoeAi\\shot.png', 'out/shot.png', '/tmp/shot.png']) expect(isUrlLike(path)).toBe(false);
+  for (const path of ['D:/Services/LLM/shot.png', 'C:\\Users\\alice\\shot.png', 'out/shot.png', '/tmp/shot.png']) expect(isUrlLike(path)).toBe(false);
   for (const path of ['https://example.com/a.png', 'file:///tmp/a.png', 'mailto:a@b', 'data:image/png;base64,AA', 'd:relative.png']) expect(isUrlLike(path)).toBe(true);
  });
  it('rejects directories, nonexistent files, URLs and oversized downloads', async () => {

@@ -24,3 +24,14 @@ describe('Claude permission capability at the real SDK adapter', () => {
         expect(vi.mocked(sdkQuery).mock.calls.at(-1)?.[0].options?.allowDangerouslySkipPermissions).toBeUndefined();
     });
 });
+
+it('keeps LMC reconnect identity out of the Claude SDK and its tools', () => {
+    vi.stubEnv('HAPPY_RECONNECT_SESSION_ID', 'fixture-owner');
+    vi.stubEnv('HAPPY_RECONNECT_ENCRYPTION_KEY', 'fixture-key');
+    try {
+        query({ prompt: 'fixture only' });
+        const env = vi.mocked(sdkQuery).mock.calls.at(-1)?.[0].options?.env;
+        expect(env?.HAPPY_RECONNECT_SESSION_ID).toBeUndefined();
+        expect(env?.HAPPY_RECONNECT_ENCRYPTION_KEY).toBeUndefined();
+    } finally { vi.unstubAllEnvs(); }
+});

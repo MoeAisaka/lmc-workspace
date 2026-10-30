@@ -83,9 +83,9 @@ export function ComposerModelPanel(props: ComposerModelPanelProps) {
         props.onEngineSwitch ? engineModelGroups(props.flavor, props.metadata, t, props.modelMode?.key) : null
     ), [props.flavor, props.metadata, props.modelMode?.key, props.onEngineSwitch]);
 
-    const pickModel = React.useCallback((model: ModelMode) => {
+    const pickModel = React.useCallback((model: ModelMode, chosenEngine?: SwitchableEngine) => {
         hapticsLight();
-        const engine = groups ? engineForModelKey(groups, model.key) : null;
+        const engine = chosenEngine ?? (groups ? engineForModelKey(groups, model.key) : null);
         if (groups && engine && engine !== props.flavor) {
             props.onEngineSwitch?.(engine, model);
             props.onClose();
@@ -192,13 +192,15 @@ function ModelList(props: {
     fallback: ModelMode[];
     selectedKey?: string | null;
     disabled?: boolean;
-    onPick: (model: ModelMode) => void;
+    onPick: (model: ModelMode, engine?: SwitchableEngine) => void;
     onBack: () => void;
 }) {
     const { theme } = useUnistyles();
     const listStyle = useDrillIn(14, true);
+    const [browsedEngine, setBrowsedEngine] = React.useState<SwitchableEngine | undefined>(() => props.groups?.find(group => group.current)?.engine);
+    const visibleGroup = props.groups?.find(group => group.engine === browsedEngine) ?? props.groups?.[0];
     const sections: { key: string; title: string | null; hint: string | null; icon?: React.ReactNode; models: ModelMode[] }[] = props.groups
-        ? props.groups.map((group) => ({
+        ? (visibleGroup ? [visibleGroup] : []).map((group) => ({
             key: group.engine,
             title: group.label,
             hint: group.current ? t('agentInput.model.engineCurrentHint') : t('agentInput.model.engineSwitchHint'),
@@ -217,6 +219,26 @@ function ModelList(props: {
                 <Ionicons name="chevron-back" size={15} color={theme.colors.textSecondary} />
                 <Text style={styles.backLabel}>{t('agentInput.model.title')}</Text>
             </Pressable>
+            {!!props.groups && (
+                <View style={styles.engineTabs}>
+                    {props.groups.map(group => (
+                        <Pressable
+                            key={group.engine}
+                            accessibilityRole="tab"
+                            accessibilityLabel={group.label}
+                            accessibilityState={{ selected: visibleGroup?.engine === group.engine }}
+                            onPress={() => { hapticsLight(); setBrowsedEngine(group.engine); }}
+                            style={({ pressed }) => [styles.engineTab, {
+                                backgroundColor: visibleGroup?.engine === group.engine ? theme.colors.surfacePressed : 'transparent',
+                                opacity: pressed ? 0.6 : 1,
+                            }]}
+                        >
+                            <ProviderIcon kind={group.engine} size={13} />
+                            <Text style={styles.engineTabText}>{group.label}</Text>
+                        </Pressable>
+                    ))}
+                </View>
+            )}
             <PickerMenuDivider />
             {sections.map((section, at) => (
                 <React.Fragment key={section.key}>
@@ -229,10 +251,10 @@ function ModelList(props: {
                             // Engine catalogs contain paragraphs, not compact
                             // badges. Reserve the row for the model name.
                             description={section.title ? undefined : model.description}
-                            selected={props.selectedKey === model.key}
+                            selected={props.selectedKey === model.key && (!props.groups || props.groups.find(g => g.engine === section.key)?.current === true)}
                             disabled={props.disabled || model.disabled}
                             leading={model.providerName ? <ProviderIcon kind={model.providerKind} size={13} /> : undefined}
-                            onPress={() => props.onPick(model)}
+                            onPress={() => props.onPick(model, props.groups ? section.key as SwitchableEngine : undefined)}
                         />
                     ))}
                 </React.Fragment>
@@ -245,6 +267,9 @@ function ModelList(props: {
 }
 
 const styles = StyleSheet.create((theme) => ({
+    engineTabs: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, paddingHorizontal: 6, paddingBottom: 4 },
+    engineTab: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 8, borderRadius: 10 },
+    engineTabText: { fontSize: 13, lineHeight: 18, color: theme.colors.text, ...Typography.default('semiBold') },
     modelRow: {
         flexDirection: 'row',
         alignItems: 'center',

@@ -17,6 +17,10 @@ import { sessionUpdateHandler } from "./socket/sessionUpdateHandler";
 import { machineUpdateHandler } from "./socket/machineUpdateHandler";
 import { artifactUpdateHandler } from "./socket/artifactUpdateHandler";
 import { accessKeyHandler } from "./socket/accessKeyHandler";
+import { db } from '@/storage/db';
+import { initSessionNotifications } from '@/lmc/access/sessionNotifications';
+import { initSharedExecution } from '@/lmc/access/execution';
+import { parseRuntimeScope, allowsRuntimePacket } from '@/lmc/access/runtimeScope';
 
 export function startSocket(app: Fastify) {
     const io = new Server(app.server, {
@@ -79,6 +83,8 @@ export function startSocket(app: Fastify) {
 
     // Initialize event router with Socket.IO server instance
     eventRouter.init(io);
+    initSessionNotifications(io);
+    initSharedExecution(io);
 
     // Auth runs in middleware so it completes BEFORE the client's `connect`
     // event fires. Without this, the async verifyToken in the connection
@@ -117,7 +123,24 @@ export function startSocket(app: Fastify) {
             return;
         }
 
+        if (verified.kind === 'session') {
+            const scope = parseRuntimeScope(verified.extras);
+            if (!scope || clientType !== 'session-scoped' || sessionId !== scope.sessionId) return next(new Error('Runtime scope rejected'));
+            socket.data.runtimeScope = scope;
+        }
+
+        // A read grant never authorizes impersonating the owning Agent. Scope
+        // identifiers supplied in the handshake must belong to this account.
+        if (clientType === 'session-scoped' && !(await db.session.findFirst({ where: { id: sessionId, accountId: verified.userId }, select: { id: true } }))) {
+            return next(new Error('Session scope rejected'));
+        }
+        if (clientType === 'machine-scoped' && !(await db.machine.findFirst({ where: { id: machineId, accountId: verified.userId }, select: { id: true } }))) {
+            return next(new Error('Machine scope rejected'));
+        }
+
         socket.data.userId = verified.userId;
+        socket.data.authKind = verified.kind;
+        socket.data.collaborationProtocol = socket.handshake.auth.collaborationProtocol === 1 ? 1 : 0;
         socket.data.clientType = clientType;
         socket.data.sessionId = sessionId;
         socket.data.machineId = machineId;
@@ -133,6 +156,13 @@ export function startSocket(app: Fastify) {
 
     io.on("connection", (socket) => {
         const token = socket.handshake.auth.token as string;
+        socket.use(async (packet, next) => {
+            try {
+                if (!(await auth.verifyToken(token))) { socket.disconnect(true); return; }
+                if (socket.data.runtimeScope && !allowsRuntimePacket(socket.data.runtimeScope, packet)) return next(new Error('Runtime event rejected'));
+                next();
+            } catch { socket.disconnect(true); }
+        });
         const revokeToken = (revoked: string) => { if (token === revoked) socket.disconnect(true); };
         const revokeHash = (hash: string) => { if (createHash('sha256').update(token).digest('hex') === hash) socket.disconnect(true); };
         const revokeUser = (user: string) => { if (socket.data.userId === user) socket.disconnect(true); };
@@ -177,6 +207,7 @@ export function startSocket(app: Fastify) {
             };
         }
         eventRouter.addConnection(userId, connection);
+        if (connection.connectionType === 'user-scoped' && socket.data.authKind === 'web') socket.join(`user:${userId}:web-ui`);
         websocketConnectionsGauge.inc({ type: connection.connectionType, ...labels });
 
         // Broadcast daemon online status

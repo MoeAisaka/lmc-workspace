@@ -22,19 +22,21 @@ export interface LmcHubGroup {
  * `sessionProjectOrder['lmc:hubs']`. Hubs in it sort first, in that order;
  * every other hub keeps falling in behind by createdAt, same as with no
  * saved order at all.
+ * @param isArchived The list's own rule for what counts as archived, when it
+ * has one; the archive marker alone otherwise.
  */
-export function splitHubGroups(sessions: Session[], order?: readonly string[] | null): { hubs: LmcHubGroup[]; rest: Session[] } {
+export function splitHubGroups(sessions: Session[], order?: readonly string[] | null, isArchived: (session: Session) => boolean = isArchivedForList): { hubs: LmcHubGroup[]; rest: Session[] } {
     const byId = new Map(sessions.map((session) => [session.id, session]));
     const taken = new Set<string>();
     const hubs: LmcHubGroup[] = [];
     for (const session of sessions) {
         const orchestration = session.metadata?.orchestration;
-        if (orchestration?.role !== 'hub' || isArchivedForList(session) || session.metadata?.isSideChat) continue;
+        if (orchestration?.role !== 'hub' || isArchived(session) || session.metadata?.isSideChat) continue;
         const workers = orchestration.workers
             .map((binding) => byId.get(binding.sessionId))
             .filter((worker): worker is Session => {
                 const own = worker?.metadata?.orchestration;
-                return !!worker && own?.role === 'worker' && own.hub.sessionId === session.id && !isArchivedForList(worker);
+                return !!worker && own?.role === 'worker' && own.hub.sessionId === session.id && !isArchived(worker);
             })
             // Oldest first, like every other group: the order says when work
             // started; the user reorders by dragging.

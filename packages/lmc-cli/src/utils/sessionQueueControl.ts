@@ -1,6 +1,7 @@
 import { logger } from '@/ui/logger';
 import type { AgentState, Metadata } from '@/api/types';
-import type { MessageQueue2, QueueSnapshotItem, TakenItem } from './MessageQueue2';
+import { parseEnvelope } from '@/modules/orchestration/envelope';
+import type { MessageQueue2, QueueItem, QueueSnapshotItem, TakenItem } from './MessageQueue2';
 import { isQueueMode, readQueueKey, readQueueMode } from './queueControlRequest';
 
 /**
@@ -8,6 +9,7 @@ import { isQueueMode, readQueueKey, readQueueMode } from './queueControlRequest'
  * persisting the consumption mode, and taking the two queue RPCs.
  */
 export type QueueSessionClient = {
+    claimSharedCommand?(key: string): Promise<boolean>;
     updateAgentState(handler: (state: AgentState) => AgentState): void;
     updateMetadata(handler: (metadata: Metadata) => Metadata): void;
     sendSessionEvent(event: { type: 'message'; message: string } | { type: 'queue-withdrawn'; key: string } | { type: 'queue-released'; keys: string[] }): void;
@@ -23,6 +25,7 @@ export type QueueSessionClient = {
  * left behind in agentState.
  */
 export function attachQueuePublisher<T>(queue: MessageQueue2<T>, client: QueueSessionClient, persistedMode: unknown): void {
+    if (client.claimSharedCommand) queue.setExecutionGuard(key => client.claimSharedCommand!(key));
     if (isQueueMode(persistedMode)) queue.setQueueMode(persistedMode);
     const publish = (snapshot: QueueSnapshotItem[]) => {
         client.updateAgentState((state) => ({ ...state, queue: snapshot.length > 0 ? snapshot : undefined }));
@@ -108,6 +111,8 @@ export function registerQueueControlHandlers<T>(
         if (!key) throw new Error('steer needs { key }');
         if (!opts.steer) return { steered: false, reason: 'unsupported' };
         if (!opts.isBusy()) return { steered: false, reason: 'idle' };
+        // A shared prompt never joins another person's active turn.
+        if (key.startsWith('lmc-shared:')) return { steered: false, reason: 'shared-sequential' };
         const taken = queue.takeByKey(key);
         if (!taken) return { steered: false, reason: 'gone' };
         let outcome: { steered: boolean; reason?: string; restore?: boolean };
@@ -122,4 +127,42 @@ export function registerQueueControlHandlers<T>(
         else client.sendSessionEvent({ type: 'queue-released', keys: [key] });
         return { steered: outcome.steered, ...(outcome.reason ? { reason: outcome.reason } : {}) };
     });
+}
+
+function parseQueuedWorkerReport<T>(item: QueueItem<T>) {
+    if (!item.key.startsWith('agent-mail-') && !item.message.trimStart().startsWith('[from your worker ')) return null;
+    const env = parseEnvelope(item.message);
+    return env?.kind === 'report' ? env : null;
+}
+
+/**
+ * Purge unconsumed `[from your worker …]` prompts once the hub has already
+ * handled that exact `(id, attempt, dispatchId)` in-turn via `await_report` or
+ * `review_report`, preventing stale QueueStrip entries and duplicate turns.
+ */
+export function bindQueuedReportConsumer<T>(queue: MessageQueue2<T>): (id: string, attempt: number, dispatchId?: string) => number {
+    const consumed = new Map<string, { id: string; attempt: number; dispatchId?: string }>();
+    const matches = (item: QueueItem<T>, target: { id: string; attempt: number; dispatchId?: string }) => {
+        const env = parseQueuedWorkerReport(item);
+        if (!env || env.id !== target.id || env.attempt !== target.attempt) return false;
+        return !target.dispatchId || !env.fields.dispatch || env.fields.dispatch === target.dispatchId;
+    };
+    queue.setAutoConsume((item) => {
+        for (const target of consumed.values()) {
+            if (matches(item, target)) return true;
+        }
+        return false;
+    });
+    return (id: string, attempt: number, dispatchId?: string) => {
+        const recordKey = `${id}\0${attempt}\0${dispatchId ?? ''}`;
+        consumed.delete(recordKey);
+        consumed.set(recordKey, { id, attempt, dispatchId });
+        while (consumed.size > 64) {
+            const oldest = consumed.keys().next().value;
+            if (oldest === undefined) break;
+            consumed.delete(oldest);
+        }
+        const target = { id, attempt, dispatchId };
+        return queue.consumeWhere((item) => matches(item, target));
+    };
 }

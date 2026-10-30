@@ -1,4 +1,6 @@
 import { validateCodexServiceTier, type CodexServiceTier } from '@/codex/serviceTier';
+import { spawnLogSummary, suppliedCredentialEngine } from '@/daemon/spawnCredentials';
+import { sharedRuntimeHandler } from '@/daemon/sharedRuntime';
 import { validateCodexContextLimits } from '@/codex/contextLimits';
 import type { CodexContextLimits } from '@/codex/contextLimits';
 /**
@@ -6,6 +8,8 @@ import type { CodexContextLimits } from '@/codex/contextLimits';
  * Similar to ApiSessionClient but for machine-scoped connections
  */
 
+import { startQuotaHistory } from '@/daemon/quotaHistory';
+import type { QuotaObservation } from 'lmc-wire';
 import { io, Socket } from 'socket.io-client';
 import { logger } from '@/ui/logger';
 import { configuration } from '@/configuration';
@@ -45,6 +49,7 @@ interface ServerToDaemonEvents {
 }
 
 interface DaemonToServerEvents {
+    'quota-observation-v1': (sample: QuotaObservation, cb: (r: { success: boolean }) => void) => void;
     'machine-alive': (data: {
         machineId: string;
         time: number;
@@ -92,6 +97,7 @@ interface DaemonToServerEvents {
 }
 
 type MachineRpcHandlers = {
+    isSessionRunning?: (sessionId: string) => Promise<boolean> | boolean;
     spawnSession: (options: SpawnSessionOptions) => Promise<SpawnSessionResult>;
     resumeSession?: (sessionId: string, options?: { model?: string; permissionMode?: string; codexServiceTier?: CodexServiceTier; codexContextLimits?: CodexContextLimits }) => Promise<SpawnSessionResult>;
     stopSession: (sessionId: string) => boolean;
@@ -117,6 +123,7 @@ async function withCodexAppServerClient<T>(handler: (client: CodexAppServerClien
 
 export class ApiMachineClient {
     private socket!: Socket<ServerToDaemonEvents, DaemonToServerEvents>;
+    private stopQuotaHistory: (() => void) | null = null;
     private keepAliveInterval: NodeJS.Timeout | null = null;
     private lastKnownCLIAvailability: CLIAvailability | null = null;
     private lastKnownResumeSupport: ResumeSupport | null = null;
@@ -161,7 +168,7 @@ export class ApiMachineClient {
         spawnSession,
         resumeSession,
         stopSession,
-        requestShutdown
+        requestShutdown, isSessionRunning
     }: MachineRpcHandlers) {
         this.resumeSessionHandler = resumeSession ?? null;
 
@@ -173,12 +180,13 @@ export class ApiMachineClient {
         // old registration only once every device runs a version that has this.
         const spawnSessionHandler = async (params: any) => {
             const { directory, sessionId, machineId, approvedNewDirectoryCreation, agent, permissionMode, modelMode, effortLevel, codexServiceTier, codexContextLimits, environmentVariables, token, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId, isSideChat, hubSessionId, title } = params || {};
-            logger.debug(`[API MACHINE] Spawning session with params: ${JSON.stringify(params)}`);
+            logger.debug('[API MACHINE] Spawning session', spawnLogSummary(params ?? {}));
 
             if (!directory) {
                 throw new Error('Directory is required');
             }
 
+            suppliedCredentialEngine({ agent, token, environmentVariables });
             if (agent === 'codex') { validateCodexServiceTier(codexServiceTier); validateCodexContextLimits(codexContextLimits); }
             const result = await spawnSession({ directory, sessionId, machineId, approvedNewDirectoryCreation, agent, permissionMode, modelMode, effortLevel, codexServiceTier, codexContextLimits, environmentVariables, token, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId, isSideChat, hubSessionId: typeof hubSessionId === 'string' ? hubSessionId : undefined, title: typeof title === 'string' ? title : undefined });
 
@@ -196,6 +204,7 @@ export class ApiMachineClient {
             }
         };
         this.rpcHandlerManager.registerHandler('spawn-lmc-session', spawnSessionHandler);
+        this.rpcHandlerManager.registerHandler('shared-runtime', sharedRuntimeHandler(this.machine.id, this.token, spawnSession, isSessionRunning));
         this.rpcHandlerManager.registerHandler('spawn-happy-session', spawnSessionHandler);
 
         this.syncResumeSessionRpcRegistration();
@@ -483,6 +492,7 @@ export class ApiMachineClient {
             auth: {
                 token: this.token,
                 clientType: 'machine-scoped' as const,
+                collaborationProtocol: 1,
                 machineId: this.machine.id,
                 lmcClient: `cli-daemon/${configuration.currentCliVersion}`
             },
@@ -490,6 +500,11 @@ export class ApiMachineClient {
             reconnection: false,
         });
 
+        this.stopQuotaHistory?.();
+        this.stopQuotaHistory = startQuotaHistory(this.machine.id, async sample => {
+            if (!this.socket.connected) return false;
+            try { return (await this.socket.timeout(10_000).emitWithAck('quota-observation-v1', sample)).success === true; } catch { return false; }
+        });
         this.socket.on('connect', () => {
             logger.debug('[API MACHINE] Connected to server');
 
@@ -641,6 +656,7 @@ export class ApiMachineClient {
     }
 
     shutdown() {
+        this.stopQuotaHistory?.();
         logger.debug('[API MACHINE] Shutting down');
         this.stopKeepAlive();
         if (this.reconnectInterval) {

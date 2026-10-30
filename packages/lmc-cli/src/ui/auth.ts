@@ -9,6 +9,7 @@ import { generateWebAuthUrl } from "@/api/webAuth";
 import { openBrowser } from "@/utils/browser";
 import { randomUUID } from 'node:crypto';
 import { logger } from './logger';
+import { getSharedRuntime, sharedRuntimeCredentials } from '@/daemon/sharedRuntime';
 
 export async function doAuth(): Promise<Credentials | null> {
     console.clear();
@@ -171,6 +172,8 @@ export async function authAndSetupMachineIfNeeded(): Promise<{
     machineId: string;
 }> {
     logger.debug('[AUTH] Starting auth and machine setup...');
+    const runtime = getSharedRuntime();
+    if (runtime) return { credentials: sharedRuntimeCredentials()!, machineId: runtime.machineId };
 
     // Step 1: Handle authentication
     let credentials = await readCredentials();

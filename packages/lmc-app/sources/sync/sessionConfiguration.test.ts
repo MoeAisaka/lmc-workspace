@@ -19,7 +19,7 @@ beforeEach(()=>{
     rpc.mockReset();resume.mockReset();resolveMode.mockReset();sendMessage.mockReset();setModes.mockReset();session.active=true;
     metadata.flavor='codex';metadata.sessionCapabilities=undefined;
     metadata.sessionConfigState='applied';metadata.sessionConfigUpdatedAt=Date.now();
-    (metadata as any).permissionMode=undefined;sessionMessages.s.messages=[];
+    (metadata as any).permissionMode=undefined;delete (metadata as any).modelCatalogs;sessionMessages.s.messages=[];
     resolveMode.mockReturnValue({model:'gpt-test',permissionMode:'auto'});
 });
 it('does not submit another refresh while the first RPC is pending', async()=>{
@@ -197,4 +197,16 @@ it('carries a chosen codex model onto a session leaving claude', async()=>{
     expect(setModes).not.toHaveBeenCalled();
     applyPendingEngineModel('s','codex');
     expect(setModes).toHaveBeenCalledWith('s',{modelMode:'gpt-6-astra',effortLevel:null});
+});
+
+it('switches to Antigravity Gemini 4 on its high native variant even when an older catalog recorded medium first', async()=>{
+    (metadata as any).sessionCapabilities={refresh:true,engineHandoff:true,authentication:true,runtimeConfiguration:true};
+    (metadata as any).modelCatalogs={agy:{runtimeVersion:'1.4.8',capturedAt:1,models:[{
+        id:'gemini-4-argon',name:'Gemini 4 Argon',efforts:['medium','high','low'],defaultEffort:'medium',
+        effortModels:{medium:'gemini-4-argon-medium',high:'gemini-4-argon-high',low:'gemini-4-argon-low'},
+        aliases:['gemini-4-argon-medium','gemini-4-argon-high','gemini-4-argon-low'],
+    }]}};
+    rpc.mockResolvedValue({status:'queued'});
+    await switchSessionEngine('s','agy','gemini-4-argon');
+    expect(rpc.mock.calls[0][2]).toMatchObject({engine:'agy',model:'gemini-4-argon-high'});
 });

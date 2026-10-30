@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiMachineClient } from './apiMachine';
 import type { Machine } from './types';
+import { logger } from '@/ui/logger';
 
 vi.mock('socket.io-client', () => ({ io: vi.fn() }));
 vi.mock('@/configuration', () => ({
@@ -50,5 +51,26 @@ describe('spawn session RPC method names', () => {
         expect(registered.has('spawn-lmc-session')).toBe(true);
         expect(registered.has('spawn-happy-session')).toBe(true);
         expect(registered.get('spawn-lmc-session')).toBe(registered.get('spawn-happy-session'));
+    });
+
+    it('rejects unsupported credentials before the spawn callback and never logs their values', async () => {
+        vi.clearAllMocks();
+        const client = new ApiMachineClient('fake-token', machine());
+        const handlers = new Map<string, (params: any) => Promise<any>>();
+        (client as any).rpcHandlerManager = { registerHandler: (method: string, handler: any) => handlers.set(method, handler), unregisterHandler: () => {} };
+        (client as any).syncResumeSessionRpcRegistration = () => {};
+        const spawnSession = vi.fn(async (_options: unknown) => ({ type: 'success', sessionId: 'synthetic-session' }));
+        client.setRPCHandlers({ spawnSession, stopSession: vi.fn(), requestShutdown: vi.fn() } as any);
+
+        const spawn = handlers.get('spawn-lmc-session')!;
+        await expect(spawn({ agent: 'agy', directory: '/test', token: 'NEVER-LOG-TOKEN', environmentVariables: { SECRET: 'NEVER-LOG-ENV' } })).rejects.toThrow('native login');
+        await expect(spawn({ agent: 'codex', directory: '/test', token: '' })).rejects.toThrow('empty');
+        expect(spawnSession).not.toHaveBeenCalled();
+        expect(JSON.stringify(vi.mocked(logger.debug).mock.calls)).not.toContain('NEVER-LOG');
+
+        await spawn({ agent: 'codex', directory: '/test', token: 'NEVER-LOG-VALID-TOKEN' });
+        expect(spawnSession).toHaveBeenCalledOnce();
+        expect(spawnSession.mock.calls[0][0]).toMatchObject({ agent: 'codex', token: 'NEVER-LOG-VALID-TOKEN' });
+        expect(JSON.stringify(vi.mocked(logger.debug).mock.calls)).not.toContain('NEVER-LOG');
     });
 });

@@ -3,6 +3,8 @@ import { EventEmitter } from 'node:events';
 import nacl from 'tweetnacl';
 import { db } from '@/storage/db';
 import { Prisma } from '@/generated/client';
+import { accessTransaction } from './access/transaction';
+import { rewrapFileKey, unwrapResourceKey, wrapResourceKey, resourcePublicKey } from './access/fileKeys';
 
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 const derive = (password: string, salt: string) => new Promise<Buffer>((resolve, reject) => {
@@ -25,36 +27,82 @@ function open(value: string, accountId: string) {
 }
 export const authRevocations = new EventEmitter();
 authRevocations.setMaxListeners(0); // One bounded subscription per live socket; removed on disconnect.
+
+/** Expensive password work happens before the short permission transaction. */
+export async function prepareLmcAccount(username: string, password: string) {
+    if (!/^[\p{L}\p{N}_-]{3,64}$/u.test(username) || password.length < 12 || password.length > 256) throw new Error('Invalid username or password');
+    const salt = randomBytes(16).toString('hex'), key = await derive(password, salt), secret = randomBytes(32);
+    const publicKey = Buffer.from(nacl.sign.keyPair.fromSeed(secret).publicKey).toString('hex');
+    return async (tx: Prisma.TransactionClient) => {
+        const account = await tx.account.create({ data: { username, publicKey, lmcPasswordHash: `${salt}:${key.toString('hex')}` } });
+        await tx.account.update({ where: { id: account.id }, data: { lmcSecret: seal(secret, account.id) } });
+        secret.fill(0);
+        return account.id;
+    };
+}
 export const lmcAuth = {
     async init() { masterKey(); },
+    async createSessionToken(tx: Prisma.TransactionClient, accountId: string, sessionId: string, machineId: string) {
+        const token = randomBytes(32).toString('base64url');
+        await tx.lmcLogin.create({ data: { hash: hashToken(token), accountId, kind: 'session', extras: { sessionId, machineId }, expiresAt: new Date(Date.now() + 365 * 86400_000) } });
+        return token;
+    },
+    async resourcePublicKey(tx: Prisma.TransactionClient, accountId: string) {
+        const account = await tx.account.findUnique({ where: { id: accountId }, select: { lmcSecret: true } });
+        if (!account?.lmcSecret) throw new Error('Account key unavailable');
+        const secret = Buffer.from(open(account.lmcSecret, accountId), 'base64url');
+        try { return Buffer.from(resourcePublicKey(secret)).toString('base64'); } finally { secret.fill(0); }
+    },
+    /** Internal resource adapter only, after checking ACL in the same transaction. */
+    async withResourceKey<T>(tx: Prisma.TransactionClient, resource: { accountId: string; ownerKey: Uint8Array; keyMode: string }, work: (key: Uint8Array) => Promise<T> | T): Promise<T> {
+        const owner = await tx.account.findUnique({ where: { id: resource.accountId }, select: { lmcSecret: true } });
+        if (!owner?.lmcSecret) throw new Error('Account key unavailable');
+        const secret = Buffer.from(open(owner.lmcSecret, resource.accountId), 'base64url');
+        let key: Uint8Array | undefined;
+        try { key = unwrapResourceKey(secret, resource.ownerKey, resource.keyMode); return await work(key); }
+        finally { key?.fill(0); secret.fill(0); }
+    },
+    async wrapNewResourceKey(tx: Prisma.TransactionClient, accountId: string, key: Uint8Array) {
+        const owner = await tx.account.findUnique({ where: { id: accountId }, select: { lmcSecret: true, enabled: true } });
+        if (!owner?.lmcSecret || !owner.enabled) throw new Error('Account key unavailable');
+        const secret = Buffer.from(open(owner.lmcSecret, accountId), 'base64url');
+        try { return wrapResourceKey(secret, key); } finally { secret.fill(0); }
+    },
+    /** Internal only: caller has checked the resource ACL in this transaction. */
+    async rewrapResourceKey(tx: Prisma.TransactionClient, file: { accountId: string; ownerKey: Uint8Array; keyMode: string }, recipientId: string) {
+        const owner = await tx.account.findUnique({ where: { id: file.accountId }, select: { lmcSecret: true } });
+        const recipient = await tx.account.findUnique({ where: { id: recipientId }, select: { lmcSecret: true, enabled: true } });
+        if (!owner?.lmcSecret || !recipient?.lmcSecret || !recipient.enabled) throw new Error('Account key unavailable');
+        const ownerSecret = Buffer.from(open(owner.lmcSecret, file.accountId), 'base64url');
+        const recipientSecret = Buffer.from(open(recipient.lmcSecret, recipientId), 'base64url');
+        try { return rewrapFileKey(ownerSecret, recipientSecret, file.ownerKey, file.keyMode); }
+        finally { ownerSecret.fill(0); recipientSecret.fill(0); }
+    },
     async createAccount(username: string, password: string) {
-        if (!/^[\p{L}\p{N}_-]{3,64}$/u.test(username) || password.length < 12 || password.length > 256) throw new Error('Invalid username or password');
-        const salt = randomBytes(16).toString('hex'), key = await derive(password, salt), secret = randomBytes(32);
-        const publicKey = Buffer.from(nacl.sign.keyPair.fromSeed(secret).publicKey).toString('hex');
-        return db.$transaction(async tx => {
-            const account = await tx.account.create({ data: { username, publicKey, lmcPasswordHash: `${salt}:${key.toString('hex')}` } });
-            await tx.account.update({ where: { id: account.id }, data: { lmcSecret: seal(secret, account.id) } });
-            return account.id;
-        });
+        return db.$transaction(await prepareLmcAccount(username, password));
     },
     async login(username: string, password: string) {
         if (typeof username !== 'string' || typeof password !== 'string' || username.length > 64 || password.length > 256) return null;
         const account = await db.account.findUnique({ where: { username } });
         const [salt, digest] = (account?.lmcPasswordHash || '00000000000000000000000000000000:'+'00'.repeat(32)).split(':');
         const actual = await derive(password, salt), expected = Buffer.from(digest, 'hex');
-        if (expected.length !== actual.length || !timingSafeEqual(actual, expected) || !account?.lmcSecret) return null;
+        if (expected.length !== actual.length || !timingSafeEqual(actual, expected) || !account?.lmcSecret || !account.enabled) return null;
         const token = await this.createToken(account.id, undefined, 'web');
         return { token, secret: open(account.lmcSecret, account.id) };
     },
     async createToken(userId: string, extras?: Prisma.InputJsonValue, kind: 'web' | 'device' = 'device') {
         const token = randomBytes(32).toString('base64url');
-        await db.lmcLogin.create({ data: { hash: hashToken(token), accountId: userId, kind, ...(extras === undefined ? {} : { extras }), expiresAt: new Date(Date.now() + (kind === 'web' ? 30 : 365) * 86400_000) } });
+        await accessTransaction(async tx => {
+            const account = await tx.account.findUnique({ where: { id: userId }, select: { enabled: true } });
+            if (!account?.enabled) throw new Error('Account is unavailable');
+            await tx.lmcLogin.create({ data: { hash: hashToken(token), accountId: userId, kind, ...(extras === undefined ? {} : { extras }), expiresAt: new Date(Date.now() + (kind === 'web' ? 30 : 365) * 86400_000) } });
+        });
         return token;
     },
     async verifyToken(token: string): Promise<{ userId: string; extras?: any; kind: string } | null> {
         if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
-        const login = await db.lmcLogin.findUnique({ where: { hash: hashToken(token) } });
-        return login && login.expiresAt.getTime() > Date.now() ? { userId: login.accountId, extras: login.extras, kind: login.kind } : null;
+        const login = await db.lmcLogin.findUnique({ where: { hash: hashToken(token) }, include: { account: { select: { enabled: true } } } });
+        return login && login.account.enabled && login.expiresAt.getTime() > Date.now() ? { userId: login.accountId, extras: login.extras, kind: login.kind } : null;
     },
     /**
      * The key paired agents use to talk to each other, derived from the account

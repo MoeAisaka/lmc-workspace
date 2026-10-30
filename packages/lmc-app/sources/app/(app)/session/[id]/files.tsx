@@ -18,9 +18,10 @@ import { Shaker, ShakeInstance } from '@/components/Shaker';
 import { usePrefetchFileContents } from '@/hooks/usePrefetchFileContents';
 import { MobileGlassSurface } from '@/components/MobileGlass';
 
-export default React.memo(function FilesScreen() {
+export default React.memo(function FilesScreen({ sessionId: suppliedId, onOpen }: { sessionId?: string; onOpen?: (path: string) => void } = {}) {
     const router = useRouter();
-    const { id: sessionId } = useLocalSearchParams<{ id: string }>();
+    const { id } = useLocalSearchParams<{ id: string }>();
+    const sessionId = suppliedId ?? id;
 
     const { data: gitStatusFiles, isLoading } = useGitStatusFiles(sessionId!);
 
@@ -70,9 +71,10 @@ export default React.memo(function FilesScreen() {
             shakerRefs.current.get(file.fullPath)?.shake();
             return;
         }
+        if (onOpen) { onOpen(file.fullPath); return; }
         const encodedPath = btoa(file.fullPath);
         router.push(`/session/${sessionId}/file?path=${encodedPath}`);
-    }, [router, sessionId]);
+    }, [router, sessionId, onOpen]);
 
     const renderFileIcon = (file: GitFileStatus) => {
         return <FileIcon fileName={file.fileName} size={32} />;

@@ -2,7 +2,8 @@
 
 The D26 menu reads a **single configured dashboard source**, via encrypted
 `account-quota` machine RPC. It never sums quotas from multiple sessions or
-devices. Both Codex and Claude are shown, with unknown values displayed as `—`.
+devices. Cards and avatar rings render the enabled providers in the snapshot,
+with unknown values displayed as `—`. No provider is hardcoded in the UI.
 
 ## Optional dashboard connector
 
@@ -17,7 +18,8 @@ This stores only a reference to the dashboard's existing local configuration;
 do not copy its token into LMC configuration, the repository or the browser.
 The connector reads its `token` and `port` (default 19390) locally, requests only
 `http://127.0.0.1:<port>/api/summary`, rejects redirects, and projects an allowlist
-of quota fields. No provider requests or authentication refreshes are performed.
+of quota fields. Dashboard reads do not refresh providers. Explicitly enabled Antigravity uses
+the native CLI read-only quota command described below.
 RPC callers cannot choose a URL, file path or credential. Other dashboard data,
 raw errors and credentials never leave the device.
 
@@ -68,3 +70,36 @@ blocks external network requests, checks 320/390/1000px light/dark rendering,
 scroll access to menu items, failed refresh and missing data. Set
 `LMC_PLAYWRIGHT_MODULE` / `LMC_CHROME_PATH` if needed. It does not connect to any
 real session or provider.
+
+## Enabled providers and Antigravity (v341 / Agent 1.2.119)
+
+The source device's `quota-dashboard.json` may include:
+
+```json
+{"configPath":"/absolute/path/to/dashboard_config.json","providers":{"codex":{"enabled":true},"claude":{"enabled":false},"agy":{"enabled":true,"plan":"Ultra 20x"}}}
+```
+
+This is explicit operator configuration, not inferred from installing a binary or
+from a transient collector failure. Plan is an operator label, not an assertion
+that the provider has granted eligibility. Omitting configuration retains legacy
+Codex/Claude behavior; Antigravity collection is opt-in. Re-enabling a service
+makes it visible on the next source refresh. No browser credentials are involved.
+
+Antigravity first checks the noninteractive `agy models` command, then runs
+`agy --print /usage --output-format json --print-timeout 15s` using its existing
+native login. It does not read keychain contents or start a model turn. Each
+subprocess has a 20-second deadline and bounded output. Calls coalesce and cache
+success/failure for five minutes across clients; only the source machine polls.
+Unknown JSON shapes fail closed. Project/account IDs and raw errors are never
+sent to clients. Current supported shape is `command.data.groups[].buckets[]`,
+with `remaining_fraction`, `window`, and `reset_time`; independent Gemini and
+Claude/GPT pools stay separate. The avatar ring deliberately has no aggregate
+percentage for Antigravity. Region restriction, sign-in required, missing CLI,
+and unavailable readings show states, not fabricated balances. Dashboard failure
+does not suppress the independent Antigravity result.
+
+References: official CLI read-only command changelog
+https://github.com/google-antigravity/antigravity-cli/blob/main/CHANGELOG.md ;
+usage docs https://www.antigravity.google/docs/cli/commands/usage ;
+existing integration discussion https://github.com/google-antigravity/antigravity-cli/issues/1045 .
+No third-party package or credential-reading implementation was installed.

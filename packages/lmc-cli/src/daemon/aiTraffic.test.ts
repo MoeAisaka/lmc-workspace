@@ -25,8 +25,11 @@ describe('AI traffic', () => {
         expect(addresses.classify('2607:6bc0::10')).toBe('claude');
         expect(addresses.classify('172.64.155.209')).toBeNull();
         addresses.learn('openai', ['172.64.155.209', '104.18.32.47', '2606:4700::6812:202f', 'not-an-address']);
+        addresses.learn('antigravity', ['172.217.116.4', '34.54.84.110']);
         expect(addresses.classify('172.64.155.209')).toBe('openai');
         expect(addresses.classify('2606:4700:0:0:0:0:6812:202f')).toBe('openai');
+        expect(addresses.classify('172.217.116.4')).toBe('antigravity');
+        expect(addresses.classify('34.54.84.110')).toBe('antigravity');
         // Another site on the same CDN is not OpenAI.
         expect(addresses.classify('172.67.134.160')).toBeNull();
         expect(addresses.classify('192.168.1.3')).toBeNull();
@@ -40,22 +43,55 @@ describe('AI traffic', () => {
         const seen: TrafficDelta[] = [];
         const addresses = createProviderAddresses();
         addresses.learn('openai', ['172.64.155.209']);
+        addresses.learn('antigravity', ['172.217.116.4']);
         const parse = createNettopParser(addresses.classify, delta => seen.push(delta));
         // First block: totals of flows already open, not a delta.
         parse(',bytes_in,bytes_out,\nclaude.81488,100000,9200000,\ntcp4 192.168.1.2:51000<->160.79.104.10:443,100000,9200000,\n');
         expect(seen).toEqual([]);
         parse(',bytes_in,bytes_out,\nclaude.81488,140000,18790000,\ntcp4 192.168.1.2:51000<->160.79.104.10:443,53000,187');
         parse('30000,\ntcp4 192.168.1.2:51001<->172.67.134.160:443,86502,33420,\ntcp4 192.168.1.2:51002<->192.168.1.3:14242,24,0,\n'
-            + 'codex.80934,2100,1000,\ntcp4 192.168.1.2:51003<->172.64.155.209:443,2000,1000,\ntcp4 192.168.1.2:51004<->160.79.104.10:443,0,0,\n');
+            + 'codex.80934,2100,1000,\ntcp4 192.168.1.2:51003<->172.64.155.209:443,2000,1000,\ntcp4 192.168.1.2:51004<->160.79.104.10:443,0,0,\n'
+            + 'agy.77329,220454,22204431,\ntcp4 192.168.1.2:54120<->172.217.116.4:443,220000,21900000,\ntcp4 192.168.1.2:54121<->192.168.1.3:14242,454,0,\n');
         // The MCP server and the LAN host an engine also talks to are not counted, and neither is the process row.
-        expect(seen).toEqual([{ provider: 'claude', up: 18730000, down: 53000 }, { provider: 'openai', up: 1000, down: 2000 }]);
+        expect(seen).toEqual([
+            { provider: 'claude', up: 18730000, down: 53000 },
+            { provider: 'openai', up: 1000, down: 2000 },
+            { provider: 'antigravity', up: 21900000, down: 220000 },
+        ]);
         parse(',bytes_in,bytes_out,\ncodex.80934,10,20,\ntcp4 192.168.1.2:51003<->172.64.155.209:443,10,20,\nbroken line\n');
-        expect(seen[2]).toEqual({ provider: 'openai', up: 20, down: 10 });
+        expect(seen[3]).toEqual({ provider: 'openai', up: 20, down: 10 });
     });
-    it('recognises the two providers by host and nothing else', () => {
+    it('recognises the three providers by host and nothing else', () => {
         for (const host of ['api.anthropic.com', 'claude.ai', 'statsig.anthropic.com', 'CLAUDE.AI']) expect(providerOfHost(host)).toBe('claude');
         for (const host of ['chatgpt.com', 'api.openai.com', 'ab.chatgpt.com', 'cdn.oaistatic.com']) expect(providerOfHost(host)).toBe('openai');
-        for (const host of ['', 'example.com', 'notanthropic.com', 'chatgpt.com.evil.example', 'openai.com.cn', '20.190.1.1']) expect(providerOfHost(host)).toBeNull();
+        for (const host of [
+            'daily-cloudcode-pa.googleapis.com',
+            'cloudcode-pa.googleapis.com',
+            'autopush-cloudcode-pa.sandbox.googleapis.com',
+            'aicode.googleapis.com',
+            'businessaicode.googleapis.com',
+            'generativelanguage.googleapis.com',
+            'aiplatform.googleapis.com',
+            'us-central1-aiplatform.googleapis.com',
+            'antigravity-unleash.goog',
+            'antigravity.google',
+            'antigravity.google.com',
+            'antigravity-cli-auto-updater-974169037036.us-central1.run.app',
+        ]) expect(providerOfHost(host)).toBe('antigravity');
+        for (const host of [
+            '',
+            'example.com',
+            'notanthropic.com',
+            'chatgpt.com.evil.example',
+            'openai.com.cn',
+            'www.googleapis.com',
+            'play.googleapis.com',
+            'oauth2.googleapis.com',
+            'www.google.com',
+            'accounts.google.com',
+            'notcloudcode-pa.googleapis.com',
+            '20.190.1.1',
+        ]) expect(providerOfHost(host)).toBeNull();
     });
     it('turns connection snapshots into deltas without counting what was sent before it looked', () => {
         const track = createConnectionTracker();
@@ -83,10 +119,13 @@ describe('AI traffic', () => {
         expect(read).toHaveBeenCalledWith('/Users/u/Library/Application Support/x/clash-verge.yaml');
         const from = (process: string, processPath: string) => ({ id: 'a', upload: 0, download: 0, metadata: { host: 'chatgpt.com', process, processPath } });
         expect(isEngineConnection(from('codex', '/Users/u/.lmc/agent/runtime-releases/codex-0.162.0/vendor/bin/codex'))).toBe(true);
+        expect(isEngineConnection(from('agy', '/Users/u/.local/bin/agy'))).toBe(true);
+        expect(isEngineConnection(from('agy.exe', 'C:\\Users\\u\\AppData\\Local\\agy\\bin\\agy.exe'))).toBe(true);
         expect(isEngineConnection(from('2.1.285', '/Users/u/.local/share/claude/versions/2.1.285'))).toBe(true);
         expect(isEngineConnection(from('Google Chrome Helper', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome Helper'))).toBe(false);
         expect(isEngineConnection(from('ChatGPT for Chrome', '/Users/u/.codex/plugins/cache/chrome/ChatGPT for Chrome'))).toBe(false);
         expect(isEngineConnection(from('Claude', '/Applications/Claude.app/Contents/MacOS/Claude'))).toBe(false);
+        expect(isEngineConnection(from('Antigravity', '/Applications/Antigravity.app/Contents/MacOS/Antigravity'))).toBe(false);
         // The core leaves the engines' own connections unnamed.
         expect(isEngineConnection(from('', ''))).toBe(true);
         expect(isEngineConnection({ id: 'n', upload: 0, download: 0, metadata: { host: 'chatgpt.com' } })).toBe(true);
@@ -127,12 +166,14 @@ describe('AI traffic', () => {
         const noon = new Date(2026, 9, 8, 12).getTime();
         ledger.add({ provider: 'claude', up: 100, down: 5 }, noon);
         ledger.add({ provider: 'openai', up: 7, down: 9 }, noon + 1000);
+        ledger.add({ provider: 'antigravity', up: 40, down: 3 }, noon + 2000);
         ledger.add({ provider: 'claude', up: 1, down: 1 }, new Date(2026, 9, 9, 0, 0, 1).getTime());
         expect(ledger.days()).toEqual({
-            '2026-10-07': { claude: { up: 10, down: 1 }, openai: { up: 0, down: 0 } },
-            '2026-10-08': { claude: { up: 100, down: 5 }, openai: { up: 7, down: 9 } },
-            '2026-10-09': { claude: { up: 1, down: 1 }, openai: { up: 0, down: 0 } },
+            '2026-10-07': { claude: { up: 10, down: 1 }, openai: { up: 0, down: 0 }, antigravity: { up: 0, down: 0 } },
+            '2026-10-08': { claude: { up: 100, down: 5 }, openai: { up: 7, down: 9 }, antigravity: { up: 40, down: 3 } },
+            '2026-10-09': { claude: { up: 1, down: 1 }, openai: { up: 0, down: 0 }, antigravity: { up: 0, down: 0 } },
         });
+        expect(ledger.total()).toBe(10 + 1 + 100 + 5 + 7 + 9 + 40 + 3 + 1 + 1);
         expect(localDay(noon)).toBe('2026-10-08');
         expect(Object.keys(ledger.recent(2))).toEqual(['2026-10-08', '2026-10-09']);
         for (let i = 0; i < AI_TRAFFIC_KEEP_DAYS + 20; i++) ledger.add({ provider: 'claude', up: 1, down: 0 }, noon + (i + 2) * 86400000);
@@ -149,18 +190,25 @@ describe('AI traffic', () => {
             let snapshot = [{ id: 'a', upload: 0, download: 0, metadata: { host: 'chatgpt.com' } }];
             const stop = startAiTraffic({ file, publish, platform: 'linux', flushMs: 1000, pollMs: 500, startProcessSampler: onDelta => { emit = onDelta; return () => {}; }, pollConnections: async () => snapshot });
             await vi.advanceTimersByTimeAsync(0);
-            // What was already on disk is published once at start.
+            // What was already on disk is published once at start, with missing antigravity filled in as zero.
             expect(publish).toHaveBeenCalledTimes(1);
-            expect(publish.mock.calls[0][0].days[day].claude.up).toBe(5 * MB);
+            expect(publish.mock.calls[0][0].days[day]).toEqual({ claude: { up: 5 * MB, down: 0 }, openai: { up: 0, down: 0 }, antigravity: { up: 0, down: 0 } });
             emit({ provider: 'claude', up: 200 * 1024, down: 10 });
             await vi.advanceTimersByTimeAsync(1000);
             // Written to disk, but too little to rewrite shared state.
             expect(JSON.parse(readFileSync(file, 'utf8')).days[day].claude.up).toBe(5 * MB + 200 * 1024);
             expect(publish).toHaveBeenCalledTimes(1);
-            snapshot = [{ id: 'a', upload: 3 * MB, download: MB, metadata: { host: 'chatgpt.com' } }];
+            snapshot = [
+                { id: 'a', upload: 3 * MB, download: MB, metadata: { host: 'chatgpt.com' } },
+                { id: 'g', upload: 2 * MB, download: 512 * 1024, metadata: { host: 'daily-cloudcode-pa.googleapis.com' } },
+            ];
             await vi.advanceTimersByTimeAsync(1000);
             expect(publish).toHaveBeenCalledTimes(2);
-            expect(publish.mock.calls[1][0].days[day]).toEqual({ claude: { up: 5 * MB + 200 * 1024, down: 10 }, openai: { up: 3 * MB, down: MB } });
+            expect(publish.mock.calls[1][0].days[day]).toEqual({
+                claude: { up: 5 * MB + 200 * 1024, down: 10 },
+                openai: { up: 3 * MB, down: MB },
+                antigravity: { up: 2 * MB, down: 512 * 1024 },
+            });
             // A failed publish is tried again; the count is not lost.
             publish.mockRejectedValueOnce(new Error('offline'));
             emit({ provider: 'claude', up: 2 * MB, down: 0 });

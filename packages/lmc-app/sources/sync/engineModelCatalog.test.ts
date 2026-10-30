@@ -38,3 +38,12 @@ describe('engineForModelKey', () => {
         expect(engineForModelKey(groups, 'not-a-model')).toBeNull();
     });
 });
+
+ it('offers all three engines only with the new handoff capability', () => {
+    const metadata = { sessionCapabilities: { engineHandoff: true }, modelCatalogs: { agy: { models: [{ id: 'gemini-3.8-flash', name: 'Flash', efforts: ['low'], defaultEffort: 'low' }] } } } as any;
+    for (const engine of ['claude', 'codex', 'agy']) {
+        const groups = engineModelGroups(engine, metadata, t)!;
+        expect(groups[0].engine).toBe(engine);
+        expect(new Set(groups.map(g => g.engine))).toEqual(new Set(['claude', 'codex', 'agy']));
+    }
+ });

@@ -36,6 +36,14 @@ export const PRICING = {
         cache_write: 3.75,
         cache_read: 0.30
     },
+    // 2.1.293 release notes: $0.10/$0.50 per Mtok. Prompts over 100K are billed
+    // at $0.50/$2.50, which this flat table does not model.
+    'claude-haiku-5-5': {
+        input: 0.10,
+        output: 0.50,
+        cache_write: 0.125,
+        cache_read: 0.01
+    },
     'claude-4.5-haiku': {
         input: 1.0,
         output: 5.0,
@@ -111,7 +119,8 @@ export function calculateCost(usage: Usage, modelId?: string): { total: number, 
             else pricing = PRICING['claude-3-5-sonnet-20241022'];
         }
         else if (modelId?.includes('haiku')) {
-            if (modelId.includes('4.5')) pricing = PRICING['claude-4.5-haiku'];
+            if (modelId.includes('5-5') || modelId.includes('5.5')) pricing = PRICING['claude-haiku-5-5'];
+            else if (modelId.includes('4.5') || modelId.includes('4-5')) pricing = PRICING['claude-4.5-haiku'];
             else if (modelId.includes('3.5')) pricing = PRICING['claude-3-5-haiku-20241022'];
             else pricing = PRICING['claude-3-haiku-20240307'];
         }

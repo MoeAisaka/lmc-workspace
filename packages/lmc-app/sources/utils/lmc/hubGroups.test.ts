@@ -70,4 +70,17 @@ describe('splitHubGroups', () => {
             expect(hubs[0].workers.map(s => s.id)).toEqual(['W1', 'W2']);
         }
     });
+
+    it('files a worker the list counts as archived out of its hub, and a hub so counted loses its group', () => {
+        const hub = session('H', 1, { role: 'hub', workers: [{ sessionId: 'W1' }, { sessionId: 'W2' }] });
+        const w1 = session('W1', 2, { role: 'worker', hub: { sessionId: 'H' } });
+        const w2 = session('W2', 3, { role: 'worker', hub: { sessionId: 'H' } });
+        const gone = (id: string) => (s: any) => s.id === id;
+        const one = splitHubGroups([hub, w1, w2], null, gone('W2'));
+        expect(one.hubs[0].workers.map((w: any) => w.id)).toEqual(['W1']);
+        expect(one.rest.map((s: any) => s.id)).toEqual(['W2']);
+        const none = splitHubGroups([hub, w1, w2], null, gone('H'));
+        expect(none.hubs).toEqual([]);
+        expect(none.rest.map((s: any) => s.id)).toEqual(['H', 'W1', 'W2']);
+    });
 });

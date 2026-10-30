@@ -1,3 +1,4 @@
+import { openMachineDetails } from '@/components/lmc/MachineDialog';
 import * as React from 'react';
 import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -141,7 +142,7 @@ function DeviceCard({ machine, expanded, onToggle, onNavigate }: {
                     <Item
                         title={t('lmc.devices.detail')}
                         style={NESTED}
-                        onPress={() => { onNavigate?.(); router.push(`/machine/${machine.id}`); }}
+                        onPress={() => { onNavigate?.(); openMachineDetails(machine.id); }}
                     />
                     {online && (
                         <Item

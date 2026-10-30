@@ -59,7 +59,10 @@ export class MessageQueue2<T> {
     private onChangeHandler: ((snapshot: QueueSnapshotItem[]) => void) | null = null;
     private onConsumeHandler: ((keys: string[]) => void) | null = null;
     private onDiscardHandler: ((keys: string[]) => void) | null = null;
+    private autoConsumePredicate: ((item: QueueItem<T>) => boolean) | null = null;
     private queueMode: QueueMode = 'batch';
+    private executionGuard: ((key: string) => Promise<boolean>) | null = null;
+    private admitted = new Set<string>();
     modeHasher: (mode: T) => string;
 
     constructor(
@@ -93,12 +96,34 @@ export class MessageQueue2<T> {
         this.onDiscardHandler = onDiscard;
     }
 
+    /** Auto-mark matching future arrivals as already consumed in-turn without queuing a duplicate turn. */
+    setAutoConsume(predicate: ((item: QueueItem<T>) => boolean) | null): void {
+        this.autoConsumePredicate = predicate;
+    }
+
     setQueueMode(mode: QueueMode): void {
         this.queueMode = mode;
     }
 
     getQueueMode(): QueueMode {
         return this.queueMode;
+    }
+
+    setExecutionGuard(guard: (key: string) => Promise<boolean>): void { this.executionGuard = guard; }
+
+    /** Called at the handoff boundary, including native terminal consumers. */
+    async authorizeItem(key: string): Promise<boolean> {
+        if (!key.startsWith('lmc-shared:') && !this.executionGuard) return true;
+        if (this.admitted.has(key)) return true;
+        let allowed = false;
+        try { allowed = await this.executionGuard?.(key) ?? false; } catch { /* Fail closed when the center cannot be reached. */ }
+        if (allowed) {
+            if (key.startsWith('lmc-shared:')) this.admitted.add(key);
+        } else {
+            this.removeByKey(key);
+            this.onDiscardHandler?.([key]);
+        }
+        return allowed;
     }
 
     /**
@@ -166,6 +191,23 @@ export class MessageQueue2<T> {
         logger.debug(`[MessageQueue2] removeByKey(${key}). Queue size: ${this.queue.length}`);
         this.emitChange();
         return true;
+    }
+
+    /**
+     * Mark matching waiting items as already consumed in-turn (e.g. a worker
+     * report reviewed before the turn ended), emitting `queue-released` so the
+     * transcript keeps the report card while the strip clears immediately.
+     */
+    consumeWhere(predicate: (item: QueueItem<T>) => boolean): number {
+        const matched = this.queue.filter(predicate);
+        if (matched.length === 0) return 0;
+        const keys = matched.map((item) => item.key);
+        this.onConsumeHandler?.(keys);
+        const drop = new Set(keys);
+        this.queue = this.queue.filter((item) => !drop.has(item.key));
+        logger.debug(`[MessageQueue2] consumeWhere() consumed ${keys.length} item(s). Queue size: ${this.queue.length}`);
+        this.emitChange();
+        return keys.length;
     }
 
     /**
@@ -257,24 +299,15 @@ export class MessageQueue2<T> {
      * Returns { message: string, mode: T } or null if aborted/closed
      */
     async waitForMessagesAndGetAsString(abortSignal?: AbortSignal): Promise<{ message: string, mode: T, isolate: boolean, hash: string, attachments?: PendingAttachment[] } | null> {
-        // If we have messages, return them immediately
-        if (this.queue.length > 0) {
-            return this.collectBatch();
+        while (true) {
+            if (abortSignal?.aborted) return null;
+            const head = this.queue[0];
+            if (head) {
+                if (!(await this.authorizeItem(head.key)) || this.queue[0] !== head) continue;
+                return this.collectBatch();
+            }
+            if (this.closed || !(await this.waitForMessages(abortSignal))) return null;
         }
-
-        // If closed or already aborted, return null
-        if (this.closed || abortSignal?.aborted) {
-            return null;
-        }
-
-        // Wait for messages to arrive
-        const hasMessages = await this.waitForMessages(abortSignal);
-
-        if (!hasMessages) {
-            return null;
-        }
-
-        return this.collectBatch();
     }
 
     private insert(
@@ -287,6 +320,8 @@ export class MessageQueue2<T> {
             throw new Error(`Cannot ${origin === 'unshift' ? 'unshift' : 'push'} to closed queue`);
         }
 
+        if (opts.key?.startsWith('lmc-shared:') && (this.admitted.has(opts.key) || this.queue.some(item => item.key === opts.key))) return;
+
         const modeHash = this.modeHasher(mode);
         logger.debug(`[MessageQueue2] ${origin}() called with mode hash: ${modeHash}`);
 
@@ -295,10 +330,15 @@ export class MessageQueue2<T> {
             message,
             mode,
             modeHash,
-            isolate: opts.isolate,
+            isolate: opts.isolate || opts.key?.startsWith('lmc-shared:'),
             attachments: opts.attachments,
             createdAt: Date.now(),
         };
+        if (this.autoConsumePredicate?.(item)) {
+            this.onConsumeHandler?.([item.key]);
+            logger.debug(`[MessageQueue2] ${origin}() auto-consumed already-handled item ${item.key}`);
+            return;
+        }
         if (opts.front) {
             this.queue.unshift(item);
         } else {

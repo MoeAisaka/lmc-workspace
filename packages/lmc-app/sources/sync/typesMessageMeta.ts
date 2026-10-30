@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 // Shared message metadata schema
 export const MessageMetaSchema = z.object({
+    actor: z.object({ id: z.string(), name: z.string() }).optional(),
+    sharedCommandId: z.string().optional(),
     sentFrom: z.string().optional(), // Source identifier
     permissionMode: z.string().optional(), // Permission mode key for this message
     model: z.string().nullable().optional(), // Model name for this message (null = reset)

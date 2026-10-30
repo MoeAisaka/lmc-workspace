@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { useAttachmentImage } from '@/hooks/useAttachmentImage';
 import { thumbhashToDataUri } from '@/utils/thumbhash';
 import { openImagePreview } from '@/components/ImagePreviewModal';
+import { SavedFileCard } from '@/components/SavedFileCard';
 
 const fileInputSchema = z.object({
     ref: z.string(),
@@ -35,7 +36,12 @@ const MAX_IMAGE_WIDTH = 280;
 const MAX_IMAGE_HEIGHT = 360;
 const DEFAULT_ASPECT = 4 / 3; // when wire-format omits image{} dimensions
 
-export const FileView = React.memo<ToolViewProps>(({ tool, sessionId }) => {
+export const FileView = React.memo<ToolViewProps>((props) => {
+    const saved = z.object({ assetId: z.string().uuid(), name: z.string(), size: z.number() }).safeParse(props.tool.input);
+    return saved.success ? <SavedFileCard id={saved.data.assetId} name={saved.data.name} size={saved.data.size} /> : <ImageFileView {...props} />;
+});
+
+const ImageFileView = React.memo<ToolViewProps>(({ tool, sessionId }) => {
     const { theme } = useUnistyles();
     const parsed = fileInputSchema.safeParse(tool.input);
     if (!parsed.success) return null;
@@ -91,7 +97,8 @@ export const FileView = React.memo<ToolViewProps>(({ tool, sessionId }) => {
 
 const styles = StyleSheet.create(() => ({
     inlineContainer: {
-        paddingHorizontal: 12,
+        alignItems: 'flex-end',
+        paddingHorizontal: 0,
         paddingVertical: 8,
         gap: 4,
     },
@@ -99,7 +106,7 @@ const styles = StyleSheet.create(() => ({
         borderRadius: BORDER_RADIUS,
         borderWidth: 1,
         overflow: 'hidden',
-        alignSelf: 'flex-start',
+        alignSelf: 'flex-end',
         position: 'relative',
     },
     inlineImage: {
@@ -116,6 +123,8 @@ const styles = StyleSheet.create(() => ({
         justifyContent: 'center',
     },
     filename: {
+        textAlign: 'right',
+        maxWidth: MAX_IMAGE_WIDTH,
         fontSize: 13,
         fontWeight: '500',
     },

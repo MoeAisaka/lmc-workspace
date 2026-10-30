@@ -11,7 +11,7 @@ const { chromium, webkit } = require(process.env.LMC_PLAYWRIGHT_MODULE || 'playw
 assert(process.argv[2], 'Pass the release export directory');
 const build = path.resolve(process.argv[2]);
 const out = fs.mkdtempSync(path.join(os.tmpdir(), 'lmc-input-probe-check-'));
-const diagnostic = '/diagnostics/input-layout-probe-20261008-v6.js';
+const diagnostic = '/diagnostics/input-layout-probe-20261011-v9.js';
 const checks = [];
 const server = http.createServer((req, res) => {
     const pathname = decodeURIComponent(new URL(req.url, 'http://local').pathname);
@@ -75,6 +75,41 @@ async function context(browser, origin) {
                     checks.push({ engine, check: `real export bootstrap: ${mode}`, passed: true, diagnosticRequests: requests });
                 } finally { await ctx.close(); }
             }
+            // Deterministic visual-pan fixture, not a real iOS keyboard.
+            // The old control must leave the screen; the new control must remain
+            // tappable while the raw reference retains the same offscreen Y.
+            for (const [version, file] of [['v7', '/diagnostics/input-layout-probe-20261010-v7.js'], ['v9', diagnostic]]) {
+                const panContext = await context(browser, origin);
+                try {
+                    await panContext.route(origin + '/pan-fixture*', route => route.fulfill({
+                        contentType: 'text/html',
+                        body: '<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html{height:756px}body{margin:0}textarea{position:absolute;top:500px}</style><textarea data-lmc-text-input>fixture</textarea>',
+                    }));
+                    const page = await panContext.newPage();
+                    await page.goto(origin + '/pan-fixture?lmc_input_probe=1');
+                    await page.addScriptTag({ url: origin + file });
+                    await page.locator('textarea').focus();
+                    await page.evaluate(() => {
+                        Object.defineProperty(visualViewport, 'offsetTop', { configurable: true, value: 332 });
+                        Object.defineProperty(visualViewport, 'height', { configurable: true, value: 424 });
+                        document.documentElement.style.transform = 'translateY(-332px)';
+                        visualViewport.dispatchEvent(new Event('scroll'));
+                    });
+                    const geometry = await page.evaluate(() => ({
+                        reference: document.querySelector('[data-lmc-input-probe-panel]').getBoundingClientRect().top,
+                        button: document.querySelector('[data-lmc-input-probe="copy"]').getBoundingClientRect().top,
+                    }));
+                    assert.equal(geometry.reference, -326);
+                    if (version === 'v7') assert.ok(geometry.button < 0);
+                    else {
+                        assert.ok(geometry.button >= 6 && geometry.button < 424);
+                        await page.locator('[data-lmc-input-probe="copy"]').tap();
+                        assert.ok(await page.evaluate(() => !!window.copiedReport && document.activeElement.matches('textarea')));
+                        await page.screenshot({ path: path.join(out, engine + '-pan.png') });
+                    }
+                    checks.push({ engine, check: version + ' synthetic pan: raw reference retained, ' + (version === 'v7' ? 'old button offscreen' : 'copy reachable with focus retained'), geometry, passed: true });
+                } finally { await panContext.close(); }
+            }
             const ctx = await context(browser, fixture);
             try {
                 const page = await ctx.newPage(), errors = [];
@@ -121,7 +156,7 @@ async function context(browser, origin) {
                 const copied = await page.evaluate(() => window.copiedReport);
                 assert.ok(!copied.includes('PRIVATE_DRAFT'));
                 const report = JSON.parse(copied);
-                assert.equal(report.schema, 'lmc-input-layout-v6'); assert.equal(report.trial, false);
+                assert.equal(report.schema, 'lmc-input-layout-v9'); assert.equal(report.trial, false);
                 assert.deepEqual(report.runs.map(run => run.mode), ['observe']);
                 assert.ok(report.runs.every(run => run.samples.length <= 4 && run.timeline.length <= 20 && run.changes.length <= 48));
                 assert.deepEqual(await readState(), before);
@@ -129,6 +164,44 @@ async function context(browser, origin) {
                 assert.deepEqual(errors, []);
                 checks.push({ engine, check: 'real composer copy: focus, selection and geometry unchanged; retired trial ignored; sanitized report; no sends', passed: true });
             } finally { await ctx.close(); }
+            const settingsContext = await context(browser, fixture);
+            try {
+                const page = await settingsContext.newPage();
+                const errors = [];
+                page.on('pageerror', error => errors.push(error.message));
+                await page.goto(fixture);
+                const mountSettings = () => page.evaluate(() => {
+                    const host = document.createElement('div'); host.dataset.settingsFixture = 'true';
+                    host.style.cssText = 'position:fixed;inset:0;background:white;z-index:10000;overflow:auto';
+                    document.body.appendChild(host);
+                    const About = moduleExport('AboutPane').AboutPane;
+                    const Runtime = moduleExport('WebInputProbeRuntime').WebInputProbeRuntime;
+                    createRoot(host).render(h(React.Fragment, null, h(Runtime), h(About)));
+                });
+                await mountSettings();
+                const toggle = page.locator('[data-settings-fixture] [role="switch"]');
+                await toggle.waitFor();
+                assert.equal(await page.evaluate(() => storage.getState().localSettings.devModeEnabled), false);
+                assert.equal(await page.locator('[data-lmc-input-probe-panel]').count(), 0);
+                await toggle.tap();
+                await page.locator('[data-lmc-input-probe="copy"]').waitFor();
+                assert.ok(await page.evaluate(() => storage.getState().localSettings.devModeEnabled));
+                assert.equal(new URL(page.url()).search, '');
+                await page.screenshot({path: path.join(out, engine + '-developer-settings.png')});
+                await page.reload(); await mountSettings();
+                await page.locator('[data-lmc-input-probe="copy"]').waitFor();
+                assert.equal(await page.evaluate(() => storage.getState().localSettings.devModeEnabled), true);
+                await toggle.tap();
+                await page.waitForFunction(() => !window.__lmcInputLayoutReport);
+                assert.equal(await page.locator('[data-lmc-input-probe-panel]').count(), 0);
+                assert.equal(await page.evaluate(() => storage.getState().localSettings.devModeEnabled), false);
+                await page.reload(); await mountSettings();
+                await toggle.waitFor();
+                assert.equal(await page.evaluate(() => storage.getState().localSettings.devModeEnabled), false);
+                assert.equal(await page.locator('[data-lmc-input-probe-panel]').count(), 0);
+                assert.deepEqual(errors, []);
+                checks.push({engine, check: 'actual settings toggle: default off, enable without query, persisted reload, immediate disposal, disabled after reload', passed: true});
+            } finally { await settingsContext.close(); }
         } finally { await browser.close(); }
     }
 })().catch(error => { checks.push({ passed: false, error: error.stack }); process.exitCode = 1; }).finally(() => {

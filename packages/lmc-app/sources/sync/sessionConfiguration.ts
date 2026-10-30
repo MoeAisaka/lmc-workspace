@@ -1,3 +1,6 @@
+import { findCatalogModel } from 'lmc-wire';
+import { withModelCatalogs } from './modelCatalogMetadata';
+import { resolveAgyCatalogDefaultEffort } from '@/components/modelModeOptions';
 import { sessionCapabilities } from './sessionCapabilities';
 import { storage } from './storage';
 import { apiSocket } from './apiSocket';
@@ -76,6 +79,7 @@ export async function switchSessionEngine(sessionId: string, engine: SwitchableE
     const current = session?.metadata?.flavor;
     if (!session?.metadata || !isSwitchableEngine(current)) throw new Error(t('localFeatures.legacySessionConfig'));
     if (!sessionCapabilities(session.metadata).refresh) throw new Error(t('localFeatures.legacySessionConfig'));
+    if ((current === 'agy' || engine === 'agy') && !session.metadata.sessionCapabilities?.engineHandoff) throw new Error(t('localFeatures.legacySessionConfig'));
     if (current === engine) return { status: 'queued' as const };
     if (submitting.has(sessionId) || refreshProgress(session.metadata, Date.now()).pending) return { status: 'queued' as const };
     submitting.add(sessionId);
@@ -93,18 +97,22 @@ export async function switchSessionEngine(sessionId: string, engine: SwitchableE
         // had just arrived, which has nothing to hand over. Sending it first,
         // and waiting for the server to take it, puts it in the queue the
         // runner checks before it decides it is idle.
-        await sync.sendMessage(sessionId, handoffRequestPrompt(ENGINE_NAMES[engine]), {
+        await sync.sendMessage(sessionId, handoffRequestPrompt(ENGINE_NAMES[engine], current), {
             source: 'engine_switch',
             displayText: t('lmc.engineSwitch.requestingHandoff', { engine: ENGINE_NAMES[engine] }),
             awaitDelivery: true,
         });
 
+        const catalog = withModelCatalogs(session.metadata, storage.getState().machines[session.metadata.machineId ?? '']?.metadata)?.modelCatalogs?.agy;
+        const model = engine === 'agy' ? findCatalogModel(catalog, modelKey) : undefined;
+        const defaultEffort = resolveAgyCatalogDefaultEffort(model);
+        const nativeModel = model?.effortModels && defaultEffort ? model.effortModels[defaultEffort] : modelKey;
         const result = await apiSocket.sessionRPC<{ status: string }, unknown>(sessionId, 'configure-session', {
             engine,
             // The mode the composer shows is the one the person believes is in
             // force; metadata alone holds it only once it has been picked here.
             permissionMode: mapPermissionMode(current, engine, permissionMode ?? session.permissionMode ?? session.metadata.permissionMode),
-            ...(modelKey ? { model: modelKey } : {}),
+            ...(nativeModel ? { model: nativeModel } : {}),
             fallbackBriefing,
         });
         if (result.status !== 'queued') throw new Error(t('localFeatures.configRefreshing'));
@@ -123,7 +131,7 @@ export async function switchSessionEngine(sessionId: string, engine: SwitchableE
     } finally { submitting.delete(sessionId); }
 }
 
-const ENGINE_NAMES: Record<SwitchableEngine, string> = { claude: 'Claude Code', codex: 'Codex' };
+const ENGINE_NAMES: Record<SwitchableEngine, string> = { claude: 'Claude Code', codex: 'Codex', agy: 'Antigravity' };
 
 /**
  * What the engine being left is asked for.
@@ -133,9 +141,10 @@ const ENGINE_NAMES: Record<SwitchableEngine, string> = { claude: 'Claude Code', 
  * that treats the request as a new instruction would carry on working right up
  * to the moment it is replaced.
  */
-function handoffRequestPrompt(target: string): string {
+function handoffRequestPrompt(target: string, from: SwitchableEngine): string {
     return [
         '[engine switch requested]',
+        `[source engine: ${from}]`,
         `Your user is moving this session to ${target}. Before that happens, write a handoff by calling the submit_handoff tool.`,
         'The engine taking over has none of your memory and cannot see this conversation. Tell it what it needs in order to continue — the goal, what is done, which files and why, what you tried that did not work, and the specific next action. Not a summary of what you did.',
         'Call submit_handoff and stop. Do not start new work in this turn.',

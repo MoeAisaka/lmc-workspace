@@ -1,3 +1,5 @@
+import { assertSessionOwnerAvailable } from './sessionOwnership';
+import { SessionRegistration } from './sessionRegistration';
 import { registerEngineLogin } from './registerEngineLogin';
 import { startMachineSystemDiagnostics } from './machineSystemDiagnostics';
 import { startMachineResources } from './machineResources';
@@ -11,7 +13,7 @@ import { runtimeVersion, runsSelectedAgent, readRuntimeSelection, refreshSupport
 import { RefreshJournal, type RefreshJob } from './refreshJournal';
 import { recoverLateRefreshes } from './lateRefreshRecovery';
 import { ActiveSessionJournal, StartupSessionRecovery } from './sessionRecovery';
-import { canRefreshSession, resumeAfterExit, type SessionRefreshOptions } from './sessionRefresh';
+import { canRefreshSession, resumeAfterExit, preserveAgyRefreshSelection, type SessionRefreshOptions } from './sessionRefresh';
 import { findProviderSessionPid } from './sessionSpawnGuard';
 import { validateCodexContextLimits } from '@/codex/contextLimits';
 import { validateCodexServiceTier } from '@/codex/serviceTier';
@@ -60,6 +62,8 @@ import {
 import { startHappyTerminalDaemon } from './happyTerminalBoot';
 import { appendDaemonSpawnModeArgs, shouldForwardDaemonPermissionMode } from './spawnModeArgs';
 import { createAccountQuotaHandler, hasAccountQuotaSource } from './accountQuota';
+import { createPoeBalanceReader } from './poeBalance';
+import { spawnLogSummary, suppliedCredentialEngine, withoutAmbientCredentials } from './spawnCredentials';
 
 
 /** Shell-escape a string for safe interpolation into tmux commands. */
@@ -73,6 +77,7 @@ function shellescape(s: string): string {
 // share the same hostname and look identical).
 const hostSuffix = process.env.HAPPY_VARIANT === 'dev' ? '-dev' : '';
 export const initialMachineMetadata: MachineMetadata = {
+  poeBalance: true,
   accountQuota: hasAccountQuotaSource(),
   engineLogin: { claude: true, codex: true },
   managedUpgrades: true,
@@ -276,7 +281,7 @@ export async function startDaemon(): Promise<void> {
     };
 
     // Session spawning awaiter system
-    const pidToAwaiter = new Map<number, (session: TrackedSession) => void>();
+    const registration = new SessionRegistration();
 
     // Helper functions
     const getCurrentChildren = () => Array.from(pidToTrackedSession.values());
@@ -293,6 +298,9 @@ export async function startDaemon(): Promise<void> {
 
       logger.debug(`[DAEMON RUN] Session webhook: ${sessionId}, PID: ${pid}, started by: ${sessionMetadata.startedBy || 'unknown'}, hasEncryption: ${!!encryption}`);
       logger.debug(`[DAEMON RUN] Current tracked sessions before webhook: ${Array.from(pidToTrackedSession.keys()).join(', ')}`);
+
+      // Reject duplicate ownership before persisting any supplied metadata.
+      assertSessionOwnerAvailable(sessionId, pid, pidToTrackedSession.values());
 
       // Persist encryption data to disk so it survives daemon restarts
       if (encryption) {
@@ -319,12 +327,7 @@ export async function startDaemon(): Promise<void> {
         logger.debug(`[DAEMON RUN] Updated daemon-spawned session ${sessionId} with metadata`);
 
         // Resolve any awaiter for this PID
-        const awaiter = pidToAwaiter.get(pid);
-        if (awaiter) {
-          pidToAwaiter.delete(pid);
-          awaiter(existingSession);
-          logger.debug(`[DAEMON RUN] Resolved session awaiter for PID ${pid}`);
-        }
+        registration.complete(pid, sessionId);
       } else if (!existingSession) {
         // New session started externally
         const trackedSession: TrackedSession = {
@@ -341,7 +344,12 @@ export async function startDaemon(): Promise<void> {
 
     // Spawn a new session (sessionId reserved for future --resume functionality)
     const spawnSession = async (options: SpawnSessionOptions): Promise<SpawnSessionResult> => {
-      logger.debugLargeJson('[DAEMON RUN] Spawning session', options);
+      logger.debugLargeJson('[DAEMON RUN] Spawning session', spawnLogSummary(options));
+
+      let credentialEngine: 'claude' | 'codex' | null;
+      try { credentialEngine = suppliedCredentialEngine(options); }
+      catch (error) { return { type: 'error', errorMessage: (error as Error).message }; }
+      const spawnEnvironment = withoutAmbientCredentials(ambientEnvironment, credentialEngine);
 
       const { directory, sessionId, machineId, approvedNewDirectoryCreation = true } = options;
       let directoryCreated = false;
@@ -396,24 +404,23 @@ export async function startDaemon(): Promise<void> {
 
         // Resolve authentication token if provided
         const authEnv: Record<string, string> = {};
-        if (options.token) {
-          if (options.agent === 'codex') {
+        if (credentialEngine) {
+          if (credentialEngine === 'codex') {
 
             // Create a temporary directory for Codex
-            const codexHomeDir = tmp.dirSync();
+            const codexHomeDir = tmp.dirSync({ mode: 0o700 });
 
             // Write the token to the temporary directory
-            await fs.writeFile(join(codexHomeDir.name, 'auth.json'), options.token);
+            await fs.writeFile(join(codexHomeDir.name, 'auth.json'), options.token!, { mode: 0o600 });
 
             // Set the environment variable for Codex
             authEnv.CODEX_HOME = codexHomeDir.name;
-          } else { // Assuming claude
-            authEnv.CLAUDE_CODE_OAUTH_TOKEN = options.token;
+          } else {
+            authEnv.CLAUDE_CODE_OAUTH_TOKEN = options.token!;
           }
         }
 
         let extraEnv: Record<string, string> = {
-          ...authEnv,
           ...sanitizeSessionEnvironment(options.environmentVariables ?? {}),
         };
         if (options.parentSessionId) {
@@ -446,7 +453,14 @@ export async function startDaemon(): Promise<void> {
         // Expand ${VAR} references from the sanitized daemon environment.
         // This ensures variable substitution works in both tmux and non-tmux modes
         // Example: ANTHROPIC_AUTH_TOKEN="${Z_AI_AUTH_TOKEN}" → ANTHROPIC_AUTH_TOKEN="sk-real-key"
-        extraEnv = expandEnvironmentVariables(extraEnv, ambientEnvironment);
+        extraEnv = expandEnvironmentVariables(extraEnv, spawnEnvironment);
+        // Credentials are opaque values, never environment-variable templates.
+        extraEnv = { ...extraEnv, ...authEnv };
+        if (options.sharedRuntimeFile) {
+          extraEnv.LMC_SESSION_RUNTIME_FILE = options.sharedRuntimeFile;
+          delete extraEnv.HAPPY_FORK_CLAUDE_SESSION_ID;
+          delete extraEnv.HAPPY_FORK_CODEX_THREAD_ID;
+        }
         logger.debug(`[DAEMON RUN] After variable expansion: ${Object.keys(extraEnv).join(', ')}`);
 
         // Fail fast if any passed-through environment variable still contains an
@@ -490,9 +504,13 @@ export async function startDaemon(): Promise<void> {
 
         // If tmux is not available or session name is explicitly undefined, fall back to regular spawning
         // Note: Empty string is valid (means use current/most recent tmux session)
-        if (!tmuxAvailable || tmuxSessionName === undefined) {
+        // tmux -e puts credentials in process arguments and its persistent server
+        // may retain old auth variables. A supplied login uses a direct child.
+        if (!tmuxAvailable || tmuxSessionName === undefined || credentialEngine || options.sharedRuntimeFile) {
           useTmux = false;
-          if (tmuxSessionName !== undefined) {
+          if (credentialEngine && tmuxSessionName !== undefined) {
+            logger.debug('[DAEMON RUN] Using a direct child for the selected model credential');
+          } else if (tmuxSessionName !== undefined) {
             logger.debug(`[DAEMON RUN] tmux session name specified but tmux not available, falling back to regular spawning`);
           }
         }
@@ -534,7 +552,7 @@ export async function startDaemon(): Promise<void> {
           const tmuxEnv: Record<string, string> = {};
 
           // Add all safe daemon environment variables (filtering out undefined)
-          for (const [key, value] of Object.entries(buildSessionChildEnvironment(ambientEnvironment, extraEnv))) {
+          for (const [key, value] of Object.entries(buildSessionChildEnvironment(spawnEnvironment, extraEnv))) {
             if (value !== undefined) {
               tmuxEnv[key] = value;
             }
@@ -571,27 +589,7 @@ export async function startDaemon(): Promise<void> {
             // Wait for webhook to populate session with happySessionId (exact same as regular flow)
             logger.debug(`[DAEMON RUN] Waiting for session webhook for PID ${tmuxResult.pid} (tmux)`);
 
-            return new Promise((resolve) => {
-              // Set timeout for webhook (same as regular flow)
-              const timeout = setTimeout(() => {
-                pidToAwaiter.delete(tmuxResult.pid!);
-                logger.debug(`[DAEMON RUN] Session webhook timeout for PID ${tmuxResult.pid} (tmux)`);
-                resolve({
-                  type: 'error',
-                  errorMessage: `Session webhook timeout for PID ${tmuxResult.pid} (tmux)`
-                });
-              }, 15_000); // Same timeout as regular sessions
-
-              // Register awaiter for tmux session (exact same as regular flow)
-              pidToAwaiter.set(tmuxResult.pid!, (completedSession) => {
-                clearTimeout(timeout);
-                logger.debug(`[DAEMON RUN] Session ${completedSession.happySessionId} fully spawned with webhook (tmux)`);
-                resolve({
-                  type: 'success',
-                  sessionId: completedSession.happySessionId!
-                });
-              });
-            });
+            return registration.wait(tmuxResult.pid);
           } else {
             logger.debug(`[DAEMON RUN] Failed to spawn in tmux: ${tmuxResult.error}, falling back to regular spawning`);
             useTmux = false;
@@ -648,7 +646,7 @@ export async function startDaemon(): Promise<void> {
           return spawnTrackedLmcProcess({
             args,
             cwd: directory,
-            env: buildSessionChildEnvironment(ambientEnvironment, extraEnv),
+            env: buildSessionChildEnvironment(spawnEnvironment, extraEnv),
             directoryCreated,
             message: directoryCreated ? `The path '${directory}' did not exist. We created a new folder and spawned a new session there.` : undefined,
           });
@@ -725,25 +723,7 @@ export async function startDaemon(): Promise<void> {
 
       logger.debug(`[DAEMON RUN] Waiting for session webhook for PID ${happyProcess.pid}`);
 
-      return new Promise((resolve) => {
-        const timeout = setTimeout(() => {
-          pidToAwaiter.delete(happyProcess.pid!);
-          logger.debug(`[DAEMON RUN] Session webhook timeout for PID ${happyProcess.pid}`);
-          resolve({
-            type: 'error',
-            errorMessage: `Session webhook timeout for PID ${happyProcess.pid}`
-          });
-        }, 15_000);
-
-        pidToAwaiter.set(happyProcess.pid!, (completedSession) => {
-          clearTimeout(timeout);
-          logger.debug(`[DAEMON RUN] Session ${completedSession.happySessionId} fully spawned with webhook`);
-          resolve({
-            type: 'success',
-            sessionId: completedSession.happySessionId!
-          });
-        });
-      });
+      return registration.wait(happyProcess.pid);
     };
 
     const findTrackedSessionById = (happySessionId: string): TrackedSession | undefined => {
@@ -817,7 +797,7 @@ export async function startDaemon(): Promise<void> {
 
       // A replacement spawned through another path answers to neither check above.
       const resumeMetadata = sessionIdToFinishedSession.get(happySessionId)?.happySessionMetadataFromLocalWebhook;
-      const providerSessionId = resumeMetadata?.flavor === 'codex' ? resumeMetadata?.codexThreadId : resumeMetadata?.claudeSessionId;
+      const providerSessionId = resumeMetadata?.flavor === 'agy' ? resumeMetadata.agyConversationId : resumeMetadata?.flavor === 'codex' ? resumeMetadata.codexThreadId : resumeMetadata?.claudeSessionId;
       let providerPid: number | undefined;
       try {
         providerPid = findProviderSessionPid(await listSessionProcesses(), providerSessionId ?? undefined, pid => {
@@ -855,8 +835,10 @@ export async function startDaemon(): Promise<void> {
         // Webhook metadata may be stale (missing claudeSessionId/codexThreadId set after startup).
         // Fetch fresh metadata from server if needed.
         let metadata = tracked.happySessionMetadataFromLocalWebhook;
+        if ((metadata as any).sharedDevice) return { type: 'error', errorMessage: '共享设备会话须通过 LMC 重新核实权限后恢复' };
         const needsFetch = (!metadata.claudeSessionId && (!metadata.flavor || metadata.flavor === 'claude'))
-          || (!metadata.codexThreadId && metadata.flavor === 'codex');
+          || (!metadata.codexThreadId && metadata.flavor === 'codex')
+          || (!metadata.agyConversationId && metadata.flavor === 'agy');
         if (needsFetch) {
           logger.debug(`[DAEMON RUN] Session ${happySessionId} missing agent session ID in webhook metadata, fetching from server`);
           const serverMetadata = await fetchServerSessionMetadata(happySessionId, tracked.encryption.encryptionKey, tracked.encryption.encryptionVariant);
@@ -984,6 +966,7 @@ export async function startDaemon(): Promise<void> {
 
     // Handle child process exit — preserve session data for resume
     const onChildExited = (pid: number) => {
+      registration.exited(pid);
       const session = pidToTrackedSession.get(pid);
       if (session?.happySessionId && session.encryption) {
         if (!shuttingDown) forgetActiveSession(session.happySessionId, pid);
@@ -1018,7 +1001,7 @@ export async function startDaemon(): Promise<void> {
           await refreshJournal.remove(job.sessionId); return;
         }
         tracked.happySessionMetadataFromLocalWebhook = metadata;
-        const result = await resumeSession(job.sessionId, job.options);
+        const result = await resumeSession(job.sessionId, preserveAgyRefreshSelection(job.options, metadata));
         if (result.type !== 'success') throw new Error('Failed to resume refreshed session');
         await refreshJournal.remove(job.sessionId);
       }, () => new Promise(resolve => setTimeout(resolve, 500))).catch(async error => {
@@ -1145,9 +1128,11 @@ export async function startDaemon(): Promise<void> {
     const { cliAvailability: _cli, resumeSupport: _resume, ...declaredMachineMetadata } = initialMachineMetadata;
     apiMachine.declareMetadata(declaredMachineMetadata);
     apiMachine.registerDeviceHandler('account-quota', createAccountQuotaHandler());
+    apiMachine.registerDeviceHandler('poe-balance', createPoeBalanceReader());
 
     // Set RPC handlers
     apiMachine.setRPCHandlers({
+      isSessionRunning: async id => { const tracked = findTrackedSessionById(id); return !!findLiveSession(id) || !!(tracked && await findOrphanedSessionPid(tracked, listSessionProcesses, sessionBoot(id))); },
       spawnSession,
       resumeSession,
       stopSession,
@@ -1200,7 +1185,9 @@ export async function startDaemon(): Promise<void> {
     const stopSystemDiagnostics = startMachineSystemDiagnostics(fullDiskAccess => apiMachine.updateMachineMetadata(metadata => ({ ...metadata!, systemDiagnostics: { fullDiskAccess } })));
     const stopModelDiscovery = startModelDiscovery(async modelCatalogs => {
       await apiMachine.updateMachineMetadata(metadata => ({ ...metadata!, modelDiscovery: true, modelCatalogs }));
-    });
+    }, () => getCurrentChildren()
+      .filter(session => session.pid > 0 && session.happySessionMetadataFromLocalWebhook?.flavor === 'claude')
+      .map(session => `${session.happySessionId ?? ''}:${session.pid}`));
 
     const stopEngineLogin = registerEngineLogin(apiMachine, {
       alive: async id => {
@@ -1301,6 +1288,7 @@ export async function startDaemon(): Promise<void> {
       job:async()=>(await upgradeManager.status()).job,
       start:engine=>upgradeManager.start(engine),
       stateFile:join(configuration.lmcHomeDir,'auto-upgrade.json'),
+      failed:(engine,stage,error)=>logger.warn(`[UPGRADE] 自动升级 ${engine} ${stage==='lookup'?'查询最新版本':'启动升级'}失败`,error),
     }).then(result=>{
       // Another upgrade is still handing sessions over: ask again shortly
       // instead of waiting out the long interval.

@@ -1,55 +1,11 @@
 import { readVisualViewportPageTop, usesNativeWebKitKeyboardPan } from './browserLayoutViewport';
 
-// iOS WebKit (UI process, _keyboardChangedWithInfo -> _scrollToAndRevealSelectionIfNeeded)
-// judges caret visibility against "web view height minus keyboard height", not
-// the keyboard's position. In browsers whose web view ends above the screen
-// bottom this hides a strip that is really visible, and WebKit pans the page
-// once the keyboard settles. The strip height is a per-browser constant; once a
-// settled reveal exposes it, remember it and pre-lift the field next time so
-// WebKit has nothing to reveal.
-// v2: a v1 value could have ratcheted up to its cap (see learnRevealGap), so
-// those are left behind rather than read.
-const REVEAL_GAP_KEY = 'lmc.ios-keyboard-reveal-gap.v2';
-/** The strip is the browser's bottom chrome counted as keyboard: tens of points, never a third of the screen. */
-export const MAX_REVEAL_GAP = 120;
-const revealGapScope = () => `${navigator.userAgent}|${screen.height}|${document.documentElement.clientHeight}`;
-export type LearnedKeyboard = { gap: number; keyboardHeight: number; misses: number; disabled: boolean };
-const UNLEARNED: LearnedKeyboard = { gap: 0, keyboardHeight: 0, misses: 0, disabled: false };
-export function readLearnedRevealGap(): LearnedKeyboard {
-    try {
-        const raw = localStorage.getItem(REVEAL_GAP_KEY);
-        if (!raw) return UNLEARNED;
-        const parsed = JSON.parse(raw) as { scope?: string; gap?: number; keyboardHeight?: number; misses?: number; disabled?: boolean };
-        if (parsed.scope !== revealGapScope() || !Number.isFinite(parsed.gap)) return UNLEARNED;
-        const misses = Number.isFinite(parsed.misses) ? Math.max(0, parsed.misses!) : 0;
-        if (parsed.disabled === true) return { gap: 0, keyboardHeight: 0, misses, disabled: true };
-        return { gap: Math.min(MAX_REVEAL_GAP, Math.max(0, parsed.gap!)), keyboardHeight: Number.isFinite(parsed.keyboardHeight) ? Math.max(0, parsed.keyboardHeight!) : 0, misses, disabled: false };
-    } catch { return UNLEARNED; }
-}
-function writeLearnedRevealGap(learned: LearnedKeyboard) {
-    try { localStorage.setItem(REVEAL_GAP_KEY, JSON.stringify({ scope: revealGapScope(), gap: Math.round(learned.gap), keyboardHeight: Math.round(learned.keyboardHeight), misses: learned.misses, disabled: learned.disabled })); } catch { /* storage unavailable */ }
-}
-/**
- * What one settled WebKit pan teaches.
- *
- * From a flush dock the pan is the strip, and it is remembered so the next
- * open can lift the field there first. A pan that happens although the field
- * was already lifted by the remembered strip means lifting does not satisfy
- * this browser. It must never be added on top: up to v305 it was, each open
- * lifted further, and on iPhone Safari the composer climbed to the cap and sat
- * under the header with a third of the screen empty below it (2026-10-08).
- * Two opens in a row like that and this browser goes back to plain anchoring.
- */
-export function learnRevealGap(current: LearnedKeyboard, observedExtension: number, keyboardHeight: number): LearnedKeyboard {
-    if (current.disabled) return current;
-    if (current.gap === 0 && observedExtension <= MAX_REVEAL_GAP) return { gap: observedExtension, keyboardHeight, misses: 0, disabled: false };
-    const misses = current.misses + 1;
-    return misses >= 2 ? { gap: 0, keyboardHeight: 0, misses, disabled: true } : { ...current, misses };
-}
-/** The keyboard is about to appear for this field (first touch, or a tap after
- * dismissal). WebKit checks caret visibility while the keyboard frame is still
- * changing, before the page receives any viewport event; a remembered keyboard
- * lets the dock lift first so there is nothing to reveal. */
+// The v321 device trace proved that persisting a native pan as an extra lift
+// creates the same blank strip on every later open, even with zero page pan.
+// Retire only that local diagnostic-era cache; keep the current-open anchor
+// below so later caret reveals do not turn into a scroll feedback loop.
+const RETIRED_REVEAL_GAP_KEY = 'lmc.ios-keyboard-reveal-gap.v2';
+/** A field is about to open its keyboard: measure current geometry only. */
 export const KEYBOARD_EXPECTED_EVENT = 'lmc-keyboard-expected';
 
 /** Keep a focused web composer in the visual viewport without moving/replacing
@@ -58,25 +14,41 @@ export function installWebComposerViewport(container: HTMLElement): () => void {
     const viewport = window.visualViewport;
     if (!viewport) return () => {};
     const nativeKeyboardPan = usesNativeWebKitKeyboardPan();
+    if (nativeKeyboardPan) {
+        try { localStorage.removeItem(RETIRED_REVEAL_GAP_KEY); } catch { /* optional local cache */ }
+    }
     let frame: number | null = null;
     let settleTimers: ReturnType<typeof setTimeout>[] = [];
+    let viewportWatch: ReturnType<typeof setInterval> | null = null;
+    let viewportStamp = '';
+    const readViewportStamp = () => [viewport.height, viewport.width, viewport.scale,
+        viewport.pageTop, viewport.offsetTop, window.innerHeight, window.scrollY,
+        document.documentElement.clientHeight].join('|');
+    const stopViewportWatch = () => {
+        if (viewportWatch !== null) clearInterval(viewportWatch);
+        viewportWatch = null;
+    };
+    const watchViewport = (editing: boolean) => {
+        if (!nativeKeyboardPan || !editing || document.visibilityState === 'hidden') {
+            stopViewportWatch();
+            return;
+        }
+        // v327 device trace: iOS changed the visual height
+        // 419→402 long after opening, without a resize event for another 42s.
+        // Poll only viewport scalars while editing on iOS; stable values do not
+        // remeasure elements, write styles, or render the transcript.
+        viewportStamp = readViewportStamp();
+        if (viewportWatch === null) viewportWatch = setInterval(() => {
+            const next = readViewportStamp();
+            if (next !== viewportStamp) { viewportStamp = next; schedule(); }
+        }, 250);
+    };
     let focusedField: Element | null = null;
     let panAtLift: number | null = null;
     let widthAtLift: number | null = null;
     let touching = false;
     let pannedByTouch = false;
     let keyboardSeenFor: Element | null = null;
-    let keyboardWasVisible = false;
-    let learnTimer: ReturnType<typeof setTimeout> | null = null;
-    let learnCandidate: number | null = null;
-    let learned = readLearnedRevealGap();
-    let learnedGap = learned.gap;
-    // Whether this keyboard open saw a pan the remembered strip should have prevented.
-    let missedThisOpen = false;
-    let anticipateUntil = 0;
-    let anticipateTimer: ReturnType<typeof setTimeout> | null = null;
-    const clearAnticipate = () => { if (anticipateTimer !== null) clearTimeout(anticipateTimer); anticipateTimer = null; anticipateUntil = 0; };
-    const clearLearn = () => { if (learnTimer !== null) clearTimeout(learnTimer); learnTimer = null; learnCandidate = null; };
     let obscuredSince: number | null = null;
     let obscuredTimer: ReturnType<typeof setTimeout> | null = null;
     const clearObscured = () => {
@@ -151,17 +123,15 @@ export function installWebComposerViewport(container: HTMLElement): () => void {
         const active = document.activeElement;
         const editing = active instanceof HTMLElement && container.contains(active)
             && (active.matches('textarea, input') || active.isContentEditable);
+        watchViewport(editing);
         // Pinch zoom is browser navigation, not a keyboard occlusion. Let the
         // browser pan normally instead of chasing it with composer movement.
         if (!editing || Math.abs(viewport.scale - 1) > 0.05) {
             if (keyboardSeenFor instanceof HTMLElement) delete keyboardSeenFor.dataset.lmcKeyboardDismissed;
             keyboardSeenFor = null;
-            keyboardWasVisible = false;
             focusedField = null;
             panAtLift = widthAtLift = null;
             clearObscured();
-            clearLearn();
-            clearAnticipate();
             setPagePanBlocked(false);
             restoreClipping();
             resetChrome();
@@ -220,36 +190,13 @@ export function installWebComposerViewport(container: HTMLElement): () => void {
             if (nativeKeyboardVisible) { keyboardSeenFor = active; delete active.dataset.lmcKeyboardDismissed; }
             else if (keyboardSeenFor === active) active.dataset.lmcKeyboardDismissed = 'true';
         }
-        // The visible -> hidden edge ends any pending expectation from this
-        // focus; a later tap announces the next keyboard explicitly.
-        if (nativeKeyboardVisible) keyboardWasVisible = true;
-        else if (keyboardWasVisible) {
-            keyboardWasVisible = false; clearAnticipate();
-            // The keyboard has gone: the remembered strip may change now without
-            // moving anything on screen. An open that needed no extra pan also
-            // clears an earlier miss, so only two in a row switch the lift off.
-            if (!missedThisOpen && learned.misses > 0 && !learned.disabled) { learned = { ...learned, misses: 0 }; writeLearnedRevealGap(learned); }
-            missedThisOpen = false;
-            learnedGap = learned.gap;
-        }
         const visibleInset = (documentBottom - pageTop - viewport.height) / zoom;
-        // A controlled lift anchors `learnedGap` above the visible bottom, so a
-        // remembered WebKit reveal needs no page pan at all.
-        // Before the keyboard arrives, a remembered keyboard height stands in
-        // for the visual viewport. If no keyboard follows (hardware keyboard,
-        // cancelled focus) the anticipation lapses and the dock drops back.
-        const anticipating = controlledNativeFocus && !nativeKeyboardVisible && learned.keyboardHeight > 0 && Date.now() < anticipateUntil;
-        const effectiveHeight = anticipating ? document.documentElement.clientHeight - learned.keyboardHeight : viewport.height;
-        const controlledKeyboard = controlledNativeFocus && (nativeKeyboardVisible || anticipating);
-        setPagePanBlocked(controlledNativeFocus && nativeKeyboardVisible);
-        const anchorFor = (top: number) => controlledKeyboard ? top - learnedGap : top;
+        const controlledKeyboard = controlledNativeFocus && nativeKeyboardVisible;
+        setPagePanBlocked(controlledKeyboard);
         let inset = nativeKeyboardPan && !controlledKeyboard ? 0
-            : Math.max(0, (documentBottom - (panAtLift ?? anchorFor(pageTop)) - effectiveHeight) / zoom);
+            : Math.max(0, (documentBottom - (panAtLift ?? pageTop) - viewport.height) / zoom);
         let extension = 0;
-        if (anticipating) {
-            extension = learnedGap;
-            if (anticipateTimer === null) anticipateTimer = setTimeout(() => { anticipateTimer = null; schedule(); }, Math.max(16, anticipateUntil - Date.now() + 1));
-        } else if (controlledNativeFocus && nativeKeyboardVisible) {
+        if (controlledNativeFocus && nativeKeyboardVisible) {
             // WebKit can also pan far past the field: re-tapping an already
             // focused field after the keyboard was dismissed runs its focus
             // reveal without preventScroll, from the field's pre-lift
@@ -266,8 +213,8 @@ export function installWebComposerViewport(container: HTMLElement): () => void {
                 const now = Date.now();
                 obscuredSince ??= now;
                 if (now - obscuredSince >= 350) {
-                    panAtLift = anchorFor(pageTop);
-                    inset = Math.max(0, visibleInset + learnedGap);
+                    panAtLift = pageTop;
+                    inset = Math.max(0, visibleInset);
                     clearObscured();
                 } else if (obscuredTimer === null) {
                     obscuredTimer = setTimeout(() => { obscuredTimer = null; schedule(); }, 350 - (now - obscuredSince));
@@ -276,41 +223,11 @@ export function installWebComposerViewport(container: HTMLElement): () => void {
                 clearObscured();
             }
             extension = Math.max(0, inset - visibleInset);
-            // Remember the strip WebKit insisted on once the pan has settled
-            // and nothing is hidden or being dragged. Only a real reveal
-            // teaches; a plain re-anchor (extension 0) keeps the old value.
-            const candidate = Math.round(extension);
-            // Only a page pan WebKit performed after the lift teaches. A shell
-            // or container moving under the dock also changes the extension
-            // without any pan; that must not become a remembered strip.
-            const panSinceLift = panAtLift === null ? 0 : pageTop - panAtLift - learnedGap;
-            const fromPanAlone = panSinceLift > 0.5 && Math.abs(extension - (learnedGap + panSinceLift)) < 1;
-            const teachable = fromPanAlone && !touching && !pannedByTouch && obscuredSince === null && candidate !== learnedGap && !learned.disabled && !missedThisOpen;
-            if (!teachable) clearLearn();
-            else if (candidate !== learnCandidate) {
-                // Settle re-measurements with the same value must not restart the wait.
-                clearLearn();
-                learnCandidate = candidate;
-                const keyboardHeight = document.documentElement.clientHeight - viewport.height;
-                learnTimer = setTimeout(() => {
-                    learnTimer = null; learnCandidate = null;
-                    const next = learnRevealGap(learned, candidate, keyboardHeight);
-                    if (next === learned) return;
-                    if (next.misses > learned.misses) missedThisOpen = true;
-                    // A first lesson matches where the dock already is. A miss or
-                    // a switch-off must not move the dock mid-keyboard: the new
-                    // strip applies from the next open (see the hide edge).
-                    else learnedGap = next.gap;
-                    learned = next;
-                    writeLearnedRevealGap(learned);
-                }, 400);
-            }
         } else {
             clearObscured();
-            clearLearn();
         }
         if (inset > 0) {
-            panAtLift ??= anchorFor(pageTop);
+            panAtLift ??= pageTop;
             widthAtLift = rect.width;
         } else {
             panAtLift = widthAtLift = null;
@@ -346,7 +263,7 @@ export function installWebComposerViewport(container: HTMLElement): () => void {
         settleTimers.forEach(clearTimeout);
         schedule();
         // WebKit can deliver resize before its geometry settles and omit a
-        // final event. Sample only this bounded transition;
+        // final event. Sample this transition promptly;
         // ordinary input/composition/selection events do no geometry work.
         settleTimers = [100, 300, 700].map(delay => setTimeout(schedule, delay));
     };
@@ -358,10 +275,12 @@ export function installWebComposerViewport(container: HTMLElement): () => void {
         if (target === document || target === window
             || (target instanceof HTMLElement && target.contains(container))) schedule();
     };
-    const visible = () => { if (document.visibilityState !== 'hidden') settle(); };
+    const visible = () => {
+        if (document.visibilityState === 'hidden') stopViewportWatch();
+        else settle();
+    };
     const expectKeyboard = (event: Event) => {
         if (!(event.target instanceof Element) || !container.contains(event.target)) return;
-        anticipateUntil = Date.now() + 700;
         schedule();
     };
     // With the keyboard up the page is taller than what is visible, so iOS lets
@@ -437,11 +356,10 @@ export function installWebComposerViewport(container: HTMLElement): () => void {
     observer?.observe(container);
     update();
     return () => {
+        stopViewportWatch();
         if (frame !== null) cancelAnimationFrame(frame);
         settleTimers.forEach(clearTimeout);
         clearObscured();
-        clearLearn();
-        clearAnticipate();
         setPagePanBlocked(false);
         restoreClipping();
         resetChrome();

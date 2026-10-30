@@ -3,23 +3,15 @@ import { describe, expect, it } from 'vitest'
 import { LMC_DEFAULT_ENTRYPOINT, resolveLmcEntrypoint } from './lmcEntrypoint'
 
 describe('resolveLmcEntrypoint', () => {
-    it('falls back to the Happy default when no value is set', () => {
-        expect(resolveLmcEntrypoint(undefined)).toBe(LMC_DEFAULT_ENTRYPOINT)
-        expect(resolveLmcEntrypoint('')).toBe(LMC_DEFAULT_ENTRYPOINT)
+    it('keeps the official TypeScript SDK identity when no override is set', () => {
+        expect(resolveLmcEntrypoint(undefined)).toBe('sdk-ts')
+        expect(resolveLmcEntrypoint('')).toBe('sdk-ts')
     })
 
     it('keeps a value the operator already exported', () => {
         expect(resolveLmcEntrypoint('cli')).toBe('cli')
         expect(resolveLmcEntrypoint('claude-vscode')).toBe('claude-vscode')
         expect(resolveLmcEntrypoint('sdk-ts')).toBe('sdk-ts')
-    })
-
-    it('uses a default that is NOT in the SDK picker-filter set', () => {
-        // Claude Code's `--resume` picker hides sessions whose recorded
-        // entrypoint is one of these. The Happy default must avoid that set
-        // so LMC-touched sessions stay visible in the picker.
-        const sdkPickerFilterSet = new Set(['sdk-cli', 'sdk-ts', 'sdk-py'])
-        expect(sdkPickerFilterSet.has(LMC_DEFAULT_ENTRYPOINT)).toBe(false)
     })
 
     it('uses a default Claude Code recognises as a valid entrypoint', () => {

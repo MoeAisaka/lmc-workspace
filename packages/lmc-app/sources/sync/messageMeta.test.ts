@@ -3,6 +3,21 @@ import { resolveMessageModeMeta, UnsupportedPermissionModeError } from './messag
 import { rigMetadataFixture } from './__testdata__/rigMetadata';
 
 describe('resolveMessageModeMeta', () => {
+    it.each([
+        ['codex', 'bypassPermissions', 'yolo'],
+        ['codex', 'plan', 'read-only'],
+        ['codex', 'acceptEdits', 'safe-yolo'],
+        ['claude', 'yolo', 'bypassPermissions'],
+        ['claude', 'read-only', 'plan'],
+        ['claude', 'safe-yolo', 'acceptEdits'],
+    ])('sends the %s permission vocabulary for a restored %s pick', (flavor, oldMode, expected) => {
+        const meta = resolveMessageModeMeta({
+            permissionMode: oldMode, modelMode: null, effortLevel: null,
+            metadata: { flavor, version: '1.2.115' },
+        } as any);
+        expect(meta.permissionMode).toBe(expected);
+    });
+
     it('reasserts the displayed codex defaults after abort clears session overrides', () => {
         const meta = resolveMessageModeMeta({
             permissionMode: null,
@@ -366,4 +381,40 @@ describe('resolveMessageModeMeta', () => {
         expect(resolveMessageModeMeta({ metadata: { flavor: 'codex' }, modelMode: 'custom-model', effortLevel: 'minimal' } as any).effort).toBe('minimal');
     });
 
+});
+
+describe('Antigravity native effort variants', () => {
+    const catalog = { runtimeVersion:'1.4.7', capturedAt:1, models:[
+        {id:'gemini-3.8-flash',name:'Gemini 3.8 Flash',efforts:['high','low'],defaultEffort:'high',effortModels:{high:'gemini-3.8-flash-high',low:'gemini-3.8-flash-low'}},
+        {id:'claude-sonnet-4-6',name:'Claude Sonnet 4.6 (Thinking)',efforts:[]},
+    ] };
+    it('supplies a native model ID to existing sessions using the device catalog', () => {
+        const session = {permissionMode:'bypassPermissions',modelMode:'gemini-3.8-flash',effortLevel:'low',metadata:{flavor:'agy',version:'1.2.122'}} as any;
+        expect(resolveMessageModeMeta(session, undefined, {modelDiscovery:true,modelCatalogs:{agy:catalog}} as any)).toMatchObject({model:'gemini-3.8-flash-low',effort:null,permissionMode:'bypassPermissions'});
+        expect(resolveMessageModeMeta({...session,modelMode:'claude-sonnet-4-6',effortLevel:null}, undefined, {modelDiscovery:true,modelCatalogs:{agy:catalog}} as any)).toMatchObject({model:'claude-sonnet-4-6',effort:null});
+        expect(() => resolveMessageModeMeta({...session,effortLevel:'max'}, undefined, {modelDiscovery:true,modelCatalogs:{agy:catalog}} as any)).toThrow();
+    });
+
+    it('preserves a worker native effort over account defaults, while allowing an explicit new effort', () => {
+        const model = { id: 'gemini-4-argon', name: 'Gemini 4 Argon', efforts: ['low', 'medium', 'high'],
+            aliases: ['gemini-4-argon-low', 'gemini-4-argon-medium', 'gemini-4-argon-high'], defaultEffort: 'low',
+            effortModels: { low: 'gemini-4-argon-low', medium: 'gemini-4-argon-medium', high: 'gemini-4-argon-high' } };
+        const machine = { modelDiscovery: true, modelCatalogs: { agy: { ...catalog, models: [model] } } } as any;
+        const worker = { permissionMode: 'yolo', modelMode: 'gemini-4-argon-high', effortLevel: null,
+            metadata: { flavor: 'agy', version: '1.2.130' } } as any;
+        const settings = { agentDefaultOverrides: { agy: { effortLevel: 'medium' } } };
+        expect(resolveMessageModeMeta(worker, settings, machine)).toMatchObject({ model: 'gemini-4-argon-high', effort: null });
+        expect(resolveMessageModeMeta({ ...worker, effortLevel: 'low' }, settings, machine)).toMatchObject({ model: 'gemini-4-argon-low', effort: null });
+    });
+
+    it('defaults Gemini 4 family selection to high even when an older catalog listed medium first', () => {
+        const model = { id: 'gemini-4-argon', name: 'Gemini 4 Argon', efforts: ['medium', 'high', 'low'],
+            aliases: ['gemini-4-argon-medium', 'gemini-4-argon-high', 'gemini-4-argon-low'], defaultEffort: 'medium',
+            effortModels: { low: 'gemini-4-argon-low', medium: 'gemini-4-argon-medium', high: 'gemini-4-argon-high' } };
+        const machine = { modelDiscovery: true, modelCatalogs: { agy: { ...catalog, models: [model] } } } as any;
+        const session = { permissionMode: 'default', modelMode: 'gemini-4-argon', effortLevel: null,
+            metadata: { flavor: 'agy', version: '1.2.131' } } as any;
+        expect(resolveMessageModeMeta(session, undefined, machine)).toMatchObject({ model: 'gemini-4-argon-high', effort: null });
+        expect(resolveMessageModeMeta(session, { agentDefaultOverrides: { agy: { effortLevel: 'medium' } } }, machine)).toMatchObject({ model: 'gemini-4-argon-medium', effort: null });
+    });
 });

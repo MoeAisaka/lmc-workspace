@@ -140,6 +140,7 @@ export type Session = {
 export const MachineMetadataSchema = z.object({
     systemDiagnostics: MachineSystemDiagnosticsSchema.optional().catch(undefined),
     accountQuota: z.boolean().optional(),
+    poeBalance: z.boolean().optional(),
     engineLogin: z.object({claude: z.boolean(), codex: z.boolean()}).optional(),
     modelDiscovery: z.boolean().optional(),
     modelCatalogs: ModelCatalogsSchema.optional().catch(undefined),
@@ -200,7 +201,11 @@ export type MachineResources = z.infer<typeof MachineResourcesSchema>
 
 /** Bytes one AI provider cost on one local day: `up` is sent to the model, `down` is what came back. */
 const AiTrafficBytesSchema = z.object({ up: z.number(), down: z.number() })
-export const AiTrafficDaySchema = z.object({ claude: AiTrafficBytesSchema, openai: AiTrafficBytesSchema })
+export const AiTrafficDaySchema = z.object({
+  claude: AiTrafficBytesSchema,
+  openai: AiTrafficBytesSchema,
+  antigravity: AiTrafficBytesSchema.optional().default(() => ({ up: 0, down: 0 }))
+})
 export type AiTrafficDay = z.infer<typeof AiTrafficDaySchema>
 /** The last weeks of the daemon's AI traffic ledger, keyed by local day (see aiTraffic.ts). */
 export const AiTrafficSchema = z.object({ updatedAt: z.number(), days: z.record(z.string(), AiTrafficDaySchema) })
@@ -240,6 +245,8 @@ export type Machine = {
  * Message metadata schema
  */
 export const MessageMetaSchema = z.object({
+    actor: z.object({ id: z.string(), name: z.string() }).optional(),
+    sharedCommandId: z.string().optional(),
   sentFrom: z.string().optional(), // Source identifier
   // Any string is accepted so a newer app can name a mode this CLI does not
   // know yet without the whole message failing safeParse and being dropped.
@@ -389,7 +396,7 @@ export type SpawnRequest = {
   /** Machine id, or the machine name as shown in list_sessions. */
   machine: string,
   directory: string,
-  agent: 'claude' | 'codex',
+  agent: 'claude' | 'codex' | 'agy',
   model?: string,
   effort?: string,
   permissionMode?: string,
@@ -406,6 +413,7 @@ export type Orchestration =
   | { role: 'worker', hub: OrchestrationBinding, board?: BoardEntry[] };
 
 export type Metadata = {
+  sharedDevice?: boolean;
   /** Agent-to-agent mail; on unless this is explicitly false. */
   agentMail?: boolean;
   /** Recipient receipts; encrypted and retained across refreshes and engine switches. */
@@ -419,9 +427,10 @@ export type Metadata = {
   agentBuild?: string;
   claudeNativeActive?: boolean;
   engineRuntime?: {engine:string;version:string;packageVersion?:string;source:string;path:string};
-  sessionCapabilities?: { largeFiles?: boolean; automaticGoals?: boolean; authenticationRecovery?: boolean; modelDiscovery?: boolean; refresh: boolean; authentication: boolean; runtimeConfiguration: boolean; resourceFiles?: boolean; resourceSearch?: boolean; fileInbox?: boolean; resume?:boolean;model?:boolean;effort?:boolean;context?:boolean;serviceTier?:boolean;
+  sessionCapabilities?: { persistentFiles?: boolean; largeFiles?: boolean; automaticGoals?: boolean; authenticationRecovery?: boolean; modelDiscovery?: boolean; refresh: boolean; authentication: boolean; runtimeConfiguration: boolean; resourceFiles?: boolean; resourceSearch?: boolean; fileInbox?: boolean; resume?:boolean;model?:boolean;effort?:boolean;context?:boolean;serviceTier?:boolean;
     /** The runner answers `cancel-session-refresh` while a refresh or switch is still queued. */
     cancelRefresh?: boolean;
+    engineHandoff?: boolean;
     nativeComputer?: boolean;
     /** The runner publishes agentState.queue and answers dequeue / promote; messages may carry meta.intent. */
     turnQueue?: boolean;
@@ -479,6 +488,7 @@ export type Metadata = {
   gitBranch?: string,
   claudeSessionId?: string, // Claude Code session ID
   codexThreadId?: string, // Codex app-server thread ID
+  agyConversationId?: string, // ID emitted by this Antigravity process, never a cwd cache
   /**
    * A briefing waiting to be handed to the engine taking this session over.
    *
@@ -491,7 +501,7 @@ export type Metadata = {
     /** The engine that left it, for the briefing's own byline. */
     from: string,
     /** Its engine key, for deciding how to render what came before the switch. */
-    fromFlavor?: 'claude' | 'codex',
+    fromFlavor?: 'claude' | 'codex' | 'agy',
     /** Whether the engine wrote it or it was assembled from the transcript. */
     source: 'engine' | 'compiled',
     briefing: string,
@@ -515,7 +525,7 @@ export type Metadata = {
    * lists them so the next engine can read its own earlier work as history
    * rather than inherit it as memory.
    */
-  engineThreadHistory?: Array<{ engine: string, flavor: 'claude' | 'codex', id: string, transcriptPath?: string, endedAt: number }>,
+  engineThreadHistory?: Array<{ engine: string, flavor: 'claude' | 'codex' | 'agy', id: string, transcriptPath?: string, endedAt: number }>,
   /**
    * This session's place in a hub-and-workers arrangement, if any. A hub plans
    * and reviews; its workers execute. Written on both sides so either can be
@@ -578,7 +588,7 @@ export type UsageLimits = {
 }
 
 export type AgentGoalStatus = {
-  source: 'claude' | 'codex',
+  source: 'claude' | 'codex' | 'agy',
   observedAt: number,
   sourceSessionId?: string,
   sourceRevision?: string | number,

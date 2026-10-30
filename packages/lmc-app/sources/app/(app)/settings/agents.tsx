@@ -1,3 +1,4 @@
+import { openMachineDetails } from '@/components/lmc/MachineDialog';
 import * as React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
@@ -7,6 +8,7 @@ import { ItemList } from '@/components/ItemList';
 import {
     getEffortLevelsForModel,
     getAvailableModels,
+    getCatalogDefaultEffort,
     getHardcodedPermissionModes,
     type ModeOption,
 } from '@/components/modelModeOptions';
@@ -102,7 +104,7 @@ export default function AgentsSettingsScreen({ onNavigate }: { onNavigate?: () =
 
     const renderField = (agent: AgentKey, config: FieldConfig) => {
         const effectiveDefaults = resolveAgentDefaultConfig(agentDefaultOverrides, agent, undefined, catalogMetadata.modelCatalogs);
-        const effectiveValue = effectiveDefaults[config.field];
+        const effectiveValue = effectiveDefaults[config.field] ?? (config.field === 'effortLevel' ? getCatalogDefaultEffort(agent, effectiveDefaults.modelMode, catalogMetadata, null) ?? null : null);
         const overrideValue = getAgentDefaultOverrideValue(agentDefaultOverrides, agent, config.field);
         const hasOverride = hasAgentDefaultOverride(agentDefaultOverrides, agent, config.field);
         const offersCustomModel = agent === 'codex' && config.field === 'modelMode';
@@ -188,7 +190,7 @@ export default function AgentsSettingsScreen({ onNavigate }: { onNavigate?: () =
                                 }
                                 style={{ opacity: choice.online ? 1 : 0.5 }}
                                 onPress={targetMachine
-                                    ? () => { onNavigate?.(); router.push(`/machine/${targetMachine.id}`); }
+                                    ? () => { openMachineDetails(targetMachine.id); }
                                     : undefined}
                             />
                         );

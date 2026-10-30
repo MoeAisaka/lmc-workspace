@@ -3,12 +3,14 @@ import type { SandboxConfig } from '@/persistence';
 
 const {
     mockExecSync,
+    mockVersionSpawn,
     mockInitializeSandbox,
     mockWrapForMcpTransport,
     mockSandboxCleanup,
     mockSpawn,
 } = vi.hoisted(() => ({
     mockExecSync: vi.fn(),
+    mockVersionSpawn: vi.fn(),
     mockInitializeSandbox: vi.fn(),
     mockWrapForMcpTransport: vi.fn(),
     mockSandboxCleanup: vi.fn(),
@@ -24,6 +26,7 @@ vi.mock('node:child_process', async importOriginal => ({
 
 vi.mock('cross-spawn', () => ({
     spawn: mockSpawn,
+    sync: mockVersionSpawn,
 }));
 
 // The real machine may select a managed Codex release; these tests describe the plain PATH case.
@@ -137,6 +140,7 @@ describe('CodexAppServerClient sandbox integration', () => {
         vi.spyOn(process, 'kill').mockImplementation(() => true);
         process.env.RUST_LOG = originalRustLog;
         mockExecSync.mockReturnValue('codex-cli 0.107.0');
+        mockVersionSpawn.mockReturnValue({ status: 0, stdout: 'codex-cli 0.107.0' });
         mockInitializeSandbox.mockResolvedValue(mockSandboxCleanup);
         mockWrapForMcpTransport.mockResolvedValue({ command: 'sh', args: ['-c', 'wrapped codex app-server'] });
         mockSpawn.mockImplementation(() => createMockProcess());
@@ -145,6 +149,25 @@ describe('CodexAppServerClient sandbox integration', () => {
     afterAll(() => {
         vi.restoreAllMocks();
         process.env.RUST_LOG = originalRustLog;
+    });
+
+    it('starts through the platform-aware probe when execFile cannot resolve an npm shim', async () => {
+        mockExecSync.mockImplementation(() => { throw Object.assign(new Error('spawnSync codex ENOENT'), { code: 'ENOENT' }); });
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        await client.connect();
+        expect(mockVersionSpawn).toHaveBeenCalledWith('codex', ['--version'], { encoding: 'utf8', windowsHide: true });
+        await client.disconnect();
+    });
+
+    it.each([
+        { status: 1, stdout: 'codex-cli 0.160.1' },
+        { status: null, stdout: '', error: new Error('ENOENT') },
+    ])('rejects unsuccessful version probes without spawning an app server', async result => {
+        mockVersionSpawn.mockReturnValue(result);
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        await expect(new CodexAppServerClient().connect()).rejects.toThrow('Codex CLI is not installed');
+        expect(mockSpawn).not.toHaveBeenCalled();
     });
 
     it('observes engine activity and exposes only its own PID, ignoring health replies', async () => {
@@ -315,10 +338,10 @@ describe('CodexAppServerClient sandbox integration', () => {
     it('reports goal action support for Codex versions with goal action requests', async () => {
         const { CodexAppServerClient } = await import('./codexAppServerClient');
 
-        mockExecSync.mockReturnValue('codex-cli 0.140.0');
+        mockVersionSpawn.mockReturnValue({ status: 0, stdout: 'codex-cli 0.140.0' });
         expect(new CodexAppServerClient().supportsGoalActions()).toBe(true);
 
-        mockExecSync.mockReturnValue('codex-cli 0.130.0');
+        mockVersionSpawn.mockReturnValue({ status: 0, stdout: 'codex-cli 0.130.0' });
         expect(new CodexAppServerClient().supportsGoalActions()).toBe(false);
     });
 
@@ -396,6 +419,119 @@ describe('CodexAppServerClient sandbox integration', () => {
             expect(kill).toHaveBeenCalledWith(-987_654_321, 'SIGTERM');
         } finally {
             kill.mockRestore();
+        }
+    });
+
+    it('keeps a refresh handoff waiting until the old app-server has actually closed', async () => {
+        const proc = createMockProcess();
+        proc.stdin.removeAllListeners('finish');
+        mockSpawn.mockReturnValue(proc);
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        await client.connect();
+
+        let handedOff = false;
+        const closing = client.disconnect().then(() => { handedOff = true; });
+        try {
+            await new Promise(resolve => setImmediate(resolve));
+            expect(handedOff).toBe(false);
+            // A wrapper may exit before its native child releases inherited pipes.
+            proc.exitCode = 0;
+            proc.emit('exit', 0, null);
+            await new Promise(resolve => setImmediate(resolve));
+            expect(handedOff).toBe(false);
+        } finally {
+            proc.emit('close', 0, null);
+            await closing;
+        }
+        expect(handedOff).toBe(true);
+    });
+
+    it('makes repeated disconnects wait for the same pending shutdown', async () => {
+        const proc = createMockProcess();
+        proc.stdin.removeAllListeners('finish');
+        mockSpawn.mockReturnValue(proc);
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        await client.connect();
+
+        let completed = 0;
+        const first = client.disconnect().then(() => { completed++; });
+        const second = client.disconnect().then(() => { completed++; });
+        try {
+            await new Promise(resolve => setImmediate(resolve));
+            expect(completed).toBe(0);
+        } finally {
+            proc.exitCode = 0;
+            proc.emit('exit', 0, null);
+            proc.emit('close', 0, null);
+            await Promise.all([first, second]);
+        }
+        expect(completed).toBe(2);
+    });
+
+    it('waits for inherited pipes even when the launcher exited before disconnect', async () => {
+        const proc = createMockProcess();
+        proc.stdin.removeAllListeners('finish');
+        mockSpawn.mockReturnValue(proc);
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        await client.connect();
+        proc.exitCode = 0;
+        proc.emit('exit', 0, null);
+
+        let handedOff = false;
+        const closing = client.disconnect().then(() => { handedOff = true; });
+        try {
+            await new Promise(resolve => setImmediate(resolve));
+            expect(handedOff).toBe(false);
+        } finally {
+            proc.emit('close', 0, null);
+            await closing;
+        }
+    });
+
+    it('does not report shutdown success or start another writer if close never arrives', async () => {
+        const proc = createMockProcess();
+        proc.stdin.removeAllListeners('finish');
+        mockSpawn.mockReturnValue(proc);
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        await client.connect();
+        vi.useFakeTimers();
+        try {
+            const closing = expect(client.disconnect()).rejects.toThrow('Previous Codex process has not exited yet');
+            await vi.advanceTimersByTimeAsync(5_001);
+            await closing;
+            const reconnecting = expect(client.connect()).rejects.toThrow('Previous Codex process has not exited yet');
+            await vi.advanceTimersByTimeAsync(5_001);
+            await reconnecting;
+            expect(mockSpawn).toHaveBeenCalledTimes(1);
+        } finally {
+            proc.emit('close', 0, null);
+            vi.useRealTimers();
+            await client.disconnect();
+        }
+    });
+
+    it('cancels delayed termination when close arrives so it cannot hit a reused PID', async () => {
+        const proc = createMockProcess();
+        proc.stdin.removeAllListeners('finish');
+        mockSpawn.mockReturnValue(proc);
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const client = new CodexAppServerClient();
+        await client.connect();
+        vi.useFakeTimers();
+        try {
+            const closing = client.disconnect();
+            proc.emit('close', 0, null);
+            await closing;
+            vi.mocked(process.kill).mockClear();
+            await vi.advanceTimersByTimeAsync(2_001);
+            expect(process.kill).not.toHaveBeenCalled();
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            vi.useRealTimers();
         }
     });
 
@@ -2179,4 +2315,68 @@ describe('unknown server requests', () => {
         await (client as any).handleServerRequest(902, 'future/status', {});
         expect(respond).toHaveBeenCalledWith(902, {});
     });
+});
+
+describe('CodexAppServerClient startup under contention', () => {
+    // An app-server that loses the race for Codex's state database exits before answering initialize.
+    const exitsWhileInitializing = () => {
+        const { Readable, Writable } = require('stream');
+        const proc = Object.assign(new (require('events').EventEmitter)(), {
+            stdin: new Writable({ write: (_: any, __: any, cb: () => void) => cb() }),
+            stdout: new Readable({ read() {} }), stderr: new Readable({ read() {} }),
+            pid: 4242, kill: vi.fn(), exitCode: null as number | null,
+        });
+        setTimeout(() => { proc.exitCode = 1; proc.emit('exit', 1, null); proc.emit('close', 1, null); }, 5);
+        return proc;
+    };
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        vi.spyOn(process, 'kill').mockImplementation(() => true);
+        mockVersionSpawn.mockReturnValue({ status: 0, stdout: 'codex-cli 0.162.0' });
+    });
+
+    it('starts the app-server again when it exits while initializing', async () => {
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        CodexAppServerClient.startupRetryDelaysMs = [5, 5];
+        mockSpawn.mockImplementationOnce(exitsWhileInitializing).mockImplementation(() => createMockProcess());
+        const client = new CodexAppServerClient();
+        await client.connect();
+        expect(mockSpawn).toHaveBeenCalledTimes(2);
+        await client.disconnect();
+    });
+
+    it('gives up after the retries and reports the exit', async () => {
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        CodexAppServerClient.startupRetryDelaysMs = [5, 5];
+        mockSpawn.mockImplementation(exitsWhileInitializing);
+        await expect(new CodexAppServerClient().connect()).rejects.toThrow('exited (code=1) while waiting for initialize');
+        expect(mockSpawn).toHaveBeenCalledTimes(3);
+    });
+
+    it('waits for a resume as long as session initialization may take, not the default request timeout', async () => {
+        const { CodexAppServerClient } = await import('./codexAppServerClient');
+        const previous = CodexAppServerClient.sessionInitTimeoutMs;
+        mockSpawn.mockImplementation(() => createMockProcess());
+        const client = new CodexAppServerClient();
+        await client.connect();
+        try {
+            CodexAppServerClient.sessionInitTimeoutMs = 40;
+            await expect(client.resumeThread({ threadId: 'thread-1' })).rejects.toThrow('thread/resume timed out after 40ms');
+        } finally { CodexAppServerClient.sessionInitTimeoutMs = previous; await client.disconnect(); }
+        expect(previous).toBe(180_000);
+    });
+
+it('keeps LMC reconnect identity out of Codex and its tools', async () => {
+    vi.stubEnv('HAPPY_RECONNECT_SESSION_ID', 'fixture-owner');
+    vi.stubEnv('HAPPY_RECONNECT_ENCRYPTION_KEY', 'fixture-key');
+    const { CodexAppServerClient } = await import('./codexAppServerClient');
+    const client = new CodexAppServerClient();
+    try {
+        await client.connect();
+        const env = mockSpawn.mock.calls.at(-1)?.[2]?.env;
+        expect(env?.HAPPY_RECONNECT_SESSION_ID).toBeUndefined();
+        expect(env?.HAPPY_RECONNECT_ENCRYPTION_KEY).toBeUndefined();
+    } finally { await client.disconnect(); vi.unstubAllEnvs(); }
+});
 });

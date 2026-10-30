@@ -1,19 +1,48 @@
 import { mkdtemp,mkdir,writeFile,readFile,rename,realpath } from 'node:fs/promises';
 import { join,sep } from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { spawn } from 'cross-spawn';
 import { createHash,randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { configuration } from '@/configuration';
 import { projectPath } from '@/projectPath';
 import { parseEngineAuth } from '@/utils/engineAuth';
+import { resolveNodeExecutable } from '@/utils/nodeExecutable';
 import { selectionFile,readRuntimeSelection,claudeExecutable,codexExecutable,validateRelease,type Component,type Release } from './managedRuntime';
-const run=promisify(execFile);
+/**
+ * Bounded command run. npm and the engines it installs are `.cmd` shims on
+ * Windows, which execFile cannot start, so a Windows machine could never stage
+ * a managed engine; cross-spawn resolves them. Rejects like execFile did: the
+ * error carries a numeric exit `code` and what was printed.
+ */
+export function run(command:string,args:string[],options:{cwd?:string;timeout:number;maxBuffer:number}):Promise<{stdout:string;stderr:string}>{
+ return new Promise((resolve,reject)=>{
+  const child=spawn(command,args,{cwd:options.cwd,windowsHide:true,stdio:['ignore','pipe','pipe']});
+  const out:Buffer[]=[],err:Buffer[]=[];let bytes=0,done=false;
+  const text=()=>({stdout:Buffer.concat(out).toString('utf8'),stderr:Buffer.concat(err).toString('utf8')});
+  const fail=(message:string,code?:number|null)=>{if(done)return;done=true;clearTimeout(timer);reject(Object.assign(new Error(message),{code,...text()}));};
+  const timer=setTimeout(()=>{fail('命令超时');child.kill();},options.timeout);
+  const collect=(chunks:Buffer[])=>(chunk:Buffer)=>{
+   if(done)return;bytes+=chunk.length;
+   if(bytes>options.maxBuffer){fail('命令输出过长');child.kill();return;}
+   chunks.push(chunk);
+  };
+  child.stdout!.on('data',collect(out));child.stderr!.on('data',collect(err));
+  child.once('error',error=>fail(error.message));
+  child.once('close',code=>{if(code!==0){fail('命令退出码 '+code,code);return;}if(done)return;done=true;clearTimeout(timer);resolve(text());});
+ });
+}
 export const packageNames={codex:'@openai/codex',claude:'@anthropic-ai/claude-agent-sdk'} as const;
 async function atomicJSON(path:string,value:unknown){const temp=path+'.'+randomUUID()+'.tmp';await writeFile(temp,JSON.stringify(value),{mode:0o600});await rename(temp,path);}
+// npm keeps its cache wherever the user's own npmrc says. When that pointed at
+// a volume that was no longer mounted, every lookup and install failed, and the
+// engines stopped following their releases. The Agent's npm calls use a cache
+// next to the releases they produce instead.
+export function npmArguments(home:string=configuration.lmcHomeDir){
+ return ['--cache='+join(home,'runtime-releases','.npm-cache'),'--registry=https://registry.npmjs.org'];
+}
 export async function latestVersion(engine:Component):Promise<string>{
  if(engine==='agent')return (await agentCatalog()).version;
- const {stdout}=await run('npm',['view',packageNames[engine],'version','--json','--registry=https://registry.npmjs.org'],{timeout:30000,maxBuffer:16384});
+ const {stdout}=await run('npm',['view',packageNames[engine],'version','--json',...npmArguments()],{timeout:30000,maxBuffer:16384});
  const version=JSON.parse(stdout);validateRelease({engine,version,directory:'/validation'});return version;
 }
 async function agentCatalog():Promise<Release & {sha256:string}>{
@@ -30,8 +59,9 @@ export async function stageRelease(engine:Component):Promise<Release>{
   const entry=join(directory,'dist','index.mjs');
   const hash=createHash('sha256').update(await readFile(entry)).digest('hex');
   if(hash!==release.sha256)throw new Error('LMC 发布校验失败');
-  await run(process.execPath,['--check',entry],{timeout:15000,maxBuffer:8192});
-  await run(process.execPath,[join(directory,'bin','happy.mjs'),'--version'],{timeout:15000,maxBuffer:8192});
+  const nodeBin=resolveNodeExecutable();
+  await run(nodeBin,['--check',entry],{timeout:15000,maxBuffer:8192});
+  await run(nodeBin,[join(directory,'bin','happy.mjs'),'--version'],{timeout:15000,maxBuffer:8192});
   return release;
  }
  const version=await latestVersion(engine);
@@ -39,10 +69,12 @@ export async function stageRelease(engine:Component):Promise<Release>{
  const directory=await mkdtemp(join(root,engine+'-'+version+'-'));
  await writeFile(join(directory,'package.json'),JSON.stringify({private:true,name:'lmc-managed-runtime',version:'1.0.0'}));
  // No credential files, project configuration or install scripts enter this directory.
- await run('npm',['install','--prefix',directory,'--ignore-scripts','--no-audit','--no-fund','--registry=https://registry.npmjs.org',packageNames[engine]+'@'+version],{cwd:directory,timeout:300000,maxBuffer:128*1024});
+ await run('npm',['install','--prefix',directory,'--ignore-scripts','--no-audit','--no-fund',...npmArguments(),packageNames[engine]+'@'+version],{cwd:directory,timeout:300000,maxBuffer:128*1024});
  const release:Release={engine,version,directory};
  const executable=engine==='claude'?claudeExecutable(release):codexExecutable(release);
- await run(executable,['--version'],{timeout:15000,maxBuffer:8192});
+ // The first start of a freshly installed binary is slow where a virus scanner
+ // inspects it: 17 s was measured on Windows, 0.3 s on the next run.
+ await run(executable,['--version'],{timeout:120000,maxBuffer:8192});
  if(engine==='codex')await run(executable,['app-server','--help'],{timeout:15000,maxBuffer:32768});
  else {
   const req=createRequire(join(directory,'package.json'));

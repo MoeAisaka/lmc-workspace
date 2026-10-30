@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { learnRevealGap, MAX_REVEAL_GAP, installWebComposerViewport } from './webComposerViewport';
+import { installWebComposerViewport } from './webComposerViewport';
 
 describe('web composer keyboard avoidance', () => {
     let container: HTMLDivElement;
@@ -10,7 +10,7 @@ describe('web composer keyboard avoidance', () => {
     const flush = () => vi.advanceTimersByTime(20);
     const inset = () => container.style.getPropertyValue('--lmc-keyboard-inset');
     // jsdom's opaque test origin has no localStorage; the hook must still work
-    // and the learned value must survive only within the same browser profile.
+    // and retiring the old extra-lift cache must be optional.
     const storage = new Map<string, string>();
     beforeEach(() => {
         storage.clear();
@@ -191,111 +191,84 @@ describe('web composer keyboard avoidance', () => {
         // The next WebKit reveal after that is again anchored, not chased.
         pan(424, 354); expect(inset()).toBe('32px'); expect(extension()).toBe('54px');
     });
-    it('remembers a settled WebKit reveal and pre-lifts the next keyboard so no pan is needed', () => {
+    it.each([0, 334])('v321 device replay: ignores cached 103px extra lift with initial native pan %s', (nativePan) => {
+        cleanup();
+        vi.stubGlobal('navigator', { userAgent: 'iPhone AppleWebKit Safari', platform: 'iPhone', maxTouchPoints: 5 });
+        vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(736);
+        vi.stubGlobal('innerHeight', 736); vi.stubGlobal('scrollY', 0);
+        Object.assign(viewport, { height: 736, pageTop: 0, offsetTop: 0 });
+        vi.mocked(container.getBoundingClientRect).mockImplementation(() => ({ bottom: 736 - window.scrollY, width: 820 } as DOMRect));
+        input.dataset.lmcFocusScroll = 'controlled';
+        storage.set('lmc.ios-keyboard-reveal-gap.v2', JSON.stringify({ scope: `${navigator.userAgent}|${screen.height}|736`, gap: 103, keyboardHeight: 334, misses: 0, disabled: false }));
+        cleanup = installWebComposerViewport(container);
+        input.focus(); flush();
+        expect(inset()).toBe('0px'); // no 437px jump before any keyboard exists
+        vi.stubGlobal('scrollY', nativePan); vi.stubGlobal('innerHeight', 736 - nativePan);
+        Object.assign(viewport, { height: 402, pageTop: nativePan, offsetTop: nativePan });
+        viewport.dispatchEvent(new Event('resize')); flush();
+        expect(inset()).toBe(`${334 - nativePan}px`);
+        expect(736 - window.scrollY - parseFloat(inset())).toBe(402);
+        expect(extension()).toBe('');
+        expect(document.activeElement).toBe(input);
+        expect(input.value).toBe('未发送的中文草稿');
+    });
+    it('v327 device replay: catches a silent 419→402 viewport shrink long after keyboard opening', () => {
+        cleanup();
+        vi.stubGlobal('navigator', { userAgent: 'iPhone AppleWebKit Safari', platform: 'iPhone', maxTouchPoints: 5 });
+        vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(736);
+        vi.stubGlobal('innerHeight', 736); vi.stubGlobal('scrollY', 0);
+        Object.assign(viewport, { height: 736, pageTop: 0, offsetTop: 0 });
+        vi.mocked(container.getBoundingClientRect).mockImplementation(() => ({ bottom: 736 - window.scrollY, width: 820 } as DOMRect));
+        input.dataset.lmcFocusScroll = 'controlled';
+        cleanup = installWebComposerViewport(container);
+        input.focus(); flush();
+        viewport.height = 419; viewport.dispatchEvent(new Event('resize')); flush();
+        expect(inset()).toBe('317px');
+        vi.advanceTimersByTime(15000); // opening transition timers have long finished
+        const focus = vi.spyOn(input, 'focus');
+        const measure = vi.mocked(container.getBoundingClientRect); measure.mockClear();
+        vi.advanceTimersByTime(2000);
+        expect(measure).not.toHaveBeenCalled(); // stable editing does not repeatedly read element geometry
+        viewport.height = 402; // device probe saw this change without any resize event
+        vi.advanceTimersByTime(270);
+        expect(inset()).toBe('334px');
+        expect(container.style.getPropertyValue('--lmc-composer-max-height')).toBe('160px');
+        expect(extension()).toBe('');
+        expect(document.activeElement).toBe(input);
+        expect(input.value).toBe('未发送的中文草稿');
+        expect(focus).not.toHaveBeenCalled();
+        input.blur(); vi.advanceTimersByTime(800);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+    it('pauses silent viewport monitoring in the background and stops it on disposal', () => {
+        const pan = controlledIos();
+        pan(419, 0); vi.advanceTimersByTime(800);
+        const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+        document.dispatchEvent(new Event('visibilitychange'));
+        expect(vi.getTimerCount()).toBe(0);
+        viewport.height = 402; vi.advanceTimersByTime(1000);
+        expect(inset()).toBe('337px');
+        visibility.mockReturnValue('visible');
+        document.dispatchEvent(new Event('visibilitychange')); vi.advanceTimersByTime(800);
+        expect(inset()).toBe('354px');
+        cleanup();
+        expect(vi.getTimerCount()).toBe(0);
+        viewport.height = 350; vi.advanceTimersByTime(1000);
+        expect(inset()).toBe('');
+    });
+    it('does not carry a settled native pan into the next keyboard open or a reload', () => {
         let pan = controlledIos();
-        pan(756, 0); pan(424, 0); expect(inset()).toBe('332px');
-        // WebKit's keyboard-change reveal pans 77px (v296 device probe); it settles.
-        pan(424, 77, 77); expect(inset()).toBe('332px'); expect(extension()).toBe('77px');
-        vi.advanceTimersByTime(450);
-        expect(JSON.parse(storage.get('lmc.ios-keyboard-reveal-gap.v2')!)).toMatchObject({ gap: 77, keyboardHeight: 332 });
-        // Dismiss and reopen without blur (device trace): the field is placed
-        // 77px above the keyboard immediately, so WebKit's check passes.
+        pan(756, 0); pan(424, 0);
+        pan(424, 103); vi.advanceTimersByTime(450);
+        expect(inset()).toBe('332px'); expect(extension()).toBe('103px');
+        expect(storage.get('lmc.ios-keyboard-reveal-gap.v2')).toBeUndefined();
         pan(756, 0); expect(inset()).toBe('0px');
-        // v299 device trace: WebKit judges the caret while the keyboard frame
-        // is still changing, before the page sees any viewport event. The
-        // tap announces the keyboard and the dock lifts to the remembered
-        // geometry at once (keyboard 332 + strip 77), without any pan.
-        // Same order as the field's tap handler: clear the dismissed marker,
-        // announce, blur, refocus with preventScroll.
-        expect(input.dataset.lmcKeyboardDismissed).toBe('true');
-        delete input.dataset.lmcKeyboardDismissed;
-        input.dispatchEvent(new CustomEvent('lmc-keyboard-expected', { bubbles: true }));
-        input.blur(); input.focus({ preventScroll: true }); flush();
-        expect(inset()).toBe('409px'); expect(extension()).toBe('77px');
-        pan(447, 0); pan(424, 0);
-        expect(inset()).toBe('409px'); expect(extension()).toBe('77px');
-        expect(637 - parseFloat(inset())).toBe(228);
-        // A new install of the hook (reload) reads the remembered value, and a
-        // first focus lifts before the keyboard too; without a keyboard the
-        // anticipation lapses after 700ms (hardware keyboard, cancelled focus).
-        cleanup(); input.blur(); pan = controlledIos();
-        pan(756, 0); expect(inset()).toBe('409px'); expect(extension()).toBe('77px');
-        vi.advanceTimersByTime(800); flush();
-        expect(inset()).toBe('0px'); expect(extension()).toBe('');
         input.dispatchEvent(new CustomEvent('lmc-keyboard-expected', { bubbles: true })); flush();
-        pan(424, 0); expect(inset()).toBe('409px'); expect(extension()).toBe('77px');
-        // Re-anchoring after an over-pan keeps the learned strip as well.
-        pan(424, 332); vi.advanceTimersByTime(400); flush();
-        expect(inset()).toBe('77px'); expect(extension()).toBe('77px');
-        // A value remembered by another browser/screen is not inherited.
-        storage.set('lmc.ios-keyboard-reveal-gap.v2', JSON.stringify({ scope: 'Safari|956|756', gap: 77 }));
-        cleanup(); pan = controlledIos();
-        pan(756, 0); pan(424, 0); expect(inset()).toBe('332px');
-    });
-    it('never adds a later pan to the remembered strip, and stops lifting after two opens in a row that still pan (iPhone Safari, 2026-10-08)', () => {
-        const reopen = () => {
-            pan(756, 0);
-            delete input.dataset.lmcKeyboardDismissed;
-            input.dispatchEvent(new CustomEvent('lmc-keyboard-expected', { bubbles: true }));
-            input.blur(); input.focus({ preventScroll: true }); flush();
-        };
-        const stored = () => JSON.parse(storage.get('lmc.ios-keyboard-reveal-gap.v2')!);
-        // A strip remembered by the accumulating v1 rule had reached its cap.
-        storage.set('lmc.ios-keyboard-reveal-gap', JSON.stringify({ scope: `${navigator.userAgent}|${screen.height}|${document.documentElement.clientHeight}`, gap: 240, keyboardHeight: 332 }));
-        const pan = controlledIos();
-        // It is not read: the first open starts flush with the keyboard.
-        pan(756, 0); expect(inset()).toBe('0px');
-        pan(424, 0); expect(inset()).toBe('332px');
-        pan(424, 77, 77); vi.advanceTimersByTime(450);
-        expect(stored()).toMatchObject({ gap: 77, misses: 0, disabled: false });
-        // Second open: lifted by 77 first, and WebKit pans another 54 anyway.
-        reopen(); expect(inset()).toBe('409px');
-        pan(424, 0); pan(424, 54, 54); expect(extension()).toBe('131px');
-        vi.advanceTimersByTime(450);
-        // The strip stays 77: nothing is added, and the dock does not move mid-keyboard.
-        expect(stored()).toMatchObject({ gap: 77, misses: 1, disabled: false });
-        expect(extension()).toBe('131px');
-        // Third open lifts by the same 77, not 131, and is panned again.
-        reopen(); expect(inset()).toBe('409px'); expect(extension()).toBe('77px');
-        pan(424, 0); pan(424, 54, 54); vi.advanceTimersByTime(450);
-        expect(stored()).toMatchObject({ gap: 0, keyboardHeight: 0, misses: 2, disabled: true });
-        // From now on this browser is plainly anchored: no lift before the
-        // keyboard, flush when it shows, and a pan is absorbed but never remembered.
-        reopen(); expect(inset()).toBe('0px'); expect(extension()).toBe('');
+        expect(inset()).toBe('0px');
         pan(424, 0); expect(inset()).toBe('332px'); expect(extension()).toBe('');
-        pan(424, 60, 60); expect(inset()).toBe('332px'); expect(extension()).toBe('60px');
-        vi.advanceTimersByTime(450);
-        expect(stored()).toMatchObject({ gap: 0, disabled: true, misses: 2 });
-        // A reload stays switched off.
-        cleanup(); input.blur(); const again = controlledIos();
-        again(756, 0); expect(inset()).toBe('0px');
-        again(424, 0); expect(inset()).toBe('332px');
-    });
-    it('forgives a single stray pan once an open goes by without one', () => {
-        const pan = controlledIos();
-        const reopen = () => { pan(756, 0); delete input.dataset.lmcKeyboardDismissed; input.dispatchEvent(new CustomEvent('lmc-keyboard-expected', { bubbles: true })); input.blur(); input.focus({ preventScroll: true }); flush(); };
-        const stored = () => JSON.parse(storage.get('lmc.ios-keyboard-reveal-gap.v2')!);
-        pan(756, 0); pan(424, 0); pan(424, 77, 77); vi.advanceTimersByTime(450);
-        reopen(); pan(424, 0); pan(424, 54, 54); vi.advanceTimersByTime(450);
-        expect(stored()).toMatchObject({ gap: 77, misses: 1 });
-        // A clean open: lifted, no pan.
-        reopen(); pan(424, 0); vi.advanceTimersByTime(450);
-        pan(756, 0);
-        expect(stored()).toMatchObject({ gap: 77, misses: 0, disabled: false });
-        // So one more stray pan later does not switch the lift off.
-        reopen(); pan(424, 0); pan(424, 54, 54); vi.advanceTimersByTime(450);
-        expect(stored()).toMatchObject({ gap: 77, misses: 1, disabled: false });
-    });
-    it('decides what a settled pan teaches', () => {
-        const none = { gap: 0, keyboardHeight: 0, misses: 0, disabled: false };
-        expect(learnRevealGap(none, 77, 332)).toEqual({ gap: 77, keyboardHeight: 332, misses: 0, disabled: false });
-        // A first pan beyond any plausible strip is not a strip.
-        expect(learnRevealGap(none, MAX_REVEAL_GAP + 1, 332)).toEqual({ ...none, misses: 1 });
-        const learned = { gap: 77, keyboardHeight: 332, misses: 0, disabled: false };
-        expect(learnRevealGap(learned, 131, 332)).toEqual({ ...learned, misses: 1 });
-        expect(learnRevealGap({ ...learned, misses: 1 }, 131, 332)).toEqual({ gap: 0, keyboardHeight: 0, misses: 2, disabled: true });
-        const off = { gap: 0, keyboardHeight: 0, misses: 2, disabled: true };
-        expect(learnRevealGap(off, 60, 332)).toBe(off);
+        cleanup(); input.blur(); pan = controlledIos();
+        pan(756, 0); expect(inset()).toBe('0px');
+        pan(424, 0); expect(inset()).toBe('332px'); expect(extension()).toBe('');
     });
     it('does not let a finger drag the whole page while the keyboard is open, only what scrolls (device recording, 2026-10-08)', () => {
         const touch = (type: string, target: Element, x: number, y: number, count = 1) => {

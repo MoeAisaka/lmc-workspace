@@ -13,13 +13,16 @@ const scopeQuestion = process.argv.includes('--scope-question');
 const followupActions = process.argv.includes('--followup-actions');
 // A second session screen left mounted behind the first, as the navigation stack leaves them.
 const twoSessions = process.argv.includes('--two-sessions');
+// Visible controls for the v327 silent viewport-height regression, driven via CUA.
+const silentKeyboard = process.argv.includes('--silent-keyboard');
+const manualArchive = process.argv.includes('--manual-archive');
 // A Windows-hosted session whose reply shows a local image by drive path. The
 // session process still refuses drive paths; its daemon serves the file in chunks.
 // The page carries a release marker, and /__publish?marker=X makes the server answer with a newer one.
 const releaseArg = process.argv.find(arg => arg.startsWith('--release='))?.slice('--release='.length);
 let servedRelease = releaseArg;
 const windowsImage = process.argv.find(arg => arg.startsWith('--windows-image='))?.slice('--windows-image='.length);
-const windowsImageMarkdown = '已补充并保存。\n\n![补充完成截图](<D:/AgentWork/Projects/Demo Project/.lmc-inbox/qwen-section-updated-20261008.png>)';
+const windowsImageMarkdown = `已补充并保存。\n\n![补充完成截图](<${process.argv.includes('--slash-drive') ? '/' : ''}D:/AgentWork/Projects/Demo Project/.lmc-inbox/qwen-section-updated-20261008.png>)`;
 assert(process.argv[2], 'Pass the release export directory');
 const root = path.resolve(process.argv[2]);
 const out = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'lmc-header-check-'));
@@ -38,7 +41,8 @@ const fixture = String.raw`
 const init=modules.get(0);__r(init.deps[0]);__r(init.deps[1]);
 const React=moduleExport('useState'),h=React.createElement,{createRoot}=moduleExport('createRoot');
 const {PersonalizationRuntime}=moduleExport('PersonalizationRuntime');
-let ModuleSwitcher=()=>null;try{ModuleSwitcher=moduleExport('ModuleSwitcher').ModuleSwitcher}catch{/* Older exports have no shared launcher. */}
+// Image checks do not load the shared launcher: its pet assets live only on the deployed site.
+let ModuleSwitcher=()=>null;if(!${!!windowsImage})try{ModuleSwitcher=moduleExport('ModuleSwitcher').ModuleSwitcher}catch{/* Older exports have no shared launcher. */}
 const {useUnistyles}=moduleExport('useUnistyles'),{useLayoutWindowDimensions}=moduleExport('useLayoutWindowDimensions'),{useWindowDimensions}=moduleExport('useWindowDimensions');
 const {SessionView}=moduleExport('SessionView'),{SidebarView}=moduleExport('SidebarView'),{FloatingSessionDrawer}=moduleExport('FloatingSessionDrawer');
 const {useIsTablet,getDeviceType}=moduleExport('useIsTablet'),{useSessionDrawer}=moduleExport('useSessionDrawer'),{storage,useSession,useLocalSetting}=moduleExport('storage');
@@ -66,6 +70,39 @@ const data={messages,messagesMap:Object.fromEntries(messages.map(m=>[m.id,m])),i
 storage.setState({machines:{'fixture-machine':{id:'fixture-machine',active:false,metadata:{engineLogin:{claude:true,codex:true}}}},isDataReady:true,profile:{id:'fixture',firstName:'Demo'},sessions:{fixture:session,codex:mk('codex','第二个合成会话','codex')},sessionMessages:{fixture:data,codex:data}});
 storage.getState().applySettingsLocal({preferredLanguage:'zh-Hans',fileDiffsSidebar:true});
 window.toggleDrawer=open=>useSessionDrawer.getState().setOpen(open);
+// The session list reads sessions and machines straight from the store; a check sets them the same way.
+const machineTemplate=storage.getState().machines['fixture-machine'];
+window.setListFixture=({sessions,machines})=>{const st=storage.getState();const base=st.sessions.fixture;storage.setState({sessions:{fixture:base,...Object.fromEntries(sessions.map(s=>[s.id,{...base,id:s.id,active:s.active,activeAt:s.activeAt,presence:s.active?'online':s.activeAt,metadata:{...base.metadata,...(${manualArchive}?{orchestration:undefined}:{}),name:s.name,summary:{text:s.name,updatedAt:1},machineId:s.machineId,flavor:s.flavor||base.metadata.flavor,lifecycleState:Object.prototype.hasOwnProperty.call(s,'lifecycleState')?s.lifecycleState:'running'}}]))},machines:Object.fromEntries(machines.map(m=>[m.id,{...machineTemplate,id:m.id,active:m.active,metadata:{...machineTemplate.metadata,host:m.id,displayName:m.id}}]))});};
+const archiveRows=[
+ {id:'archive-claude',name:'Claude 离线30天',machineId:'up',active:false,activeAt:1},
+ {id:'archive-codex',name:'Codex 离线30天',flavor:'codex',machineId:'up',active:false,activeAt:1},
+ {id:'archive-orphan',name:'设备已删除的会话',machineId:'removed',active:false,activeAt:1},
+ {id:'archive-legacy',name:'旧版离线会话',machineId:'up',active:false,activeAt:1,lifecycleState:null},
+ {id:'archive-manual',name:'已手动归档的会话',machineId:'up',active:false,activeAt:1,lifecycleState:'archived'}
+];
+const showArchiveFixture=machines=>setListFixture({sessions:archiveRows,machines});
+if(${manualArchive}){
+ showArchiveFixture([{id:'up',active:true}]);
+ // Exercise the real menu + archive operation without auth, production or push
+ // delivery. A server ack must be enough to move the row to the archive list.
+ const {apiSocket}=moduleExport('apiSocket');
+ const receipt=document.createElement('output');receipt.dataset.testid='archive-receipt';receipt.style.cssText='position:fixed;right:12px;top:64px;z-index:2147483646;background:white;color:black;padding:8px';document.body.appendChild(receipt);
+ const calls={rpc:0,metadata:0,deactivate:0};let failNext=false;
+ const show=()=>receipt.textContent='Archive receipt '+JSON.stringify(calls);show();
+ window.failNextArchive=()=>{failNext=true};
+ sync.encryption={getSessionEncryption:()=>({encryptRaw:async m=>JSON.stringify(m),decryptRaw:async m=>JSON.parse(m)})};
+ apiSocket.sessionRPC=async()=>{calls.rpc++;show();throw Error('Offline process must not be called')};
+ apiSocket.emitWithAck=async(event,data)=>{
+  if(event!=='update-metadata')throw Error('Unexpected fixture write');
+  calls.metadata++;show();
+  if(failNext){failNext=false;throw Error('测试：服务器未确认归档，请重试')}
+  return {result:'success',version:data.expectedVersion+1,metadata:data.metadata};
+ };
+ apiSocket.request=async(url,options)=>{
+  if(!url.endsWith('/archive')||options?.method!=='POST')throw Error('Unexpected fixture request');
+  calls.deactivate++;show();return {ok:true};
+ };
+}
 window.setDraftAttachments=n=>moduleExport('useNewSessionDraft').useNewSessionDraft.getState().setAttachments(Array.from({length:n},(_,i)=>({id:'draft-'+i,uri:'data:,',width:1,height:1,mimeType:'image/png',size:1,name:'draft.png'})));
 window.setMachineResources=resources=>{const cur=storage.getState().machines;storage.setState({machines:{...cur,'fixture-machine':{...cur['fixture-machine'],active:!!resources,metadata:{...cur['fixture-machine'].metadata,host:'MacMini'},daemonState:resources?{status:'running',resources}:null}}})};
 if(windowsImageText){
@@ -105,6 +142,7 @@ if(${serveOnly}){
  const setWidth=sidebarWidth=>setLocal({personalization:{...storage.getState().localSettings.personalization,sidebarWidth}});
  const setTheme=name=>{const r=moduleExport('UnistylesRuntime').UnistylesRuntime;r.setAdaptiveThemes(false);r.setTheme(name)};
  for(const [label,fn] of [
+  ...(${manualArchive}?[['下次归档失败',()=>window.failNextArchive()],['设备在线',()=>showArchiveFixture([{id:'up',active:true}])],['设备离线',()=>showArchiveFixture([{id:'up',active:false}])],['设备已移除',()=>showArchiveFixture([{id:'other',active:true}])],['设备列表未加载',()=>showArchiveFixture([])]]:[]),
   ['隐藏测试控件',()=>{controls.remove();document.querySelector('[data-testid="option-receipt"]')?.remove()}],
   ['浅色',()=>setTheme('light')],['深色',()=>setTheme('dark')],
   ['外层偏移56px',()=>panScene(56)],['恢复偏移',()=>panScene(0)],
@@ -125,13 +163,14 @@ if(${serveOnly}){
 }
 `;
 const fonts=fs.readdirSync(path.join(root,'assets/sources/assets/fonts')).filter(f=>f.startsWith('IBMPlexSans-')).map(f=>`@font-face{font-family:'${f.split('.')[0]}';src:url('/assets/sources/assets/fonts/${f}')}`).join('');
-const htmlFor = release => `<!doctype html><meta charset="utf-8">${release ? `<meta name="lmc-release" content="${release}" />` : ''}<meta name="viewport" content="width=device-width,initial-scale=1">${[...originalHtml.matchAll(/<link[^>]+rel="stylesheet"[^>]*>/g)].map(m=>m[0]).join('')}<style>${fonts}html,body,#root{height:100%;margin:0}#root{display:flex;flex-direction:column}body{font-family:IBMPlexSans-Regular,Arial,sans-serif}</style><div id="root"></div>${scripts.map((s,i)=>`<script src="${s}"></script>${i===0?'<script src="/capture.js"></script>':''}`).join('')}<script src="/fixture.js"></script>`;
+const htmlFor = release => `<!doctype html><meta charset="utf-8">${release ? `<meta name="lmc-release" content="${release}" />` : ''}<meta name="viewport" content="width=device-width,initial-scale=1">${[...originalHtml.matchAll(/<link[^>]+rel="stylesheet"[^>]*>/g)].map(m=>m[0]).join('')}<style>${fonts}html,body,#root{height:100%;margin:0}#root{display:flex;flex-direction:column}body{font-family:IBMPlexSans-Regular,Arial,sans-serif}</style>${silentKeyboard ? originalHtml.match(/<style id="expo-reset">[\s\S]*?<\/style>/)?.[0] || '' : ''}<div id="root"></div>${silentKeyboard ? '<script src="/keyboard-silent-viewport.js"></script>' : ''}${scripts.map((s,i)=>`<script src="${s}"></script>${i===0?'<script src="/capture.js"></script>':''}`).join('')}<script src="/fixture.js"></script>`;
 const server=http.createServer((req,res)=>{
  let content, type='text/javascript';
  if(req.url.startsWith('/__publish?marker=')){servedRelease=decodeURIComponent(req.url.split('=')[1]);content='ok';type='text/plain';}
  else if(req.url==='/'||req.url.startsWith('/?')){content=htmlFor(servedRelease);type='text/html';}
  else if(req.url==='/capture.js')content=capture;
  else if(req.url==='/fixture.js')content=fixture;
+ else if(req.url==='/keyboard-silent-viewport.js'&&silentKeyboard)content=fs.readFileSync(path.join(__dirname,'keyboard-silent-viewport.js'));
  else if(req.url==='/fixture-image'&&windowsImage){content=fs.readFileSync(windowsImage);type='application/octet-stream';}
  else {
   const pathname=decodeURIComponent(req.url.split('?')[0]);

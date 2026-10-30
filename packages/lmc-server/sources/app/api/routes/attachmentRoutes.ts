@@ -14,6 +14,7 @@ import { BlockList, isIP } from 'node:net';
 import { Fastify } from '../types';
 import type { FastifyRequest } from 'fastify';
 import { trustedProxies } from '@/lmc/trustedProxies';
+import { readableSession } from '@/lmc/access/sessions';
 import { db } from '@/storage/db';
 import { s3client, s3bucket, isLocalStorage, readLocalFile, putLocalFile } from '@/storage/files';
 
@@ -234,9 +235,8 @@ export function attachmentRoutes(app: Fastify) {
         const { ref } = request.body;
         const userId = request.userId;
 
-        const session = await db.session.findFirst({
-            where: { id: sessionId, accountId: userId },
-        });
+        reply.header('Cache-Control', 'no-store');
+        const session = await readableSession(userId, sessionId, request.authKind);
         if (!session) {
             return reply.code(404).send({ error: 'Session not found' });
         }
@@ -253,7 +253,7 @@ export function attachmentRoutes(app: Fastify) {
             return reply.code(400).send({ error: 'Invalid attachment ref' });
         }
 
-        if (isLocalStorage()) {
+        if (isLocalStorage() || session.shared) {
             const baseUrl = resolveBaseUrl(request, proxies);
             const downloadUrl = `${baseUrl}/v1/sessions/${sessionId}/attachments/${attachmentFile}`;
             return reply.send({ downloadUrl });
@@ -280,9 +280,8 @@ export function attachmentRoutes(app: Fastify) {
         const userId = request.userId;
 
         // Verify session ownership
-        const session = await db.session.findFirst({
-            where: { id: sessionId, accountId: userId },
-        });
+        reply.header('Cache-Control', 'no-store');
+        const session = await readableSession(userId, sessionId, request.authKind);
         if (!session) {
             return reply.code(404).send({ error: 'Session not found' });
         }
@@ -294,12 +293,26 @@ export function attachmentRoutes(app: Fastify) {
 
         const ref = `sessions/${sessionId}/attachments/${attachmentFile}`;
 
-        if (isLocalStorage()) {
+        if (isLocalStorage() || session.shared) {
             try {
-                const bytes = await readLocalFile(ref);
+                let bytes: Buffer;
+                if (isLocalStorage()) bytes = await readLocalFile(ref);
+                else {
+                    // Never give shared readers a presigned URL that outlives
+                    // their permission. Proxy bounded ciphertext after rechecking.
+                    const stream = await s3client.getObject(s3bucket, ref);
+                    const chunks: Buffer[] = []; let length = 0;
+                    for await (const chunk of stream) {
+                        const part = Buffer.from(chunk); length += part.length;
+                        if (length > MAX_FILE_SIZE) { stream.destroy(); return reply.code(413).send({ error: 'Attachment too large' }); }
+                        chunks.push(part);
+                    }
+                    bytes = Buffer.concat(chunks);
+                }
+                if (session.shared && !(await readableSession(userId, sessionId, request.authKind))) return reply.code(404).send({ error: 'Session not found' });
                 return reply.type('application/octet-stream').send(bytes);
             } catch (error) {
-                if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+                if (['ENOENT', 'NoSuchKey', 'NotFound'].includes((error as NodeJS.ErrnoException).code ?? '')) {
                     return reply.code(404).send({ error: 'Attachment not found' });
                 }
                 throw error;

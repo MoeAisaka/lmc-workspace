@@ -1,10 +1,22 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseMarkdown } from '@/components/markdown/parseMarkdown';
-const { rpc } = vi.hoisted(() => ({ rpc: vi.fn() }));
+const { rpc, getFileAsset, readFileAssetParts } = vi.hoisted(() => ({
+    rpc: vi.fn(),
+    getFileAsset: vi.fn(),
+    readFileAssetParts: vi.fn(),
+}));
 vi.mock('@/sync/apiSocket', () => ({ apiSocket: { sessionRPC: rpc } }));
-import { parseMarkdownImageSource, loadMarkdownImage } from './markdownImage';
+vi.mock('@/sync/apiFileAssets', () => ({ getFileAsset, readFileAssetParts }));
+import { UnsupportedSavedImageError, parseMarkdownImageSource, loadMarkdownImage, loadSavedFileImage } from './markdownImage';
 
-beforeEach(() => rpc.mockReset());
+beforeEach(() => {
+    rpc.mockReset();
+    getFileAsset.mockReset();
+    readFileAssetParts.mockReset();
+});
+afterEach(() => {
+    vi.unstubAllGlobals();
+});
 describe('Markdown image delivery', () => {
     it('resolves the bracketed, space-containing host path from an actual Markdown block', () => {
         const [block] = parseMarkdown('![Preview](</Volumes/Work Disk/project/preview.png>)');
@@ -12,12 +24,26 @@ describe('Markdown image delivery', () => {
         if (block.type !== 'image') throw new Error('Image block missing');
         expect(parseMarkdownImageSource(block.url)).toEqual({ kind: 'file', path: '/Volumes/Work Disk/project/preview.png', mime: 'image/png' });
     });
+    it.each(['codex', 'claude'])('reads a slash-prefixed Windows image from a %s reply using its real drive path', async (engine) => {
+        const path = 'D:/AgentWork/Projects/Demo Project/preview.png';
+        const [block] = parseMarkdown(`![Preview](</${path}>)`);
+        if (block.type !== 'image') throw new Error('Image block missing');
+        const source = parseMarkdownImageSource(block.url);
+        expect(source).toEqual({ kind: 'file', path, mime: 'image/png' });
+        if (source?.kind !== 'file') throw new Error('File source missing');
+        rpc.mockResolvedValue({ success: true, size: 1, content: 'AQ==', nextOffset: null });
+        await loadMarkdownImage(`${engine}-session`, source.path, source.mime);
+        expect(rpc).toHaveBeenCalledExactlyOnceWith(`${engine}-session`, 'resource-file', { path, action: 'download' });
+    });
+    it.each(['/D:/out/My%20Shot.png', 'file:///D%3A/out/My%20Shot.png'])('normalizes a Windows drive path after decoding: %s', (url) => {
+        expect(parseMarkdownImageSource(url)).toEqual({ kind: 'file', path: 'D:/out/My Shot.png', mime: 'image/png' });
+    });
     it('decodes file URLs and relative file paths without changing HTTP URLs', () => {
         expect(parseMarkdownImageSource('file:///tmp/Preview%20Page.jpg')).toEqual({ kind: 'file', path: '/tmp/Preview Page.jpg', mime: 'image/jpeg' });
         expect(parseMarkdownImageSource('./screens/preview.webp')).toEqual({ kind: 'file', path: './screens/preview.webp', mime: 'image/webp' });
         // Windows session hosts: a drive letter is a path, not a scheme (2026-10-08, Work-PC).
         expect(parseMarkdownImageSource('D:/Services/LLM/integration/nmem-ui-diagnostics/processing-current.png')).toEqual({ kind: 'file', path: 'D:/Services/LLM/integration/nmem-ui-diagnostics/processing-current.png', mime: 'image/png' });
-        expect(parseMarkdownImageSource('C:\\Users\\MoeAi\\shot.jpg')).toEqual({ kind: 'file', path: 'C:\\Users\\MoeAi\\shot.jpg', mime: 'image/jpeg' });
+        expect(parseMarkdownImageSource('C:\\Users\\alice\\shot.jpg')).toEqual({ kind: 'file', path: 'C:\\Users\\alice\\shot.jpg', mime: 'image/jpeg' });
         expect(parseMarkdownImageSource('file:///D:/out/My%20Shot.png')).toEqual({ kind: 'file', path: 'D:/out/My Shot.png', mime: 'image/png' });
         expect(parseMarkdownImageSource('mailto:a@b.png')).toBeNull();
         expect(parseMarkdownImageSource('d:relative.png')).toBeNull();
@@ -50,5 +76,59 @@ describe('Markdown image delivery', () => {
         rpc.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ success: true, size: 1, content: 'AQ==', nextOffset: null });
         await expect(loadMarkdownImage('s', '/tmp/retry.png', 'image/png')).rejects.toThrow('offline');
         await expect(loadMarkdownImage('s', '/tmp/retry.png', 'image/png')).resolves.toBe('data:image/png;base64,AQ==');
+    });
+    it('recognizes same-host and relative saved-file links as encrypted FileAssets without hijacking third-party URLs', () => {
+        const assetId = '32c8188a-024c-4507-8272-57fac1deecb1';
+        vi.stubGlobal('window', { location: { origin: 'https://lmc.example:8443' } });
+        const [block] = parseMarkdown(`![页面预览](https://lmc.example:8443/saved-files/${assetId})`);
+        expect(block.type).toBe('image');
+        if (block.type !== 'image') throw new Error('Image block missing');
+        expect(parseMarkdownImageSource(block.url)).toEqual({ kind: 'saved-file', id: assetId });
+        expect(parseMarkdownImageSource(`https://lmc.example/saved-files/${assetId}`)).toEqual({ kind: 'saved-file', id: assetId });
+        expect(parseMarkdownImageSource(`/saved-files/${assetId}`)).toEqual({ kind: 'saved-file', id: assetId });
+        expect(parseMarkdownImageSource(`<https://lmc.example:8443/saved-files/${assetId}>`)).toEqual({ kind: 'saved-file', id: assetId });
+        expect(parseMarkdownImageSource(`https://evil.example/saved-files/${assetId}`)).toEqual({
+            kind: 'uri',
+            uri: `https://evil.example/saved-files/${assetId}`,
+        });
+    });
+    it('decrypts multi-part saved-file images, supports octet-stream extension fallback, and rejects non-images or oversized assets', async () => {
+        const assetId = '32c8188a-024c-4507-8272-57fac1deecb1';
+        getFileAsset.mockResolvedValueOnce({
+            manifest: { id: assetId, name: 'preview.png', mimeType: 'image/png', size: 5, parts: [{ size: 2, sha256: 'a' }, { size: 3, sha256: 'b' }] },
+            key: new Uint8Array(32),
+            createdAt: 1,
+        });
+        readFileAssetParts.mockImplementationOnce(async (_file: unknown, write: (chunk: Uint8Array) => Promise<void>) => {
+            await write(new Uint8Array([1, 2]));
+            await write(new Uint8Array([3, 4, 5]));
+        });
+        await expect(loadSavedFileImage(assetId)).resolves.toBe('data:image/png;base64,AQIDBAU=');
+
+        getFileAsset.mockResolvedValueOnce({
+            manifest: { id: assetId, name: 'diagram.svg', mimeType: 'application/octet-stream', size: 2, parts: [{ size: 2, sha256: 'c' }] },
+            key: new Uint8Array(32),
+            createdAt: 1,
+        });
+        readFileAssetParts.mockImplementationOnce(async (_file: unknown, write: (chunk: Uint8Array) => Promise<void>) => {
+            await write(new Uint8Array([60, 62]));
+        });
+        await expect(loadSavedFileImage(assetId)).resolves.toBe('data:image/svg+xml;base64,PD4=');
+
+        getFileAsset.mockResolvedValueOnce({
+            manifest: { id: assetId, name: 'report.pdf', mimeType: 'application/pdf', size: 10, parts: [{ size: 10, sha256: 'd' }] },
+            key: new Uint8Array(32),
+            createdAt: 1,
+        });
+        await expect(loadSavedFileImage(assetId)).rejects.toBeInstanceOf(UnsupportedSavedImageError);
+        expect(readFileAssetParts).toHaveBeenCalledTimes(2);
+
+        getFileAsset.mockResolvedValueOnce({
+            manifest: { id: assetId, name: 'huge.png', mimeType: 'image/png', size: 33 * 1024 * 1024, parts: [] },
+            key: new Uint8Array(32),
+            createdAt: 1,
+        });
+        await expect(loadSavedFileImage(assetId)).rejects.toThrow('Image unavailable');
+        expect(readFileAssetParts).toHaveBeenCalledTimes(2);
     });
 });

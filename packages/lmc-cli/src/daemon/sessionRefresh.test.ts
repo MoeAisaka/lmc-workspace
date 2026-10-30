@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
-import { canRefreshSession, resumeAfterExit } from './sessionRefresh';
+import { canRefreshSession, resumeAfterExit, preserveAgyRefreshSelection } from './sessionRefresh';
+import type { Metadata } from '@/api/types';
 import type { TrackedSession } from './types';
 vi.mock('node:fs', () => ({ realpathSync: vi.fn(() => '/Volumes/External Disk/LMC-runtime/runtime/agent-releases') }));
 
@@ -9,6 +10,20 @@ const persisted = (): TrackedSession => ({
     encryption: { encryptionKey: new Uint8Array(32), encryptionVariant: 'dataKey', seq: 0, metadataVersion: 0, agentStateVersion: 0 },
 });
 const running = async () => [{ pid: 123, name: 'node', cmd: '/opt/homebrew/lib/node_modules/happy/dist/index.mjs codex' }];
+
+it('migrates an older Antigravity refresh using the latest saved selection', () => {
+    const options = { receiveSeq: 42, model: 'flash', permissionMode: 'plan' };
+    const metadata = { flavor: 'agy', modelMode: 'gemini-4-argon-medium', effortLevel: 'high', permissionMode: 'bypassPermissions' } as Metadata;
+    expect(preserveAgyRefreshSelection(options, metadata)).toEqual({ receiveSeq: 42, model: 'gemini-4-argon-medium', effort: 'high', permissionMode: 'bypassPermissions' });
+    expect(preserveAgyRefreshSelection(options, { flavor: 'agy' } as Metadata)).toEqual(options);
+});
+it('does not replace destination settings on engine switches or other engines', () => {
+    const options = { receiveSeq: 42, engine: 'codex' as const, model: 'destination-model' };
+    const metadata = { flavor: 'agy', modelMode: 'source-model' } as Metadata;
+    expect(preserveAgyRefreshSelection(options, metadata)).toBe(options);
+    const refresh = { receiveSeq: 42, model: 'runtime-model' };
+    expect(preserveAgyRefreshSelection(refresh, { ...metadata, flavor: 'codex' })).toBe(refresh);
+});
 
 it('allows an original live session to refresh after its daemon restarts', async () => {
     expect(await canRefreshSession(persisted(), 123, running)).toBe(true);
@@ -60,7 +75,7 @@ it('allows registered Claude sessions to use the same safe handoff', async()=>{
  expect(await canRefreshSession(session,123,running)).toBe(true);
 });
 
-it.each(['claude', 'codex'])('allows a relocated %s runner after daemon restart', async engine => {
+it.each(['claude', 'codex', 'agy'])('allows a relocated %s runner after daemon restart', async engine => {
     const session = persisted();
     session.happySessionMetadataFromLocalWebhook!.flavor = engine;
     const proc = { pid: 123, name: 'node', cmd: `node --no-warnings /Volumes/External Disk/LMC-runtime/runtime/agent-releases/upgrades-20260922-v2/dist/index.mjs ${engine}` };

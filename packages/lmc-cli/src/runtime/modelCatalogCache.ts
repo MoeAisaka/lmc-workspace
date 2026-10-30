@@ -3,10 +3,17 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ModelCatalogsSchema, findCatalogModel, type ModelCatalogs } from 'lmc-wire';
 import { configuration } from '@/configuration';
+import { readPoeSettings } from './poe';
 
 export const modelCatalogPath = () => join(configuration.lmcHomeDir, 'model-catalogs.json');
 export function readModelCatalogs(): ModelCatalogs {
-    try { return ModelCatalogsSchema.parse(JSON.parse(readFileSync(modelCatalogPath(), 'utf8'))); }
+    try {
+        const catalogs = ModelCatalogsSchema.parse(JSON.parse(readFileSync(modelCatalogPath(), 'utf8')));
+        try {
+            if ((catalogs.claude?.source === 'poe') !== !!readPoeSettings()?.enabled) delete catalogs.claude;
+        } catch { delete catalogs.claude; } // A broken Claude connector cannot hide Codex's catalog.
+        return catalogs;
+    }
     catch { return {}; }
 }
 export function cachedModel(engine: 'claude' | 'codex', model: string | null | undefined) {

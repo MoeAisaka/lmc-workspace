@@ -51,3 +51,7 @@ describe('readSwitchSettings', () => {
         expect(readSwitchSettings(null)).toEqual({});
     });
 });
+
+ it('accepts Antigravity as a handoff destination', () => {
+    expect(readSwitchEngine({ engine: 'agy', model: 'gemini-3.8-flash-low' })).toBe('agy');
+ });

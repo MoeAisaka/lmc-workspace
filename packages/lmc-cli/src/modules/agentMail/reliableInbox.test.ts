@@ -24,7 +24,7 @@ function fixture(flavor = 'claude', initial?: Metadata, durable = new Map<string
 }
 
 describe('durable recipient effects, shared by Claude and Codex', () => {
-    it.each(['claude', 'codex'])('persists projection and session delivery before ACK on %s', async flavor => {
+    it.each(['claude', 'codex', 'agy'])('persists projection and session delivery before ACK on %s', async flavor => {
         const f = fixture(flavor);
         let release!: () => void;
         f.session.sendUserTextMessage.mockImplementation(async () => new Promise<void>(resolve => { release = resolve; }));
@@ -41,7 +41,7 @@ describe('durable recipient effects, shared by Claude and Codex', () => {
         expect(f.snapshot().agentMailInbox!['mail-1'].phase).toBe('acked');
     });
 
-    it.each(['claude', 'codex'])('recreates a receiver after processing but before confirmation without replaying effects on %s', async flavor => {
+    it.each(['claude', 'codex', 'agy'])('recreates a receiver after processing but before confirmation without replaying effects on %s', async flavor => {
         const first = fixture(flavor);
         await processReliableMail(first.session, first.mail, message());
         first.mail.acknowledge.mockResolvedValue(false);

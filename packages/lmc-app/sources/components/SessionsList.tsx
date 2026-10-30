@@ -1,3 +1,4 @@
+import { openMachineDetails } from '@/components/lmc/MachineDialog';
 import { SessionStatusIndicator } from './SessionStatusIndicator';
 import React from 'react';
 import { View, Pressable, TextInput, FlatList, NativeScrollEvent, NativeSyntheticEvent, Platform } from 'react-native';
@@ -283,7 +284,7 @@ const MachineHeader = React.memo(({ machineId, machineName }: {
 
     const handlePress = React.useCallback(() => {
         if (machineId) {
-            router.navigate(`/machine/${machineId}` as any);
+            openMachineDetails(machineId);
         }
     }, [machineId, router]);
 
@@ -620,7 +621,7 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }
 }) => {
     const styles = stylesheet;
     const navigateToSession = useNavigateToSession();
-    const { anchor: actionsAnchor, closeMenu: closeActionsMenu, menuProps } = useSessionRowMenu(session.id);
+    const { anchor: actionsAnchor, closeMenu: closeActionsMenu, contextHitOverlay, menuProps } = useSessionRowMenu(session.id);
     const baseStatus = STATUS_CONFIG[session.state];
     const needsUserAction = session.state === 'permission_required' || session.state === 'input_required';
     // User action stays orange and pulsing even when the request also marked the session unread.
@@ -667,6 +668,7 @@ const SessionItem = React.memo(({ session, selected, isFirst, isLast, isSingle }
             onPress={handlePress}
             {...menuProps}
         >
+            {contextHitOverlay}
             <View style={styles.avatarContainer}>
                 <Avatar id={session.avatarId} size={48} monochrome={!status.isConnected} flavor={session.flavor} clientId={session.clientId} imageUrl={session.projectAvatarUri} thumbhash={session.projectAvatarThumbhash} badgeLocation="sessionList" />
                 {session.hasDraft && (

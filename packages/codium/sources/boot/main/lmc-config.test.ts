@@ -13,8 +13,8 @@ const settingsWith = (body: string): string => {
 
 describe('which centre Codium talks to', () => {
     it('takes the centre the CLI is configured for', () => {
-        const p = settingsWith(JSON.stringify({ serverUrl: 'https://centre.example:11455', webappUrl: 'https://web.example' }))
-        expect(resolveCentreUrls({}, p)).toEqual({ serverUrl: 'https://centre.example:11455', webappUrl: 'https://web.example' })
+        const p = settingsWith(JSON.stringify({ serverUrl: 'https://centre.example:8443', webappUrl: 'https://web.example' }))
+        expect(resolveCentreUrls({}, p)).toEqual({ serverUrl: 'https://centre.example:8443', webappUrl: 'https://web.example' })
     })
 
     it('lets the environment win over the settings file', () => {

@@ -28,6 +28,7 @@ export function startAgentMail(session: ApiSessionClient, token: string, describ
     const mail = new AgentMailClient(token, session.sessionId);
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let inFlightTick: Promise<void> | null = null;
     let published: string | null = null;
     // A worker whose hub has left the directory: once it has been gone for a
     // while the person is told, since the worker itself cannot rebind.
@@ -70,7 +71,7 @@ export function startAgentMail(session: ApiSessionClient, token: string, describ
         return await mail.supportsReceipts() || (metadata?.sessionConfigState !== 'queued' && metadata?.sessionConfigState !== 'refreshing');
     };
 
-    const tick = async () => {
+    const tickBody = async () => {
         if (stopped) return;
         try {
             if (await accepting() && !stopped) {
@@ -185,13 +186,25 @@ export function startAgentMail(session: ApiSessionClient, token: string, describ
         } catch (error) {
             logger.debug('[agent-mail] Poll failed', error);
         }
-        if (!stopped) timer = setTimeout(tick, POLL_MS);
+        if (!stopped) {
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(tick, POLL_MS);
+        }
+    };
+
+    const tick = (): Promise<void> => {
+        if (stopped) return Promise.resolve();
+        if (!inFlightTick) {
+            inFlightTick = tickBody().finally(() => { inFlightTick = null; });
+        }
+        return inFlightTick;
     };
 
     timer = setTimeout(tick, 1_000);
 
     return {
         mail,
+        pollNow: tick,
         stop: () => {
             stopped = true;
             session.setHubRequestHandler?.(null);

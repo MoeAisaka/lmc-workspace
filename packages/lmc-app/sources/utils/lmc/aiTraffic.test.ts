@@ -3,7 +3,11 @@ import { aiTrafficOf, formatTraffic, providerSum, summarizeAiTraffic, trafficDay
 
 const GB = 1024 ** 3, MB = 1024 ** 2;
 const now = new Date(2026, 9, 8, 21, 30).getTime();
-const day = (claudeUp: number, claudeDown = 0, openaiUp = 0, openaiDown = 0) => ({ claude: { up: claudeUp, down: claudeDown }, openai: { up: openaiUp, down: openaiDown } });
+const day = (claudeUp: number, claudeDown = 0, openaiUp = 0, openaiDown = 0, agyUp = 0, agyDown = 0) => ({
+    claude: { up: claudeUp, down: claudeDown },
+    openai: { up: openaiUp, down: openaiDown },
+    antigravity: { up: agyUp, down: agyDown },
+});
 
 describe('AI traffic summary', () => {
     it('lists the local days of each period with today last', () => {
@@ -12,22 +16,28 @@ describe('AI traffic summary', () => {
         expect(trafficDays('30days', now)).toHaveLength(30);
         expect(trafficDays('30days', now)[0]).toBe('2026-09-09');
     });
-    it('reads a ledger from an offline machine and rejects a malformed one', () => {
-        const traffic = { updatedAt: 1, days: { '2026-10-08': day(1) } };
+    it('reads a ledger from an offline or pre-antigravity machine and rejects a malformed one', () => {
+        const traffic = { updatedAt: 1, days: { '2026-10-08': day(1, 0, 0, 0, 2, 3) } };
         expect(aiTrafficOf({ id: 'm', active: false, daemonState: { aiTraffic: traffic } } as any)).toEqual(traffic);
+        const legacy = { updatedAt: 1, days: { '2026-10-08': { claude: { up: 1, down: 0 }, openai: { up: 2, down: 0 } } } };
+        expect(aiTrafficOf({ id: 'm', active: false, daemonState: { aiTraffic: legacy } } as any)).toEqual({
+            updatedAt: 1,
+            days: { '2026-10-08': day(1, 0, 2, 0, 0, 0) },
+        });
         expect(aiTrafficOf({ id: 'm', active: true, daemonState: { aiTraffic: { days: 'bad' } } } as any)).toBeNull();
         expect(aiTrafficOf({ id: 'm', active: true, daemonState: null } as any)).toBeNull();
     });
     it('adds up the period per provider and per machine, largest first, and honours the machine filter', () => {
         const machines: Parameters<typeof summarizeAiTraffic>[0] = [
-            { id: 'mini', name: 'MacMini', traffic: { updatedAt: 1, days: { '2026-10-08': day(1.5 * GB, 60 * MB, 90 * MB, 100 * MB), '2026-10-07': day(GB) } } },
-            { id: 'win', name: 'Work-PC', traffic: { updatedAt: 1, days: { '2026-10-08': day(2 * GB, 70 * MB, 55 * MB, 65 * MB), '2026-09-01': day(9 * GB) } } },
+            { id: 'mini', name: 'MacMini', traffic: { updatedAt: 1, days: { '2026-10-08': day(1.5 * GB, 60 * MB, 90 * MB, 100 * MB, 320 * MB, 40 * MB), '2026-10-07': day(GB) } } },
+            { id: 'win', name: 'Work-PC', traffic: { updatedAt: 1, days: { '2026-10-08': day(2 * GB, 70 * MB, 55 * MB, 65 * MB, 480 * MB, 30 * MB), '2026-09-01': day(9 * GB) } } },
             { id: 'old', name: 'GPD', traffic: null },
         ];
         const today = summarizeAiTraffic(machines, 'today', now);
         expect(today.machines.map(m => m.name)).toEqual(['Work-PC', 'MacMini']);
         expect(today.total.claude).toEqual({ up: 3.5 * GB, down: 130 * MB });
         expect(today.total.openai).toEqual({ up: 145 * MB, down: 165 * MB });
+        expect(today.total.antigravity).toEqual({ up: 800 * MB, down: 70 * MB });
         expect(today.reporting).toBe(true);
         const week = summarizeAiTraffic(machines, '7days', now);
         expect(providerSum(week.total)).toBe(providerSum(today.total) + GB);

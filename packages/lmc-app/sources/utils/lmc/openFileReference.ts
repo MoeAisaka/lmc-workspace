@@ -4,7 +4,7 @@ import { showToast } from '@/components/lmc/Toast';
 import { deliverResourceFile } from '@/utils/deliverResourceFile';
 import { decodeBase64ToBytes, fileName, isBinaryExtension, looksBinary } from './fileKinds';
 import { t } from '@/text';
-import { loadMarkdownImage, parseMarkdownImageSource } from '@/utils/markdownImage';
+import { loadMarkdownImage, loadSavedFileImage, parseMarkdownImageSource } from '@/utils/markdownImage';
 import { openImagePreview } from '@/components/ImagePreviewModal';
 
 /**
@@ -29,7 +29,11 @@ export async function openFileReference(sessionId: string | undefined, path: str
     try {
         const image = parseMarkdownImageSource(path);
         if (image) {
-            const uri = image.kind === 'uri' ? image.uri : await loadMarkdownImage(sessionId, image.path, image.mime);
+            const uri = image.kind === 'uri'
+                ? image.uri
+                : image.kind === 'saved-file'
+                    ? await loadSavedFileImage(image.id)
+                    : await loadMarkdownImage(sessionId, image.path, image.mime);
             openImagePreview(uri, name);
             return;
         }

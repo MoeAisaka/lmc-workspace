@@ -24,8 +24,11 @@ export const Switch = (props: SwitchProps) => {
 
     return (
         <Pressable
+            testID={props.testID}
             accessibilityRole="switch"
+            accessibilityLabel={props.accessibilityLabel}
             accessibilityState={{ checked: on, disabled: !!props.disabled }}
+            aria-checked={on}
             disabled={props.disabled}
             hitSlop={8}
             onPress={() => props.onValueChange?.(!on)}

@@ -12,7 +12,7 @@ import { recallInteractiveBlock, type TranscriptReader } from '@/modules/interac
 import { relationTo, type Relation } from '@/modules/orchestration/roles';
 import { boardUpdate } from '@/modules/orchestration/board';
 import { ORCHESTRATION_TOOL_DEFS, ORCHESTRATION_TOOL_NAMES } from '@/modules/orchestration/toolSchemas';
-import { assignTask, configureWorker, reportTask, reviewReport, spawnWorker, type OrchestrationPort } from '@/modules/orchestration/tools';
+import { assignTask, awaitReport, configureWorker, reportTask, reviewReport, spawnWorker, type OrchestrationPort } from '@/modules/orchestration/tools';
 import { spawnDaemonSessionWith } from '@/daemon/controlClient';
 import type { TaskMeter } from '@/modules/orchestration/meter';
 import { createServer } from "node:http";
@@ -23,6 +23,10 @@ import { logger } from "@/ui/logger";
 import { ApiSessionClient, hubTitleFixed } from "@/api/apiSession";
 import { AGENT_MAIL_MAX_HOPS, type AgentMailClient } from "@/modules/agentMail/agentMail";
 import { randomUUID } from "node:crypto";
+import { FILE_PUBLISH_TOOL, FILE_SHARE_TOOL, fileDeliveryResult } from '@/modules/common/fileDelivery';
+import type { ShareFileInput } from '@/modules/common/fileShares';
+import type { FilePublication } from '@/modules/common/filePublications';
+import { configuration } from '@/configuration';
 
 /**
  * What the handoff tool needs from the session it belongs to: whether a switch
@@ -37,7 +41,7 @@ export interface HandoffPort {
 
 /** Full capability set; the registration test keeps this aligned with the actual server. */
 export const HAPPY_MCP_TOOL_NAMES = [
-    'change_title', 'list_sessions', 'send_to_session', 'submit_handoff', 'read_session_transcript', 'recall_interactive_block',
+    'change_title', 'list_sessions', 'send_to_session', 'submit_handoff', 'read_session_transcript', 'recall_interactive_block', 'publish_file', 'share_file',
     ...ORCHESTRATION_TOOL_NAMES,
 ] as const;
 
@@ -51,10 +55,23 @@ export function createMcpServer(
     orchestration: OrchestrationPort | null = null,
     /** Reads another session's transcript when this machine holds its key; null when it does not. */
     transcriptOf: ((sessionId: string) => TranscriptReader | null) | null = null,
+    publishFile: ((input: { path?: string; job_id?: string }) => Promise<unknown>) | null = null,
+    shareFile: ((input: ShareFileInput) => Promise<unknown>) | null = null,
 ): McpServer {
     const mcp = new McpServer({
         name: "Happy MCP",
         version: "1.0.0",
+    });
+    if (shareFile) mcp.registerTool('share_file', FILE_SHARE_TOOL, async (args) => {
+        try { return { content: [{ type: 'text' as const, text: JSON.stringify(await shareFile(args)) }] }; }
+        catch (error) { return { isError: true, content: [{ type: 'text' as const, text: error instanceof Error ? error.message : 'File sharing failed' }] }; }
+    });
+    if (publishFile) mcp.registerTool('publish_file', FILE_PUBLISH_TOOL, async (args) => {
+        try {
+            const result = fileDeliveryResult(await publishFile(args) as FilePublication, configuration.webappUrl);
+            return { isError: result.state === 'failed', content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+        }
+        catch (error) { return { isError: true, content: [{ type: 'text' as const, text: error instanceof Error ? error.message : 'File could not be saved' }] }; }
     });
 
     // The session's own record, for the engine to read. Registered always: a
@@ -214,6 +231,7 @@ export function createMcpServer(
             };
             mcp.registerTool('spawn_worker', ORCHESTRATION_TOOL_DEFS.spawn_worker, (args) => wrap(() => spawnWorker(orchestration, args as any))());
             mcp.registerTool('assign_task', ORCHESTRATION_TOOL_DEFS.assign_task, (args) => wrap(() => assignTask(orchestration, args as any))());
+            mcp.registerTool('await_report', ORCHESTRATION_TOOL_DEFS.await_report, (args) => wrap(() => awaitReport(orchestration, args as any))());
             mcp.registerTool('report_task', ORCHESTRATION_TOOL_DEFS.report_task, (args) => wrap(() => reportTask(orchestration, args as any))());
             mcp.registerTool('review_report', ORCHESTRATION_TOOL_DEFS.review_report, (args) => wrap(() => reviewReport(orchestration, args as any))());
             mcp.registerTool('configure_worker', ORCHESTRATION_TOOL_DEFS.configure_worker, (args) => wrap(() => configureWorker(orchestration, args as any))());
@@ -224,7 +242,13 @@ export function createMcpServer(
 }
 
 /** What the runner knows that the tools need: where it runs and on which machine. */
-export interface OrchestrationHost { cwd: string; machineId: string; meter?: TaskMeter }
+export interface OrchestrationHost {
+    cwd: string;
+    machineId: string;
+    meter?: TaskMeter;
+    pollMail?: () => Promise<void>;
+    consumeQueuedReport?: (id: string, attempt: number, dispatchId?: string) => void;
+}
 
 export async function startHappyServer(client: ApiSessionClient, mail: AgentMailClient | null = null, handoff: HandoffPort | null = null, host: OrchestrationHost | null = null) {
     logger.debug(`[happyMCP] server:start sessionId=${client.sessionId}`);
@@ -255,10 +279,12 @@ export async function startHappyServer(client: ApiSessionClient, mail: AgentMail
         sendMail: (sessionId, text) => mail.send(sessionId, text, 1),
         transcript: (opts) => client.readTranscript(opts),
         listPeers: async () => (await mail.list()).map((entry) => ({ sessionId: entry.sessionId, title: entry.descriptor.title })),
+        pollMail: host.pollMail,
+        consumeQueuedReport: host.consumeQueuedReport,
         meter: host.meter,
     } : null;
     const server = createServer(async (req, res) => {
-        const mcp = createMcpServer(handler, mail, handoff, (opts) => client.readTranscript(opts), (other) => relationTo(client.getMetadata()?.orchestration, other), (update) => client.updateMetadata(update, { strict: true }), orchestration, (other) => client.transcriptReaderFor(other));
+        const mcp = createMcpServer(handler, mail, handoff, (opts) => client.readTranscript(opts), (other) => relationTo(client.getMetadata()?.orchestration, other), (update) => client.updateMetadata(update, { strict: true }), orchestration, (other) => client.transcriptReaderFor(other), input => client.publishFile(input), input => client.shareFile(input));
         try {
             const transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: undefined
@@ -298,6 +324,7 @@ export async function startHappyServer(client: ApiSessionClient, mail: AgentMail
         stop: () => {
             logger.debug(`[happyMCP] server:stop sessionId=${client.sessionId}`);
             server.close();
+            server.closeAllConnections?.();
         }
     }
 }

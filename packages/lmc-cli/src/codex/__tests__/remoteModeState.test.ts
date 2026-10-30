@@ -1,8 +1,41 @@
 import { describe, expect, it } from 'vitest';
 
 import { CodexRemoteModeState } from '../remoteModeState';
+import { resolveCodexApprovalDecision, resolveCodexExecutionPolicy } from '../executionPolicy';
 
 describe('CodexRemoteModeState', () => {
+    it('honours legacy full access for MCP approval, and a later restriction takes precedence', () => {
+        const state = new CodexRemoteModeState({ permissionMode: 'auto' });
+        const full = state.resolve({ permissionMode: 'bypassPermissions' }).permissionMode;
+        expect(resolveCodexApprovalDecision(full, false)).toBe('approved');
+        expect(resolveCodexApprovalDecision(full, false, { hubGuarded: true })).toBe('denied');
+        const limited = state.resolve({ permissionMode: 'plan' }).permissionMode;
+        expect(resolveCodexExecutionPolicy(limited, false)).toEqual({ approvalPolicy: 'never', sandbox: 'read-only' });
+        expect(resolveCodexApprovalDecision(full, false, { latestPermissionMode: limited })).toBeUndefined();
+        expect(state.resolve({ permissionMode: 'unknown-mode' }).permissionMode).toBe('read-only');
+    });
+
+    it.each([
+        ['bypassPermissions', 'yolo'], ['plan', 'read-only'], ['acceptEdits', 'safe-yolo'],
+    ] as const)('accepts the legacy %s spelling without losing its intent', (incoming, expected) => {
+        const state = new CodexRemoteModeState({ permissionMode: 'auto' });
+        expect(state.resolve({ permissionMode: incoming })).toMatchObject({
+            permissionMode: expected, permission: { kind: 'updated', value: expected },
+        });
+        expect(state.currentPermissionModeExplicitlySet).toBe(true);
+        state.resetAfterAbort();
+        expect(state.currentPermissionMode).toBe('auto');
+        expect(state.currentPermissionModeExplicitlySet).toBe(false);
+    });
+
+    it('normalizes a legacy launch mode and restores it after abort', () => {
+        const state = new CodexRemoteModeState({ permissionMode: 'plan' });
+        expect(state.currentPermissionMode).toBe('read-only');
+        state.resolve({ permissionMode: 'bypassPermissions' });
+        state.resetAfterAbort();
+        expect(state.currentPermissionMode).toBe('read-only');
+    });
+
     it('uses the exact launch permission, model, and effort before any app override', () => {
         const state = new CodexRemoteModeState({
             permissionMode: 'safe-yolo',
@@ -106,14 +139,14 @@ describe('CodexRemoteModeState', () => {
         });
 
         expect(state.resolve({
-            permissionMode: 'plan',
+            permissionMode: 'unknown-mode',
             model: 'custom-model',
             effort: 'impossible',
         })).toMatchObject({
             permissionMode: 'yolo',
             model: 'custom-model',
             effort: 'medium',
-            permission: { kind: 'ignored', incoming: 'plan' },
+            permission: { kind: 'ignored', incoming: 'unknown-mode' },
             effortResolution: { kind: 'ignored', incoming: 'impossible' },
         });
     });

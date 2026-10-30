@@ -5,6 +5,12 @@ import { db } from '@/storage/db';
 import { lmcAuth, authRevocations } from './auth';
 import { registerLmcIdentityRoute } from './identityRoute';
 import { registerInternalIdentityRoutes } from './internalIdentityRoute';
+import { registerAccountRoutes } from './access/routes';
+import { accountsService } from './access/accounts';
+import { registerResourceRoutes } from './access/resourceRoutes';
+import { registerCommandRoutes } from './access/commandRoutes';
+import { registerDeviceRunRoutes } from './access/deviceRuns';
+import { multiAccountEnabled, resourcesService } from './access/resources';
 
 const digest = (s:string)=>createHash('sha256').update(s).digest('hex');
 const keySchema=z.string().regex(/^[A-Za-z0-9+/]{43}=$/);
@@ -15,11 +21,16 @@ const expired=(date:Date)=>date.getTime()<Date.now()-10*60_000;
 
 export function lmcAuthRoutes(app:FastifyInstance<any, any, any, any>) {
     const origin=new URL(process.env.LMC_PUBLIC_ORIGIN||'http://127.0.0.1:4193').origin;
+    const accessDeps = { enabled: multiAccountEnabled, origin, verifyToken: (token: string) => lmcAuth.verifyToken(token) };
+    registerAccountRoutes(app, { ...accessDeps, accounts: accountsService });
+    registerResourceRoutes(app, { ...accessDeps, resources: resourcesService });
+    registerCommandRoutes(app, accessDeps);
+    registerDeviceRunRoutes(app, accessDeps);
     if (!origin.startsWith('https:') && !['127.0.0.1','localhost','[::1]'].includes(new URL(origin).hostname)) throw new Error('Public LMC origin requires HTTPS');
     registerLmcIdentityRoute(app, {publicOrigin: origin, verifyToken: token => lmcAuth.verifyToken(token),
         findAccount: id => db.account.findUnique({where: {id}, select: {id: true, username: true}})});
     registerInternalIdentityRoutes(app, {publicOrigin: origin, findLogin: hash => db.lmcLogin.findUnique({
-        where: {hash}, select: {kind: true, expiresAt: true, account: {select: {id: true, username: true}}}})});
+        where: {hash}, select: {kind: true, expiresAt: true, account: {select: {id: true, username: true, enabled: true}}}})});
     const cookie=(token:string,maxAge:number)=>`lmc_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${origin.startsWith('https:')?'; Secure':''}`;
     const attempts=new Map<string,{count:number,until:number}>();
     app.addHook('onRequest',async(req,reply)=>{

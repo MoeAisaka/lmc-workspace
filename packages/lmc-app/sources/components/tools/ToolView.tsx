@@ -183,6 +183,7 @@ export const ToolView = React.memo<ToolViewProps>((props) => {
         || isCompactTerminalTool;
     const activityLabel = getToolActivityLabel(tool);
     const isInlineCodexPatch = Platform.OS === 'web' && tool.name === 'CodexPatch';
+    const isAttachment = tool.name === 'file';
     const renderCardHeader = isCompactActivityTool || shouldRenderToolCardHeader(tool.name, Platform.OS);
     const renderPermissionFooter = () => (
         tool.permission && sessionId && tool.name !== 'AskUserQuestion'
@@ -234,7 +235,7 @@ export const ToolView = React.memo<ToolViewProps>((props) => {
     };
 
     return (
-        <View style={isCompactActivityTool ? styles.compactContainer : isInlineCodexPatch ? styles.inlineContainer : styles.container}>
+        <View style={isCompactActivityTool ? styles.compactContainer : isAttachment ? styles.attachmentContainer : isInlineCodexPatch ? styles.inlineContainer : styles.container}>
             {renderCardHeader ? (
                 isPressable ? (
                     <TouchableOpacity style={isCompactActivityTool ? styles.compactHeader : styles.header} onPress={handlePress} activeOpacity={0.8}>
@@ -258,7 +259,7 @@ export const ToolView = React.memo<ToolViewProps>((props) => {
                 const SpecificToolView = getToolViewComponent(tool.name);
                 if (SpecificToolView) {
                     return (
-                        <View style={styles.content}>
+                        <View style={isAttachment ? undefined : styles.content}>
                             <SpecificToolView
                                 tool={tool}
                                 metadata={props.metadata}
@@ -337,6 +338,10 @@ const styles = StyleSheet.create((theme) => ({
         backgroundColor: 'transparent',
         marginVertical: 1,
         overflow: 'visible',
+    },
+    attachmentContainer: {
+        backgroundColor: 'transparent',
+        marginVertical: 4,
     },
     header: {
         flexDirection: 'row',

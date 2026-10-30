@@ -54,8 +54,11 @@ vi.mock('./sync', () => ({
 import { storage } from './storage';
 import { buildFlatSessionRows } from '@/utils/flatSessionList';
 import { resolveMessageModeMeta } from './messageMeta';
+import { markAgentModePushPending, clearAgentModePushPending } from './agentModesPending';
+import { rigMetadataFixture } from './__testdata__/rigMetadata';
 import {
     getAvailableModels,
+    getAvailablePermissionModes,
     getDefaultEffortKey,
     getDefaultModelKey,
     getEffortLevelsForModel,
@@ -145,6 +148,70 @@ const CLAUDE_BEFORE = {
 };
 
 const CODEX_AFTER = { flavor: 'codex', path: '/p', host: 'h', version: '1.0.0' };
+
+describe('engine-switch permission through the real store and send path', () => {
+    it.each([
+        ['claude', 'codex', 'bypassPermissions', 'yolo'],
+        ['claude', 'codex', 'plan', 'read-only'],
+        ['codex', 'claude', 'yolo', 'bypassPermissions'],
+        ['codex', 'claude', 'read-only', 'plan'],
+    ])('keeps %s → %s intent for %s', (from, to, oldMode, expected) => {
+        const current = mergeSwitch(
+            { flavor: from, version: '1.2.115', permissionMode: oldMode },
+            { flavor: to, version: '1.2.115', permissionMode: oldMode },
+        );
+        expect(current.permissionMode).toBe(expected);
+        expect(resolveMessageModeMeta(current).permissionMode).toBe(expected);
+        const modes = getAvailablePermissionModes(to, current.metadata, translate, current.permissionMode);
+        expect(resolveCurrentOption(modes, [current.permissionMode, 'default'])?.key).toBe(expected);
+    });
+
+    it('repairs a restored session with no previous in-memory state', () => {
+        const id = 'restored-codex-legacy-permission';
+        storage.getState().applySessions([session({ flavor: 'codex', permissionMode: 'bypassPermissions' }, id)]);
+        expect(storage.getState().sessions[id].permissionMode).toBe('yolo');
+    });
+
+    it('maps a retained local pick when target metadata omits permission', () => {
+        const current = mergeSwitch(
+            { flavor: 'claude', permissionMode: 'bypassPermissions' }, { flavor: 'codex' },
+        );
+        expect(current.permissionMode).toBe('yolo');
+    });
+
+    it.each(['default', 'read-only', null])('honours a newer target selection of %s', (permissionMode) => {
+        const current = mergeSwitch(
+            { flavor: 'claude', permissionMode: 'bypassPermissions' }, { flavor: 'codex', permissionMode },
+        );
+        expect(current.permissionMode).toBe(permissionMode);
+    });
+
+    it('does not let a stale full-access echo overwrite a pending read-only pick', () => {
+        const id = 'permission-pending-restriction';
+        const old = session({ flavor: 'codex', permissionMode: 'bypassPermissions' }, id);
+        storage.getState().applySessions([old]);
+        markAgentModePushPending(id, ['permissionMode']);
+        try {
+            storage.getState().updateSessionAgentModes(id, { permissionMode: 'read-only' });
+            storage.getState().applySessions([old]);
+            const current = storage.getState().sessions[id];
+            expect(current.permissionMode).toBe('read-only');
+            expect(resolveMessageModeMeta(current).permissionMode).toBe('read-only');
+        } finally {
+            clearAgentModePushPending(id, ['permissionMode']);
+        }
+    });
+
+    it('leaves Rig operating-mode codes under Rig control', () => {
+        const id = 'permission-rig-owned';
+        storage.getState().applySessions([session({
+            ...rigMetadataFixture, flavor: 'codex', permissionMode: 'bypassPermissions',
+        }, id)]);
+        const current = storage.getState().sessions[id];
+        expect(current.permissionMode).toBe('bypassPermissions');
+        expect(resolveMessageModeMeta(current).permissionMode).toBe('bypassPermissions');
+    });
+});
 
 describe('applySessions with delayed session updates', () => {
     const queued = { queue: [{ key: 'reply', preview: 'next reply', createdAt: 1 }] };

@@ -7,44 +7,19 @@
  * carrying the conversation across as text, because neither engine can read the
  * other's transcript store.
  *
- * The table lives here, on the app side, because this is where a permission
- * mode is chosen. The CLI is handed an already-mapped mode and forwards it to
- * the engine — it never needs to know the mapping, so there is no second copy
- * of it to drift.
+ * The app and runners share the same permission intent table: restored
+ * metadata and messages from older apps can still carry the departed engine's
+ * spelling, so conversion cannot live only in the switch button.
  */
 
-export type SwitchableEngine = 'claude' | 'codex';
+import { normalizePermissionModeForEngine, PERMISSION_INTENT } from 'lmc-wire';
+export { PERMISSION_INTENT } from 'lmc-wire';
+
+export type SwitchableEngine = 'claude' | 'codex' | 'agy';
 
 export function isSwitchableEngine(value: unknown): value is SwitchableEngine {
-    return value === 'claude' || value === 'codex';
+    return value === 'claude' || value === 'codex' || value === 'agy';
 }
-
-/**
- * Permission modes by what they let the agent do, not by name.
- *
- * The two engines share two spellings (`auto`, `default`) and agree on neither
- * of the others, so carrying a mode across unchanged would either be rejected
- * or — worse — silently accepted as a different policy. These are the closest
- * intent matches, and they are approximations: Claude's `plan` is "think, do
- * not edit" while Codex's `read-only` is "read, do not write", which are the
- * same restraint arrived at differently.
- */
-export const PERMISSION_INTENT: Record<SwitchableEngine, Record<string, string>> = {
-    claude: {
-        auto: 'auto',
-        acceptEdits: 'safe-yolo',
-        plan: 'read-only',
-        bypassPermissions: 'yolo',
-        default: 'default',
-    },
-    codex: {
-        auto: 'auto',
-        'safe-yolo': 'acceptEdits',
-        'read-only': 'plan',
-        yolo: 'bypassPermissions',
-        default: 'default',
-    },
-};
 
 /**
  * The mode to start the target engine in. Falls back to that engine's own
@@ -56,9 +31,11 @@ export function mapPermissionMode(
     to: SwitchableEngine,
     mode: string | null | undefined,
 ): string {
-    if (from === to) return mode ?? 'default';
     if (!mode) return 'default';
-    return PERMISSION_INTENT[from][mode] ?? 'default';
+    const target = to === 'agy' ? 'claude' : to;
+    const normalized = normalizePermissionModeForEngine(target, mode);
+    if (from === to) return normalized;
+    return Object.prototype.hasOwnProperty.call(PERMISSION_INTENT[target], normalized) ? normalized : 'default';
 }
 
 /**
@@ -69,7 +46,7 @@ export function mapPermissionMode(
 export interface EngineSwitchRequest {
     /** Which engine to continue on. */
     engine: SwitchableEngine;
-    /** Already mapped by `mapPermissionMode`; the CLI does not re-map. */
+    /** Already mapped by `mapPermissionMode`; runners also accept legacy aliases. */
     permissionMode?: string;
     model?: string;
     effort?: string;

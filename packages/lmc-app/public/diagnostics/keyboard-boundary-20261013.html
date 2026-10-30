@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<title>键盘空白对照</title>
+<style>
+*{box-sizing:border-box}html{background:#bfece0;color:#142e2a;font:16px/1.5 system-ui}
+body{margin:0;padding:16px;background:#bfece0}h1{font-size:22px;margin:0 0 8px}p{margin:8px 0}
+nav{display:flex;gap:8px;flex-wrap:wrap}a,button{font:inherit;color:#103c32;background:#fff;border:1px solid #457b6d;border-radius:8px;padding:8px;text-decoration:none}
+a[aria-current=page]{background:#184f41;color:#fff}#mode{font-weight:700}#composer{margin-top:32vh;padding:12px;background:#fff8c4;border:3px solid #ae6425;border-radius:12px}
+label{display:block}textarea{font:18px/1.4 system-ui;width:100%;height:70px;border:1px solid #987d55;border-radius:6px;padding:10px;background:white;color:#222;resize:none}
+#bottom{font-size:13px;text-align:center;color:#7b431a}#readout{font:12px/1.45 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0}
+body[data-mode=fixed] #composer,body[data-mode=viewport] #composer{position:fixed;left:12px;right:12px;bottom:0;margin:0;z-index:2}
+body[data-mode=fixed],body[data-mode=viewport]{height:100dvh;overflow:hidden}
+html:has(body[data-mode=fixed]),html:has(body[data-mode=viewport]){height:100%;overflow:hidden}
+#status{min-height:24px;font-size:14px}
+</style>
+<h1>键盘空白对照</h1>
+<p>保持当前输入法，点下方输入框。浅绿色是网页背景，橙线是输入区边界。观察橙线、Safari 地址栏与键盘之间的空白。</p>
+<nav aria-label="对照模式"><a href="?mode=flow" data-mode="flow">普通网页</a><a href="?mode=fixed" data-mode="fixed">固定底部</a><a href="?mode=viewport" data-mode="viewport">跟随可视区</a></nav>
+<p id="mode"></p>
+<button id="copy" type="button">复制位置记录</button><span id="status" role="status"></span>
+<pre id="readout"></pre>
+<section id="composer"><label for="field">对照输入框（内容不记录）</label><textarea id="field" placeholder="点这里打开键盘"></textarea><div id="bottom">橙色底边 · 网页输入区结束</div></section>
+<script>
+(() => {
+    const names = {flow:'普通网页：正常文档流，没有键盘补偿。',fixed:'固定底部：浏览器原生 fixed，没有键盘补偿。',viewport:'跟随可视区：简化定位对照，不是完整 LMC 聊天组件。'};
+    const requested = new URLSearchParams(location.search).get('mode');
+    const mode = Object.hasOwn(names, requested) ? requested : 'flow';
+    document.body.dataset.mode = mode;
+    document.getElementById('mode').textContent = names[mode];
+    document.querySelector(`a[data-mode="${mode}"]`).setAttribute('aria-current','page');
+    const field = document.getElementById('field'), composer = document.getElementById('composer');
+    const readout = document.getElementById('readout'), status = document.getElementById('status');
+    const events = []; let last = '', raf = 0, timer = 0, latest;
+    const rect = element => { const r=element.getBoundingClientRect(); return [r.x,r.y,r.width,r.height].map(n=>Math.round(n*10)/10); };
+    function measure(reason) {
+        const vv = visualViewport;
+        if (mode === 'viewport') {
+            const inset = Math.max(0,document.documentElement.clientHeight - scrollY - (vv?.height ?? innerHeight));
+            composer.style.bottom = `${inset}px`;
+        }
+        latest = {schema:'lmc-keyboard-boundary-v1',mode,reason,focused:document.activeElement===field,
+            viewport:vv?[vv.width,vv.height,vv.offsetTop,vv.pageTop,vv.scale]:null,
+            window:[innerWidth,innerHeight,scrollY],document:[document.documentElement.clientHeight,document.documentElement.scrollTop],
+            composer:rect(composer),field:rect(field),bottom:composer.style.bottom||'CSS',
+        };
+        readout.textContent = `模式 ${mode} · ${latest.focused?'输入中':'未聚焦'}\n可视区 ${JSON.stringify(latest.viewport)}\n窗口 ${JSON.stringify(latest.window)}\n输入区 ${JSON.stringify(latest.composer)}`;
+        const signature = JSON.stringify({...latest,reason:null});
+        if (signature !== last) { events.push({...latest,t:Math.round(performance.now())}); if(events.length>60)events.shift(); last=signature; }
+    }
+    function schedule(event) { if(!raf)raf=requestAnimationFrame(()=>{raf=0;measure(event?.type||'sample');}); }
+    function watch() { clearInterval(timer); timer = document.activeElement===field && !document.hidden ? setInterval(schedule,250) : 0; schedule(); }
+    field.addEventListener('focus',watch); field.addEventListener('blur',watch);
+    document.addEventListener('visibilitychange',watch);
+    for (const target of [window,visualViewport].filter(Boolean)) for(const event of ['resize','scroll'])target.addEventListener(event,schedule,{passive:true});
+    document.getElementById('copy').addEventListener('pointerdown',event=>event.preventDefault());
+    document.getElementById('copy').addEventListener('click',()=>{
+        measure('copy');
+        const text=JSON.stringify({schema:'lmc-keyboard-boundary-v1',browser:navigator.userAgent,screen:[screen.width,screen.height,devicePixelRatio],latest,events});
+        navigator.clipboard.writeText(text).then(()=>{status.textContent=' 已复制';}).catch(()=>{status.textContent=' 复制不可用，请截取当前页面';});
+    });
+    measure('load');
+})();
+</script>
+</html>

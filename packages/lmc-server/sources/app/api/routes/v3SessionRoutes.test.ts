@@ -188,6 +188,7 @@ const {
     const dbMock = {
         session: {
             findFirst: sessionFindFirst,
+            findUnique: vi.fn(async (args: any) => state.sessions.find(s => s.id === args.where.id) ?? null),
             update: sessionUpdate
         },
         account: {

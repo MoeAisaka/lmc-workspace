@@ -47,6 +47,14 @@ let browser;
             }, true);
         }
     });
+    if (process.argv.includes('--input-probe')) {
+        await page.evaluate(() => {
+            const host = document.createElement('div'); document.body.appendChild(host);
+            createRoot(host).render(h(moduleExport('WebInputProbeRuntime').WebInputProbeRuntime));
+            storage.getState().applyLocalSettings({devModeEnabled: true});
+        });
+        await page.locator('[data-lmc-input-probe="copy"]').waitFor();
+    }
     for (const size of [{width: 440, height: 756}, {width: 820, height: 1080}]) {
         await page.setViewportSize(size);
         await page.evaluate(height => { window.fixtureLayoutHeight = height; window.dispatchEvent(new Event('resize')); }, size.height);

@@ -1,3 +1,5 @@
+import { accountMe } from '@/sync/apiAccounts';
+import { openResourceSharing } from '@/components/lmc/ResourceSharingDialog';
 import { Text } from '@/components/StyledText';
 import * as React from 'react';
 import { Pressable, ScrollView, Modal as RNModal, Platform, View, useWindowDimensions } from 'react-native';
@@ -17,6 +19,7 @@ import {
 import { MobileGlassSurface } from './MobileGlass';
 import { AnimatedPopup, LocalBlurHalo } from './AnimatedOverlay';
 import { openCollaborationSheet } from './lmc/CollaborationSheet';
+import { isSecondaryPressEvent } from '@/utils/pointerEvents';
 import { t } from '@/text';
 
 export type SessionActionsAnchor =
@@ -143,6 +146,15 @@ export function SessionActionsPopover({
     const safeArea = useSafeAreaInsets();
     const { height: windowHeight, width: windowWidth } = useWindowDimensions();
     const session = useSession(sessionId);
+    const [sharingAvailable, setSharingAvailable] = React.useState(false);
+    React.useEffect(() => {
+        let active = true;
+        setSharingAvailable(false);
+        if (visible && session && !session.shared) void accountMe().then(me => {
+            if (active) setSharingAvailable(me.capabilities.sessionSharing);
+        }).catch(() => {});
+        return () => { active = false; };
+    }, [visible, sessionId, session?.shared]);
     const { actionItems: actions } = useSessionQuickActions(session!, {
         onAfterArchive,
         onAfterDelete,
@@ -156,7 +168,7 @@ export function SessionActionsPopover({
             return null;
         }
 
-        const estimatedHeight = actions.length * WEB_MENU_ITEM_HEIGHT;
+        const estimatedHeight = (actions.length + (session?.shared ? 0 : 1) + (sharingAvailable ? 1 : 0)) * WEB_MENU_ITEM_HEIGHT;
         const leftBase = anchor.type === 'point'
             ? anchor.x
             : anchor.x + anchor.width - WEB_MENU_WIDTH;
@@ -173,13 +185,60 @@ export function SessionActionsPopover({
             left: Math.max(WEB_MENU_MARGIN, Math.min(windowWidth - WEB_MENU_WIDTH - WEB_MENU_MARGIN, leftBase)),
             top: Math.max(WEB_MENU_MARGIN, Math.min(windowHeight - estimatedHeight - WEB_MENU_MARGIN, topBase)),
         };
-    }, [actions.length, anchor, windowHeight, windowWidth]);
+    }, [actions.length, sharingAvailable, session?.shared, anchor, windowHeight, windowWidth]);
 
     const handleActionPress = React.useCallback((action: SessionActionItem) => {
         if (action.disabled) return;
         onClose();
         action.onPress();
     }, [onClose]);
+
+    // When a menu opens mid-gesture on touch (stationary long-press) or before
+    // pointerup on secondary click, lifting the finger dispatches a trailing
+    // synthetic click onto the newly portaled modal. Ignore pointer presses
+    // until a fresh pointerdown/touchstart/mousedown/keydown occurs after open.
+    const armedSinceOpenRef = React.useRef(true);
+    React.useLayoutEffect(() => {
+        if (Platform.OS !== 'web' || typeof window === 'undefined' || !visible) {
+            armedSinceOpenRef.current = true;
+            return;
+        }
+        armedSinceOpenRef.current = false;
+        const openedAt = Date.now();
+        let sawPointerOrTouch = false;
+        const onPointerOrTouch = (event: Event) => {
+            if (isSecondaryPressEvent(event)) return;
+            sawPointerOrTouch = true;
+            armedSinceOpenRef.current = true;
+        };
+        const onMouseDown = (event: MouseEvent) => {
+            if (isSecondaryPressEvent(event)) return;
+            if (typeof window.PointerEvent === 'function' && !sawPointerOrTouch && Date.now() - openedAt < 500) {
+                return;
+            }
+            armedSinceOpenRef.current = true;
+        };
+        const onKeyDown = () => {
+            armedSinceOpenRef.current = true;
+        };
+        window.addEventListener('pointerdown', onPointerOrTouch, true);
+        window.addEventListener('touchstart', onPointerOrTouch, true);
+        window.addEventListener('mousedown', onMouseDown, true);
+        window.addEventListener('keydown', onKeyDown, true);
+        return () => {
+            window.removeEventListener('pointerdown', onPointerOrTouch, true);
+            window.removeEventListener('touchstart', onPointerOrTouch, true);
+            window.removeEventListener('mousedown', onMouseDown, true);
+            window.removeEventListener('keydown', onKeyDown, true);
+        };
+    }, [visible]);
+
+    const runWhenArmed = React.useCallback((fn: () => void) => {
+        if (Platform.OS === 'web' && !armedSinceOpenRef.current) {
+            return;
+        }
+        fn();
+    }, []);
 
     React.useEffect(() => {
         if (Platform.OS !== 'web' || typeof window === 'undefined' || !visible || !anchor || !session) {
@@ -223,7 +282,7 @@ export function SessionActionsPopover({
                 accessibilityRole="button"
                 disabled={action.disabled}
                 accessibilityState={{ disabled: !!action.disabled }}
-                onPress={() => handleActionPress(action)}
+                onPress={() => runWhenArmed(() => handleActionPress(action))}
                 style={({ pressed }) => [
                     styles.menuItem,
                     action.disabled && { opacity: 0.5 },
@@ -250,11 +309,11 @@ export function SessionActionsPopover({
     // spliced into the rendered list rather than a member of `actions` — that
     // array also drives the keydown matcher, which assumes every entry has one.
     const renameIndex = actions.findIndex((action) => action.id === 'rename');
-    actionItems.splice(renameIndex >= 0 ? renameIndex + 1 : 0, 0, (
+    if (!session.shared) actionItems.splice(renameIndex >= 0 ? renameIndex + 1 : 0, 0, (
         <Pressable
             key="collaboration"
             accessibilityRole="button"
-            onPress={() => { onClose(); openCollaborationSheet(sessionId); }}
+            onPress={() => runWhenArmed(() => { onClose(); openCollaborationSheet(sessionId); })}
             style={({ pressed }) => [styles.menuItem, styles.menuItemDivider, pressed && styles.menuItemPressed]}
         >
             <Ionicons color={theme.colors.text} name="people-outline" size={18} />
@@ -263,6 +322,14 @@ export function SessionActionsPopover({
             </Text>
         </Pressable>
     ));
+
+    if (sharingAvailable && !session.shared) actionItems.push(
+        <Pressable key="sharing" accessibilityRole="button" onPress={() => runWhenArmed(() => { onClose(); openResourceSharing('session', sessionId); })}
+            style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}>
+            <Ionicons color={theme.colors.text} name="share-social-outline" size={18} />
+            <Text style={[styles.menuItemLabel, { color: theme.colors.text }]}>共享设置</Text>
+        </Pressable>
+    );
 
     const nativeContent = (
         <>
@@ -291,8 +358,25 @@ export function SessionActionsPopover({
                 transparent
                 visible={visible}
             >
-                <View style={styles.webContainer}>
-                    <Pressable onPress={onClose} style={[styles.backdrop, styles.webBackdrop]} />
+                <View
+                    style={styles.webContainer}
+                    {...({
+                        onContextMenu: (event: any) => {
+                            event.preventDefault?.();
+                            event.stopPropagation?.();
+                        },
+                        onPointerDown: (event: any) => event.stopPropagation?.(),
+                        onPointerUp: (event: any) => event.stopPropagation?.(),
+                        onPointerMove: (event: any) => event.stopPropagation?.(),
+                        onMouseDown: (event: any) => event.stopPropagation?.(),
+                        onMouseUp: (event: any) => event.stopPropagation?.(),
+                        onAuxClick: (event: any) => {
+                            event.preventDefault?.();
+                            event.stopPropagation?.();
+                        },
+                    } as any)}
+                >
+                    <Pressable onPress={() => runWhenArmed(onClose)} style={[styles.backdrop, styles.webBackdrop]} />
                     <View
                         style={[
                             styles.webMenu,

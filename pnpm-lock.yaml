@@ -689,6 +689,9 @@ importers:
       fuse.js:
         specifier: ^7.1.0
         version: 7.1.0
+      html2canvas:
+        specifier: 1.4.1
+        version: 1.4.1
       libsodium-wrappers:
         specifier: 0.8.2
         version: 0.8.2

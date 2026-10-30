@@ -41,7 +41,7 @@ const HISTORY_SHOWN = 6;
  * history: an engine that recognises its own words is inclined to trust them,
  * and the files they mention may have changed hands since.
  */
-export function describeRecord(history: ThreadRecord[], arriving: 'claude' | 'codex' | undefined): string {
+export function describeRecord(history: ThreadRecord[], arriving: 'claude' | 'codex' | 'agy' | undefined): string {
     const lines: string[] = ['## Full record'];
     lines.push('Read this session\'s own transcript with the read_session_transcript tool: it is the one record covering every engine that has worked here, from any machine. These notes summarise it.');
     const shown = history.slice(-HISTORY_SHOWN);
@@ -63,7 +63,7 @@ export function describeRecord(history: ThreadRecord[], arriving: 'claude' | 'co
 
 export type ArmedHandoffPort = HandoffPort & {
     /** `target` is the engine taking over, so its own earlier stretches can be marked as such. */
-    arm(fallbackBriefing: string | null, target?: 'claude' | 'codex'): void;
+    arm(fallbackBriefing: string | null, target?: 'claude' | 'codex' | 'agy'): void;
     disarm(): void;
     /**
      * Called once the engine's own briefing is stored, so the runner can stop
@@ -73,9 +73,9 @@ export type ArmedHandoffPort = HandoffPort & {
     onSubmitted?: () => void;
 };
 
-export function createHandoffPort(client: ApiSessionClient, from: string, fromFlavor: 'claude' | 'codex', priorThread: () => PriorThread | null): ArmedHandoffPort {
+export function createHandoffPort(client: ApiSessionClient, from: string, fromFlavor: 'claude' | 'codex' | 'agy', priorThread: () => PriorThread | null): ArmedHandoffPort {
     let pending = false;
-    let target: 'claude' | 'codex' | undefined;
+    let target: 'claude' | 'codex' | 'agy' | undefined;
 
     const store = (briefing: string, source: 'engine' | 'compiled') => {
         const prior = priorThread();
@@ -142,7 +142,7 @@ export function createHandoffPort(client: ApiSessionClient, from: string, fromFl
  * delivered again on the next ordinary refresh — the new engine being told to
  * take over from itself.
  */
-export async function consumePendingHandoff(client: ApiSessionClient): Promise<{ briefing: string; source: 'engine' | 'compiled'; from: string; fromFlavor?: 'claude' | 'codex' } | null> {
+export async function consumePendingHandoff(client: ApiSessionClient): Promise<{ briefing: string; source: 'engine' | 'compiled'; from: string; fromFlavor?: 'claude' | 'codex' | 'agy' } | null> {
     let pending: Metadata['pendingHandoff'] | undefined;
     await client.updateMetadata((metadata) => {
         pending = metadata.pendingHandoff;

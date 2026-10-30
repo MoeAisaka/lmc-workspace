@@ -4,6 +4,7 @@
  * these must never flow from an ambient daemon environment into a new child.
  */
 export const SESSION_SCOPED_ENV_KEYS = [
+    'LMC_SESSION_RUNTIME_FILE',
     'HAPPY_RECONNECT_SESSION_ID',
     'HAPPY_RECONNECT_ENCRYPTION_KEY',
     'HAPPY_RECONNECT_ENCRYPTION_VARIANT',

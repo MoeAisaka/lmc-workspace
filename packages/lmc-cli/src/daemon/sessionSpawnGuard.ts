@@ -112,7 +112,7 @@ export function findProviderSessionPid(
 /** Only the session entrypoint owns heartbeats; engines, MCP helpers and the daemon do not. */
 function looksLikeHappyCli(proc: RunningProcess): boolean {
     const args = lmcCliArguments(proc);
-    return args !== undefined && (args === '' || /^(?:codex|claude)(?:\s|$)/.test(args)
+    return args !== undefined && (args === '' || /^(?:codex|claude|agy)(?:\s|$)/.test(args)
         || /^--(?:happy-starting-mode|resume|started-by)(?:\s|=)/.test(args));
 }
 

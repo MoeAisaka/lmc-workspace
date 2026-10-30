@@ -8,6 +8,10 @@ import { openFileReference } from './openFileReference';
 import { fileName } from './fileKinds';
 import { t } from '@/text';
 import { readSessionResource } from '@/utils/readSessionResource';
+import { openSavedFile } from '@/components/SavedFileDialog';
+import { filePublicationSchema } from 'lmc-wire';
+import { randomUUID } from 'expo-crypto';
+import { showToast } from '@/components/lmc/Toast';
 
 /**
  * The four things you can do with a file a session knows about.
@@ -21,6 +25,9 @@ import { readSessionResource } from '@/utils/readSessionResource';
 type Delivery = 'open-host' | 'download' | 'share';
 
 const inFlight = new Set<string>();
+// Retain an upload intent across a lost RPC reply. Retrying the menu action
+// resumes this job instead of uploading another snapshot without knowing it.
+const saveIntents = new Map<string, string>();
 
 /** Reads the file off the session's device, following the chunk cursor to the end. */
 async function fetchResource(sessionId: string, path: string) {
@@ -84,6 +91,30 @@ export function chooseSessionFile({ sessionId, path, onPreview, onBusyChange }: 
     // The Agent only delivers files inside the project, so say so before the tap.
     const blocked = supported ? undefined : t('lmc.resources.unsupported');
     const actions: FileAction[] = [
+        { key: 'save', title: '保存到 LMC', subtitle: '保存为固定版本，源电脑离线后仍可下载', icon: 'cloud-upload-outline', disabledReason: session?.metadata?.sessionCapabilities?.persistentFiles ? undefined : '请升级此会话的 Agent', onPress: () => {
+            void (async () => {
+                if (inFlight.has(path)) return;
+                inFlight.add(path); onBusyChange?.(path);
+                const identity = sessionId + ':' + path;
+                const requestId = saveIntents.get(identity) ?? randomUUID();
+                saveIntents.set(identity, requestId);
+                try {
+                    const result = await apiSocket.sessionRPC<{ success: boolean; job?: unknown; error?: string }, { path: string; requestId: string }>(sessionId, 'publish-file', { path, requestId });
+                    if (!result.success) throw new Error(result.error || '文件保存失败');
+                    let job = filePublicationSchema.parse(result.job);
+                    while (job.state === 'uploading') {
+                        showToast('正在保存文件' + (job.total ? ' · ' + Math.floor(job.bytes / job.total * 100) + '%' : ''));
+                        const state = await apiSocket.sessionRPC<{ success: boolean; job?: unknown; error?: string }, { id: string }>(sessionId, 'file-publication', { id: job.id });
+                        if (!state.success) throw new Error(state.error || '保存状态不可用，请查看已保存文件');
+                        job = filePublicationSchema.parse(state.job);
+                    }
+                    saveIntents.delete(identity);
+                    if (job.state !== 'ready' || !job.file) throw new Error(job.error || '文件保存失败');
+                    openSavedFile(job.file.id);
+                } catch (error) { Modal.alert('保存文件', error instanceof Error ? error.message : '文件保存失败'); }
+                finally { inFlight.delete(path); onBusyChange?.(null); }
+            })();
+        } },
         { key: 'preview', title: t('lmc.resources.preview'), subtitle: t('lmc.resources.previewHint'), icon: 'eye-outline', onPress: () => (onPreview ? onPreview(path) : void openFileReference(sessionId, path)) },
         { key: 'host', title: t('lmc.resources.openOnHost'), subtitle: t('lmc.resources.openOnHostHint'), icon: 'desktop-outline', disabledReason: blocked, onPress: () => { void deliver(sessionId, path, 'open-host', onBusyChange); } },
         { key: 'download', title: t('lmc.resources.download'), subtitle: t('lmc.resources.downloadHint'), icon: 'download-outline', disabledReason: blocked, onPress: () => { void deliver(sessionId, path, 'download', onBusyChange); } },

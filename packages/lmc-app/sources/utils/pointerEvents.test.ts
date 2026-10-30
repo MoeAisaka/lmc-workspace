@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { isTouchInteraction, readEventPoint } from './pointerEvents';
+import { isSecondaryPressEvent, isTouchInteraction, readEventPoint } from './pointerEvents';
 
 const originalMatchMedia = (globalThis as any).window;
 
@@ -82,5 +82,34 @@ describe('isTouchInteraction', () => {
     it('stays false without a window', () => {
         setMatchMedia(null);
         expect(isTouchInteraction({ nativeEvent: {} })).toBe(false);
+    });
+
+    it('reads coordinates from raw DOM events without nativeEvent wrapper', () => {
+        expect(readEventPoint({ clientX: 88, clientY: 144 })).toEqual({ x: 88, y: 144 });
+    });
+
+    it('recognizes touch release events carrying changedTouches', () => {
+        expect(isTouchInteraction({ nativeEvent: { touches: [], changedTouches: [{ clientX: 10, clientY: 20 }] } })).toBe(true);
+    });
+});
+
+describe('isSecondaryPressEvent', () => {
+    it('detects right-click / iPadOS trackpad two-finger secondary click', () => {
+        expect(isSecondaryPressEvent({ nativeEvent: { button: 2, pointerType: 'mouse' } })).toBe(true);
+        expect(isSecondaryPressEvent({ nativeEvent: { button: 2, pointerType: 'touch' } })).toBe(true);
+        expect(isSecondaryPressEvent({ button: 0, buttons: 2 })).toBe(true);
+        expect(isSecondaryPressEvent({ nativeEvent: { which: 3 } })).toBe(true);
+    });
+
+    it('detects Ctrl + primary click on keyboard/mouse but not on touch', () => {
+        expect(isSecondaryPressEvent({ nativeEvent: { button: 0, ctrlKey: true, pointerType: 'mouse' } })).toBe(true);
+        expect(isSecondaryPressEvent({ nativeEvent: { button: 0, ctrlKey: true, pointerType: 'touch' } })).toBe(false);
+        expect(isSecondaryPressEvent({ nativeEvent: { button: 0, ctrlKey: true, pointerType: 'pen' } })).toBe(false);
+    });
+
+    it('rejects ordinary primary clicks and middle clicks', () => {
+        expect(isSecondaryPressEvent({ nativeEvent: { button: 0, buttons: 1, ctrlKey: false, pointerType: 'mouse' } })).toBe(false);
+        expect(isSecondaryPressEvent({ nativeEvent: { button: 1, buttons: 4, pointerType: 'mouse' } })).toBe(false);
+        expect(isSecondaryPressEvent(undefined)).toBe(false);
     });
 });

@@ -1183,7 +1183,7 @@ export const HomeDock = React.memo(({
         setAgentType(agent);
         setPermissionMode(nextDefaults.permissionMode);
         setModelMode(nextDefaults.modelMode);
-        if (nextDefaults.effortLevel) setEffortLevel(nextDefaults.effortLevel);
+        setEffortLevel(nextDefaults.effortLevel);
     }, [defaultOverrides, happyCliVersion, rigSelectionCreation, setAgentType, setEffortLevel, setModelMode, setPermissionMode]);
 
     React.useEffect(() => {
@@ -1290,7 +1290,7 @@ export const HomeDock = React.memo(({
         if (setting === 'model') {
             return { title: t('agentInput.model.title'), options: modelOptions, selectedKey: currentModel?.key, onSelect: (key) => {
                 setModelMode(key);
-                if (!rigCreation && getEffortLevelsForModel(agentType, key, machineModelMetadata(selectedChoice?.lmcMachine?.metadata), t).length === 0) setEffortLevel(null);
+                if (agentType === 'agy' || (!rigCreation && getEffortLevelsForModel(agentType, key, machineModelMetadata(selectedChoice?.lmcMachine?.metadata), t).length === 0)) setEffortLevel(null);
             } };
         }
         if (setting === 'permission') {

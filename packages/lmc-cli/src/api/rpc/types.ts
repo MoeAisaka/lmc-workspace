@@ -37,6 +37,7 @@ export interface RpcHandlerConfig {
     encryptionKey: Uint8Array;
     encryptionVariant: 'legacy' | 'dataKey';
     logger?: (message: string, data?: any) => void;
+    beforeRequest?: (method: string, params: unknown) => Promise<void>;
 }
 
 /**

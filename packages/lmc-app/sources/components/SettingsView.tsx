@@ -1,3 +1,4 @@
+import { openUsage } from '@/components/lmc/UsageDialog';
 import * as React from 'react';
 import { NativeScrollEvent, NativeSyntheticEvent, Platform, View } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -13,7 +14,7 @@ import { useAllMachines, useProfile } from '@/sync/storage';
 import { getAvatarUrl, getDisplayName } from '@/sync/profile';
 import { getServerUrl } from '@/sync/serverConfig';
 import { machineAgentVersion, machineDisplayName } from '@/utils/lmc/deviceEngineGroups';
-import { LMC_SETTINGS_SECTIONS, type LmcSettingsSection } from '@/components/lmc/settings/LmcSettingsDialog';
+import { LMC_SETTINGS_SECTIONS, openLmcSettings, type LmcSettingsSection } from '@/components/lmc/settings/LmcSettingsDialog';
 import { useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 
@@ -68,7 +69,7 @@ export const SettingsView = React.memo(({ topContentInset = 0, bottomContentInse
                             thumbhash={profile.avatar?.thumbhash}
                         />
                     }
-                    onPress={() => router.push(ROUTES.account)}
+                    onPress={() => openLmcSettings('account')}
                 />
             </ItemGroup>
 
@@ -80,7 +81,7 @@ export const SettingsView = React.memo(({ topContentInset = 0, bottomContentInse
                         subtitle={subtitles[section.key]}
                         subtitleLines={1}
                         icon={<Ionicons name={section.icon} size={22} color={theme.colors.textSecondary} />}
-                        onPress={() => router.push(ROUTES[section.key] as never)}
+                        onPress={() => openLmcSettings(section.key)}
                     />
                 ))}
             </ItemGroup>
@@ -91,7 +92,7 @@ export const SettingsView = React.memo(({ topContentInset = 0, bottomContentInse
                         title="用量看板"
                         subtitle="Claude 与 Codex 的用量、趋势和会话明细"
                         icon={<Ionicons name="analytics-outline" size={22} color={theme.colors.textSecondary} />}
-                        onPress={() => router.push('/settings/usage')}
+                        onPress={() => openUsage()}
                     />
                 </ItemGroup>
             )}

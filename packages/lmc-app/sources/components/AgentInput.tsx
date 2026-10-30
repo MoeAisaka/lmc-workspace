@@ -1,3 +1,4 @@
+import { openMachineDetails } from '@/components/lmc/MachineDialog';
 import { Text } from '@/components/StyledText';
 import { TurnElapsedLabel } from './TurnElapsedLabel';
 import type { TurnElapsed } from '@/utils/turnElapsed';
@@ -841,7 +842,7 @@ export const AgentInputUsageRow = React.memo(function AgentInputUsageRow(p: Usag
                     testID="agent-input-memory"
                     accessibilityRole="button"
                     accessibilityLabel={t('agentInput.context.memoryLabel', { name: memory.machineName })}
-                    onPress={() => router.push(`/machine/${memory.machineId}`)}
+                    onPress={() => openMachineDetails(memory.machineId)}
                     hitSlop={{ top: 12, bottom: 14, left: 8, right: 8 }}
                     style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 0 }}
                 >
@@ -1395,7 +1396,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             : null;
         const modelOptions: NativeSettingsMenuOption[] = engines
             ? engines.flatMap((group) => group.models.map((model) => ({
-                key: model.key,
+                key: `${group.engine}:${model.key}`,
                 label: group.current ? model.name : `${group.label} · ${model.name}`,
                 disabled: model.disabled,
             })))
@@ -1407,11 +1408,11 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                 title: t('agentInput.model.title'),
                 systemImage: 'cube',
                 options: modelOptions,
-                selectedKey: props.modelMode?.key,
+                selectedKey: engines ? `${props.metadata?.flavor ?? props.agentType}:${props.modelMode?.key}` : props.modelMode?.key,
                 onSelect: (key) => {
-                    const engine = engines ? engineForModelKey(engines, key) : null;
-                    const model = (engines ? engines.flatMap((group) => group.models) : availableModels)
-                        .find((candidate) => candidate.key === key);
+                    const group = engines?.find(group => key.startsWith(`${group.engine}:`));
+                    const engine = group?.engine;
+                    const model = group ? group.models.find(candidate => `${group.engine}:${candidate.key}` === key) : availableModels.find(candidate => candidate.key === key);
                     if (!model) return;
                     hapticsLight();
                     if (engines && engine && engine !== (props.metadata?.flavor ?? props.agentType)) {

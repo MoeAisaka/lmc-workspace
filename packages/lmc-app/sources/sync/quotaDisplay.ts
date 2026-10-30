@@ -43,7 +43,9 @@ function usableRemaining(window: AccountQuotaWindow | undefined, now: number): n
  * Unknown when stale or past its reset.
  */
 export function weeklyRemaining(provider: AccountQuotaProvider | undefined, now: number): number | null {
-    if (!provider || quotaProviderStale(provider, now)) return null;
+    if (!provider || (provider.status && provider.status !== 'ready') || quotaProviderStale(provider, now)) return null;
+    // Independent Antigravity pools cannot be represented as one percentage.
+    if (provider.engine === 'agy') return null;
     return usableRemaining(provider.windows.find((w) => w.id === 'seven_day'), now);
 }
 
@@ -88,4 +90,10 @@ export function usageCreditLabel(provider: AccountQuotaProvider | undefined, now
     if (!credits || credits.stale || now - credits.capturedAt > 5 * 60_000 || credits.capturedAt > now + 60_000) return '—';
     if (credits.unlimited) return '∞';
     return credits.balance === null ? '—' : credits.balance.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
+/** Keep Antigravity pools separate; an unavailable/stale pool never becomes 0%. */
+export function antigravityPoolRemaining(provider: AccountQuotaProvider, group: 'gemini' | 'claude_gpt', now: number): number | null {
+    if (provider.engine !== 'agy' || provider.status !== 'ready' || quotaProviderStale(provider, now)) return null;
+    return usableRemaining(provider.groups?.find(g => g.id === group)?.windows.find(w => w.id === 'seven_day'), now);
 }

@@ -1,15 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ read: vi.fn(), release: vi.fn() }));
+vi.mock('./poe', () => ({ readPoeSettings: () => mocks.poe() }));
+const mocks = vi.hoisted(() => ({ read: vi.fn(), release: vi.fn(), poe: vi.fn() }));
 vi.mock('node:fs', () => ({ readFileSync: mocks.read }));
 vi.mock('./managedRuntime', () => ({ runtimeRelease: mocks.release }));
 vi.mock('@/configuration', () => ({ configuration: { lmcHomeDir: '/tmp/discovery-test' } }));
 import { cachedModel, cachedDefaultEffort, readModelCatalogs } from './modelCatalogCache';
 import { CodexRemoteModeState } from '@/codex/remoteModeState';
 beforeEach(() => {
+    mocks.poe.mockReset().mockReturnValue(null);
     mocks.release.mockReturnValue({version:'9.0.0'});
     mocks.read.mockReturnValue(JSON.stringify({codex:{runtimeVersion:'9.0.0',capturedAt:1,models:[{id:'gpt-future',name:'Future',efforts:['future'],defaultEffort:'future'}]},claude:{runtimeVersion:'9.0.0',capturedAt:1,models:[{id:'claude-basic',name:'Basic',efforts:[]}]}}));
 });
 describe('runtime catalog consumption', () => {
+    it('does not mix Poe and official catalogs or lose Codex when Poe configuration fails', () => {
+        mocks.poe.mockReturnValue({ enabled: true });
+        expect(readModelCatalogs().claude).toBeUndefined();
+        expect(readModelCatalogs().codex?.models[0].id).toBe('gpt-future');
+        mocks.poe.mockImplementation(() => { throw new Error('invalid config'); });
+        expect(readModelCatalogs().codex?.models[0].id).toBe('gpt-future');
+    });
     it('does not use a newly installed engine catalog in an older pinned runner', () => {
         expect(cachedModel('codex','gpt-future')?.efforts).toEqual(['future']);
         mocks.release.mockReturnValue({version:'8.0.0'});

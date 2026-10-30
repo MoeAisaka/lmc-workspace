@@ -4,7 +4,7 @@ import { useSetting } from '@/sync/storage';
 import { sync } from '@/sync/sync';
 import { orderSessions, moveSession } from '@/sync/sessionOrder';
 import { t } from '@/text';
-import { holdReleaseIntent, SORT_HOLD_MS, touchSortIntent } from '@/utils/sessionSortGesture';
+import { holdReleaseIntent, SORT_HOLD_MS, sortSlopForPointer, TOUCH_MENU_HOLD_MS, touchSortIntent } from '@/utils/sessionSortGesture';
 import type { SortableSessionRowsProps } from './SortableSessionRows';
 import { useDragTarget } from './lmc/dragTargetStore';
 
@@ -20,11 +20,21 @@ export function SortableSessionRows<T extends {id:string}>({groupId,sessions,ren
     const latestRows=React.useRef(rows);latestRows.current=rows;
     const touch=React.useRef<{id:string;pointer:number;x:number;y:number;armed:boolean;target:HTMLElement;pointerType:string}|null>(null);
     const holdTimer=React.useRef<ReturnType<typeof setTimeout>|null>(null);
+    const menuTimer=React.useRef<ReturnType<typeof setTimeout>|null>(null);
     const [held,setHeld]=React.useState<string|null>(null);
     const suppressClick=React.useRef(false);
     const clickTimer=React.useRef<ReturnType<typeof setTimeout>|null>(null);
-    const blockClick=()=>{suppressClick.current=true;if(clickTimer.current)clearTimeout(clickTimer.current);clickTimer.current=setTimeout(()=>{suppressClick.current=false;},700);};
-    const clearTouch=()=>{if(holdTimer.current)clearTimeout(holdTimer.current);touch.current=null;setHeld(null);};
+    const clearBlockClick=()=>{suppressClick.current=false;if(clickTimer.current){clearTimeout(clickTimer.current);clickTimer.current=null;}};
+    const blockClick=()=>{suppressClick.current=true;if(clickTimer.current)clearTimeout(clickTimer.current);clickTimer.current=setTimeout(()=>{suppressClick.current=false;clickTimer.current=null;},700);};
+    const clearMenuTimer=()=>{if(menuTimer.current){clearTimeout(menuTimer.current);menuTimer.current=null;}};
+    const clearTouch=()=>{if(holdTimer.current){clearTimeout(holdTimer.current);holdTimer.current=null;}clearMenuTimer();touch.current=null;setHeld(null);};
+    const openRowMenu=(id:string,target:HTMLElement,x:number,y:number)=>{
+        const rowNode=elements.current.get(id);
+        const receiver=(target.isConnected&&target.closest('[role="button"]')?target:null)
+            ??rowNode?.querySelector<HTMLElement>('[role="button"]')
+            ??(target.isConnected?target:rowNode??null);
+        receiver?.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:x,clientY:y}));
+    };
     const timer=React.useRef<ReturnType<typeof setTimeout>|null>(null);
     const update=(next:Drag|null)=>{current.current=next;setDrag(next);};
     const save=(id:string,target:string,after:boolean)=>sync.applySettings({sessionProjectOrder:{[groupId]:moveSession(latestRows.current.map(r=>r.id),id,target,after)}});
@@ -73,7 +83,7 @@ export function SortableSessionRows<T extends {id:string}>({groupId,sessions,ren
             update(null);timer.current=null;
         },reduced?0:180);
     };
-    React.useEffect(()=>()=>{if(timer.current)clearTimeout(timer.current);if(holdTimer.current)clearTimeout(holdTimer.current);if(clickTimer.current)clearTimeout(clickTimer.current);},[]);
+    React.useEffect(()=>()=>{if(timer.current)clearTimeout(timer.current);if(holdTimer.current)clearTimeout(holdTimer.current);if(menuTimer.current)clearTimeout(menuTimer.current);if(clickTimer.current)clearTimeout(clickTimer.current);},[]);
     // A non-passive touch listener keeps native scrolling available before the
     // hold, and prevents browser panning from cancelling an armed drag.
     React.useEffect(()=>{
@@ -106,16 +116,17 @@ export function SortableSessionRows<T extends {id:string}>({groupId,sessions,ren
         frame=requestAnimationFrame(tick);return()=>cancelAnimationFrame(frame);
     },[drag?.phase]);
     return <div ref={root} style={{position:'relative'}}
-        onClickCapture={e=>{if(suppressClick.current){e.preventDefault();e.stopPropagation();}}}
+        onPointerDownCapture={e=>{if(!current.current&&e.isPrimary!==false&&e.button===0&&!e.ctrlKey&&e.currentTarget.contains(e.target as Node))clearBlockClick();}}
+        onClickCapture={e=>{if(suppressClick.current&&e.currentTarget.contains(e.target as Node)){clearBlockClick();e.preventDefault();e.stopPropagation();}}}
         onContextMenuCapture={e=>{if(touch.current?.armed||current.current){e.preventDefault();e.stopPropagation();}}}
         onPointerMove={e=>{
             const p=touch.current;
             if(p&&p.pointer===e.pointerId&&!current.current){
-                const intent=touchSortIntent(p.armed,Math.hypot(e.clientX-p.x,e.clientY-p.y),false);
+                const intent=touchSortIntent(p.armed,Math.hypot(e.clientX-p.x,e.clientY-p.y),false,sortSlopForPointer(p.pointerType));
                 if(intent==='scroll')clearTouch();
-                else if(intent==='drag'){blockClick();begin(p.id,p.pointer,p.y);e.currentTarget.setPointerCapture(e.pointerId);}
+                else if(intent==='drag'){clearMenuTimer();blockClick();begin(p.id,p.pointer,p.y);try{e.currentTarget.setPointerCapture(e.pointerId);}catch{}}
             }
-            if(e.pointerId===current.current?.pointer)move(e.clientY,e.clientX);
+            if(e.pointerId===current.current?.pointer){e.stopPropagation();move(e.clientY,e.clientX);}
         }}
         onPointerUp={e=>{
             const p=touch.current;
@@ -124,9 +135,9 @@ export function SortableSessionRows<T extends {id:string}>({groupId,sessions,ren
                 const intent=holdReleaseIntent(p.pointerType,p.armed);
                 blockClick();
                 if(intent==='menu'){
-                    const target=p.target;const x=p.x,y=p.y;
+                    const id=p.id,target=p.target,x=p.x,y=p.y;
                     // Opened after the original release is consumed.
-                    setTimeout(()=>{if(target.isConnected)target.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:x,clientY:y}));},0);
+                    setTimeout(()=>{openRowMenu(id,target,x,y);},0);
                 }
             }
             clearTouch();
@@ -146,15 +157,27 @@ export function SortableSessionRows<T extends {id:string}>({groupId,sessions,ren
                     // Mouse and touch share one gesture: press and hold the row
                     // itself to pick it up, so no handle has to be shown.
                     if(disabled||current.current||e.isPrimary===false)return;
-                    if(e.pointerType==='mouse'&&e.button!==0)return;
+                    if(e.button!==0||e.ctrlKey)return;
+                    // React portals (e.g. SessionActionsPopover RNModal in document.body) bubble
+                    // synthetic pointer events through their owning row; ignore outside-DOM targets.
+                    if(!(e.target instanceof Node)||!e.currentTarget.contains(e.target))return;
                     // Expanded task details are readable content, not a handle
                     // for dragging their owning session.
                     if((e.target as HTMLElement).closest('[data-session-sort-ignore]'))return;
-                    clearTouch();suppressClick.current=false;
-                    touch.current={id:session.id,pointer:e.pointerId,x:e.clientX,y:e.clientY,armed:false,target:e.target as HTMLElement,pointerType:e.pointerType};
-                    holdTimer.current=setTimeout(()=>{const p=touch.current;if(p){p.armed=true;setHeld(p.id);}},SORT_HOLD_MS);
+                    clearTouch();clearBlockClick();
+                    const p={id:session.id,pointer:e.pointerId,x:e.clientX,y:e.clientY,armed:false,target:e.target as HTMLElement,pointerType:e.pointerType};
+                    touch.current=p;
+                    holdTimer.current=setTimeout(()=>{if(touch.current===p){p.armed=true;setHeld(p.id);}},SORT_HOLD_MS);
+                    if(holdReleaseIntent(e.pointerType,true)==='menu'){
+                        menuTimer.current=setTimeout(()=>{
+                            if(touch.current!==p||current.current)return;
+                            const {id,target,x,y}=p;
+                            blockClick();clearTouch();
+                            openRowMenu(id,target,x,y);
+                        },TOUCH_MENU_HOLD_MS);
+                    }
                 }}
-                style={{'--sort-hover':theme.colors.surfaceHighest,display:'flex',alignItems:'stretch',position:'relative',zIndex:selected?2:0,transform:`translateY(${shift}px)`,transition:selected&&drag?.phase==='drag'?'box-shadow 150ms ease':'transform 180ms cubic-bezier(.2,.8,.2,1), box-shadow 180ms ease',} as React.CSSProperties}>
+                style={{'--sort-hover':theme.colors.surfaceHighest,display:'flex',alignItems:'stretch',position:'relative',userSelect:'none',WebkitUserSelect:'none',WebkitTouchCallout:'none',zIndex:selected?2:0,transform:`translateY(${shift}px)`,transition:!drag||(selected&&drag.phase==='drag')?'box-shadow 150ms ease':'transform 180ms cubic-bezier(.2,.8,.2,1), box-shadow 180ms ease',} as React.CSSProperties}>
                 {/* The lifted-row card is inset to the row's own left edge, so it
                     never reaches back over the group's guide line. */}
                 {(selected||held===session.id)&&<div aria-hidden="true" style={{position:'absolute',left:highlightInset,right:0,top:0,bottom:0,borderRadius:12,background:theme.colors.surface,boxShadow:'0 8px 24px #0002, 0 0 0 1px #0060F040',pointerEvents:'none'}}/>}

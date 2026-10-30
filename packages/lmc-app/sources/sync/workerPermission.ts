@@ -9,7 +9,7 @@ export function resolveWorkerPermissionMode(metadata: {
     permissionModeSource?: 'ambient' | 'explicit';
     orchestration?: { role: string; hub?: { autonomy?: boolean } };
 }, engine: string): string | null | undefined {
-    const full = engine === 'claude' ? 'bypassPermissions' : engine === 'codex' ? 'yolo' : undefined;
+    const full = engine === 'claude' ? 'bypassPermissions' : engine === 'codex' || engine === 'agy' ? 'yolo' : undefined;
     if (!full) return metadata.permissionMode;
     const isWorker = metadata.orchestration?.role === 'worker';
     if (isWorker && metadata.orchestration?.hub?.autonomy === true

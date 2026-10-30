@@ -47,6 +47,7 @@ export function mergeAndSelectMessageWindow(
     estimatedBytes: number;
     evictedIds: string[];
     compactedIds: string[];
+    windowStartSeq?: number;
 } {
     const mergedById = new Map(existing.map(message => [message.id, message]));
     for (const message of incoming) mergedById.set(message.id, message);
@@ -71,12 +72,70 @@ export function mergeAndSelectMessageWindow(
         }
     }
     const cutoff = newCompletion && completed.length > WEB_MESSAGE_WINDOW_POLICY.completedTurnsToKeep ? completed[completed.length - WEB_MESSAGE_WINDOW_POLICY.completedTurnsToKeep - 1] + 1 : 0;
-    const messages = merged.slice(cutoff);
+    const contiguous = merged.slice(cutoff);
+    let windowStartSeq: number | undefined;
+    for (const message of contiguous) {
+        if (message.serverSeq !== undefined && (windowStartSeq === undefined || message.serverSeq < windowStartSeq)) {
+            windowStartSeq = message.serverSeq;
+        }
+    }
+    if (cutoff === 0) {
+        return {
+            messages: contiguous,
+            estimatedBytes: contiguous.reduce((total, message) => total + estimateNormalizedMessageBytes(message), 0),
+            evictedIds: [],
+            compactedIds: [],
+            windowStartSeq,
+        };
+    }
+
+    // Queued prompts (and their paired attachments) carry an earlier serverSeq
+    // than the turn where `queue-released` actually consumes them. Keep any
+    // pre-cutoff prompt/attachment whose first durable release sits inside the
+    // retained window, or that is still waiting to be released.
+    const withdrawnKeys = new Set<string>();
+    const firstReleaseIndex = new Map<string, number>();
+    let lastIdleUserIndex = -1;
+    for (let index = 0; index < merged.length; index++) {
+        const message = merged[index];
+        if (message.role === 'user' && !message.meta?.queueKey && message.meta?.sentFrom) {
+            lastIdleUserIndex = index;
+        }
+        if (message.isSidechain || message.role !== 'event') continue;
+        if (message.content.type === 'queue-withdrawn') {
+            withdrawnKeys.add(message.content.key);
+        } else if (message.content.type === 'queue-released') {
+            for (const key of message.content.keys) {
+                if (!firstReleaseIndex.has(key)) firstReleaseIndex.set(key, index);
+            }
+        }
+    }
+
+    const retainedEarly: NormalizedMessage[] = [];
+    const evictedIds: string[] = [];
+    for (let index = 0; index < cutoff; index++) {
+        const message = merged[index];
+        const key = message.meta?.queueKey ?? (message.role === 'user' ? message.localId ?? message.id : undefined);
+        const releaseIndex = key ? firstReleaseIndex.get(key) : undefined;
+        const keepForRetainedTurn = Boolean(key && !withdrawnKeys.has(key) && (
+            releaseIndex !== undefined
+                ? releaseIndex >= cutoff
+                : Boolean(message.meta?.queueKey) && index > lastIdleUserIndex
+        ));
+        if (keepForRetainedTurn) {
+            retainedEarly.push(message);
+        } else {
+            evictedIds.push(message.id);
+        }
+    }
+
+    const messages = retainedEarly.length > 0 ? [...retainedEarly, ...contiguous] : contiguous;
     return {
         messages,
         estimatedBytes: messages.reduce((total, message) => total + estimateNormalizedMessageBytes(message), 0),
-        evictedIds: merged.slice(0, cutoff).map(message => message.id),
+        evictedIds,
         compactedIds: [],
+        windowStartSeq,
     };
 }
 

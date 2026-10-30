@@ -178,7 +178,7 @@ describe('v3 mail handover in the common Claude/Codex loop', () => {
         expect(session.getMetadata().agentMailInbox.report.phase).toBe('acked');
         loop.stop();
     });
-    it.each(['claude', 'codex'])('retries confirmation after restart without another %s turn', async flavor => {
+    it.each(['claude', 'codex', 'agy'])('retries confirmation after restart without another %s turn', async flavor => {
         vi.useFakeTimers();
         const first = sessionWith({ flavor });
         const loop = startAgentMail(first, 'token', () => ({ machine: 'm', engine: flavor, title: 't' }));

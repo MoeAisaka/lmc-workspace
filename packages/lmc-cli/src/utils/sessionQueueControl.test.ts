@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { MessageQueue2 } from './MessageQueue2';
-import { applyQueueModeRequest, attachQueuePublisher, registerQueueControlHandlers, type QueueSessionClient } from './sessionQueueControl';
+import { applyQueueModeRequest, attachQueuePublisher, bindQueuedReportConsumer, registerQueueControlHandlers, type QueueSessionClient } from './sessionQueueControl';
 
 function fakeClient() {
     let state: any = { queue: [{ key: 'ghost', preview: 'from a dead process', createdAt: 1 }] };
@@ -191,5 +191,47 @@ describe('steer handler', () => {
         registerQueueControlHandlers(f.client, queue, { ...busy, steer: async () => ({ steered: true }) });
         expect(await f.handlers.get('steer')!({ key: 'ka' })).toEqual({ steered: false, reason: 'gone' });
         await expect(f.handlers.get('steer')!({})).rejects.toThrow();
+    });
+});
+
+describe('bindQueuedReportConsumer', () => {
+    const workerMail = (id: string, attempt: number, dispatch = 'd1') => [
+        '[from your worker · MacMini · Codex · 【实机挂图】Demo]',
+        'This is your worker session (W1) reporting.',
+        '',
+        `[report ${id} · attempt ${attempt} · blocked]`,
+        `dispatch  ${dispatch}`,
+        'summary   blocked on CUA',
+    ].join('\n');
+
+    it('releases a matching queued worker report in-turn without touching user prompts or other reports', () => {
+        const queue = new MessageQueue2<string>(m => m);
+        const f = fakeClient();
+        attachQueuePublisher(queue, f.client, 'batch');
+        const consume = bindQueuedReportConsumer(queue);
+
+        queue.push('[report t1 · attempt 1 · blocked]\nsummary  user pasted quote', 'm', undefined, { key: 'user-msg-1' });
+        queue.push(workerMail('t1', 1, 'd1'), 'm', undefined, { key: 'agent-mail-r1' });
+        queue.push(workerMail('t2', 1, 'd2'), 'm', undefined, { key: 'agent-mail-r2' });
+
+        expect(consume('t1', 1, 'd1')).toBe(1);
+        expect(queue.snapshot().map(s => s.key)).toEqual(['user-msg-1', 'agent-mail-r2']);
+        expect(f.client.sendSessionEvent).toHaveBeenCalledWith({ type: 'queue-released', keys: ['agent-mail-r1'] });
+    });
+
+    it('auto-releases a late-arriving echo for a report already reviewed in-turn', () => {
+        const queue = new MessageQueue2<string>(m => m);
+        const f = fakeClient();
+        attachQueuePublisher(queue, f.client, 'batch');
+        const consume = bindQueuedReportConsumer(queue);
+
+        expect(consume('t1', 1, 'd1')).toBe(0);
+        queue.push(workerMail('t1', 1, 'd1'), 'm', undefined, { key: 'agent-mail-late' });
+        expect(queue.size()).toBe(0);
+        expect(f.client.sendSessionEvent).toHaveBeenCalledWith({ type: 'queue-released', keys: ['agent-mail-late'] });
+
+        // Attempt 2 is a distinct report and still queues normally.
+        queue.push(workerMail('t1', 2, 'd1-retry'), 'm', undefined, { key: 'agent-mail-attempt2' });
+        expect(queue.snapshot().map(s => s.key)).toEqual(['agent-mail-attempt2']);
     });
 });

@@ -80,6 +80,7 @@ export const FloatingSessionDrawer = React.memo(() => {
     const close = React.useCallback(() => setOpen(false), [setOpen]);
     const swipeClose = React.useMemo(() => Gesture.Pan()
         .activeOffsetX([-16, 16])
+        .failOffsetY([-16, 16])
         .onEnd((event) => { if (event.translationX < -48 || event.velocityX < -600) runOnJS(close)(); }), [close]);
 
     const scrimStyle = useAnimatedStyle(() => ({ opacity: progress.value }));
@@ -94,7 +95,7 @@ export const FloatingSessionDrawer = React.memo(() => {
             <Animated.View style={[styles.scrim, scrimStyle]}>
                 <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.list.closeDrawer')} onPress={close} style={{ flex: 1 }} />
             </Animated.View>
-            <GestureDetector gesture={swipeClose}>
+            <GestureDetector gesture={swipeClose} touchAction="pan-y">
                 <Animated.View ref={panelRef} testID="floating-session-drawer" style={[styles.panel, panelStyle, { top, width: panelWidth, height: panelHeight, backgroundColor: theme.colors.surface }]}>
                     <DeviceEngineSessionList onNavigate={close} accountMenuPanelRef={panelRef} />
                 </Animated.View>

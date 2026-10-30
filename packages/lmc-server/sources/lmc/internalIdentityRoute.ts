@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 
-type Login = {kind: string; expiresAt: Date; account: {id: string; username: string | null}};
+type Login = {kind: string; expiresAt: Date; account: {id: string; username: string | null; enabled?: boolean}};
 
 // Only the Hub process sharing the center's network namespace can call these.
 // Never trust Fastify req.ip or forwarded headers for the loopback boundary.
@@ -14,7 +14,7 @@ export function registerInternalIdentityRoutes(app: FastifyInstance, deps: {
   const identity = async (reference: string) => {
     if (!/^[a-f0-9]{64}$/.test(reference)) return null;
     const login = await deps.findLogin(reference);
-    if (!login || login.kind !== 'web' || login.expiresAt.getTime() <= Date.now()) return null;
+    if (!login || login.account.enabled === false || login.kind !== 'web' || login.expiresAt.getTime() <= Date.now()) return null;
     return {version: 1, subject: login.account.id, name: login.account.username ?? login.account.id,
       reference, expiresAt: login.expiresAt.toISOString()};
   };

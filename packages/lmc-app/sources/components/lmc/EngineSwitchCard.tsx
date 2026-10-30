@@ -117,7 +117,7 @@ function SwitchCard({ sessionId, progress, active, host }: { sessionId: string; 
                         to={to}
                         from={from}
                         host={host}
-                        loginCommand={progress.to === 'codex' ? 'codex login' : 'claude auth login'}
+                        loginCommand={progress.to === 'agy' ? 'agy' : progress.to === 'codex' ? 'codex login' : 'claude auth login'}
                         error={failed && step.state === 'failed' && step.detail?.kind !== 'not-logged-in' ? (progress.error || t('lmc.engineSwitch.failedUnknown')) : null}
                     />
                 ))}
@@ -200,7 +200,7 @@ function describeDetail(step: SwitchStep): string | null {
 }
 
 /** The display name of the model chosen with this switch, when one was and this device chose it. */
-function useChosenModelName(sessionId: string, engine: 'claude' | 'codex'): string | null {
+function useChosenModelName(sessionId: string, engine: 'claude' | 'codex' | 'agy'): string | null {
     const session = useSession(sessionId);
     const pending = peekPendingEngineModel(sessionId);
     return React.useMemo(() => {

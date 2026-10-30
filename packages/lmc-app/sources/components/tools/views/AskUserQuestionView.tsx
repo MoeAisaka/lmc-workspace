@@ -111,7 +111,7 @@ export const AskUserQuestionView = React.memo<ToolViewProps>(({ tool, sessionId 
     return (
         <InlineQuestionForm
             questions={questions}
-            canInteract={tool.state === 'running'}
+            canInteract={(!session?.shared || !!session.accessActions?.includes('approve')) && tool.state === 'running'}
             submittedAnswers={tool.state === 'completed' ? completedAnswers : undefined}
             onSubmit={handleSubmit}
         />

@@ -17,6 +17,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { z } from 'zod';
 import { ORCHESTRATION_TOOL_DEFS, ORCHESTRATION_TOOL_NAMES } from '@/modules/orchestration/toolSchemas';
+import { FILE_PUBLISH_TOOL, FILE_SHARE_TOOL } from '@/modules/common/fileDelivery';
 
 function parseArgs(argv: string[]): { url: string | null } {
   let url: string | null = null;
@@ -62,6 +63,14 @@ async function main() {
   const server = new McpServer({
     name: 'Happy MCP Bridge',
     version: '1.0.0',
+  });
+  server.registerTool('publish_file', FILE_PUBLISH_TOOL, async (args) => {
+    try { return await (await ensureHttpClient()).callTool({ name: 'publish_file', arguments: args }) as any; }
+    catch { return { isError: true, content: [{ type: 'text' as const, text: 'Persistent file publishing is unavailable. Upgrade the LMC center and Agent, then retry.' }] }; }
+  });
+  server.registerTool('share_file', FILE_SHARE_TOOL, async (args) => {
+    try { return await (await ensureHttpClient()).callTool({ name: 'share_file', arguments: args }) as any; }
+    catch { return { isError: true, content: [{ type: 'text' as const, text: 'File sharing is unavailable. Use the signed-in LMC file page or upgrade the Agent.' }] }; }
   });
 
   // Register the single tool and forward to HTTP MCP

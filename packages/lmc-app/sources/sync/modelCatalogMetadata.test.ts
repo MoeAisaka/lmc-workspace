@@ -14,6 +14,13 @@ const metadata = (flavor: string) => ({ path: '/', host: 'test', flavor, session
 const t = (key: string) => key;
 
 describe('discovered model catalogs', () => {
+    it('adds Antigravity to an existing Work session as soon as its device publishes the login catalog', () => {
+        const session = { ...metadata('codex'), sessionCapabilities: { modelDiscovery: true, engineHandoff: true }, modelCatalogs: machine.modelCatalogs } as Metadata;
+        const loggedInMachine = { ...machine, modelCatalogs: { ...machine.modelCatalogs, agy: catalog('claude-opus-5-5') } } as MachineMetadata;
+        const groups = engineModelGroups('codex', withModelCatalogs(session, loggedInMachine), t)!;
+        expect(groups.find(g => g.engine === 'agy')?.models.map(m => m.key)).toContain('claude-opus-5-5');
+        expect(groups.find(g => g.engine === 'agy')?.current).toBe(false);
+    });
     it('keeps Claude generation and context visible without marketing descriptions', () => {
         expect(catalogModelName({id:'claude-opus-5-5[1m]',name:'Opus (1M context)'})).toBe('Opus 5.5 [1M]');
         expect(catalogModelName({id:'claude-fable-5-1',name:'Fable'})).toBe('Fable 5.1');

@@ -1,316 +1,288 @@
 import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
-
-import { AgyBackend, type SpawnFn } from './AgyBackend';
+import { AgyBackend, parsePrintTimeoutMs, type SpawnFn } from './AgyBackend';
+import { AGY_PRINT_TIMEOUT } from './constants';
 import type { AgentMessage } from '@/agent/core/AgentBackend';
 
-/** Minimal fake of a spawned child process for driving AgyBackend in tests. */
-function makeFakeChild() {
-  const stdout = new EventEmitter() as EventEmitter & { setEncoding: (e: string) => void };
-  const stderr = new EventEmitter() as EventEmitter & { setEncoding: (e: string) => void };
-  stdout.setEncoding = () => {};
-  stderr.setEncoding = () => {};
-  const child = new EventEmitter() as EventEmitter & {
-    stdout: typeof stdout;
-    stderr: typeof stderr;
-    kill: (signal?: string) => boolean;
-  };
-  child.stdout = stdout;
-  child.stderr = stderr;
-  child.kill = vi.fn(() => true);
-  return { child, stdout, stderr };
+function setup(options: { conversationId?: string; printTimeout?: string } = {}) {
+  const stdout = Object.assign(new EventEmitter(), { setEncoding: () => {} });
+  const stderr = Object.assign(new EventEmitter(), { setEncoding: () => {} });
+  const child = Object.assign(new EventEmitter(), { stdout, stderr, kill: vi.fn(() => true) });
+  const messages: AgentMessage[] = [], calls: { args: string[]; options: any }[] = [];
+  const spawnFn = ((_cmd: string, args: string[], opts: any) => { calls.push({ args, options: opts }); return child; }) as unknown as SpawnFn;
+  const onConversationId = vi.fn();
+  const backend = new AgyBackend({ cwd: '/work', permissionMode: 'default', spawnFn, onConversationId, ...options });
+  backend.onMessage(m => messages.push(m));
+  const line = (event: unknown) => stdout.emit('data', JSON.stringify(event) + '\n');
+  return { backend, child, stdout, stderr, messages, calls, line, onConversationId };
 }
 
-describe('AgyBackend', () => {
-  it('maps a successful turn: running → model-output(s) → idle', async () => {
-    const { child, stdout } = makeFakeChild();
-    const spawnFn = vi.fn(() => child) as unknown as SpawnFn;
+describe('AgyBackend lifecycle', () => {
+  it('does not pass runner reconnect identity to native tools', async () => {
+    vi.stubEnv('HAPPY_RECONNECT_SESSION_ID', 'fixture-owner');
+    vi.stubEnv('HAPPY_RECONNECT_ENCRYPTION_KEY', 'fixture-key');
+    vi.stubEnv('LMC_AGY_MCP_MODULE', '/fixture/bridge.mjs');
+    try {
+      const f = setup(); const turn = f.backend.sendPrompt('/work', 'hello');
+      const env = f.calls[0].options.env;
+      f.line({ event: 'result', result: { conversation_id: 'mine', status: 'SUCCESS', response: 'ok' } });
+      f.child.emit('close', 0); await turn;
+      expect(env.HAPPY_RECONNECT_SESSION_ID).toBeUndefined();
+      expect(env.HAPPY_RECONNECT_ENCRYPTION_KEY).toBeUndefined();
+      expect(env.LMC_AGY_MCP_MODULE).toBe('/fixture/bridge.mjs');
+    } finally { vi.unstubAllEnvs(); }
+  });
 
-    const backend = new AgyBackend({
-      cwd: '/work',
-      permissionMode: 'default',
-      spawnFn,
-      resolveConversationId: () => null,
-    });
+  it('starts fresh and closes stdin so a print turn can complete', async () => {
+    const f = setup(); await f.backend.startSession(); const turn = f.backend.sendPrompt('/work', 'hello');
+    expect(f.calls[0].args).not.toContain('--conversation');
+    expect(f.calls[0].options.stdio).toEqual(['ignore', 'pipe', 'pipe']);
+    f.line({ event: 'result', result: { conversation_id: 'mine', status: 'SUCCESS', response: 'hello' } });
+    f.child.emit('close', 0); await turn;
+    expect(f.onConversationId).toHaveBeenCalledWith('mine');
+    expect(f.messages.at(-1)).toMatchObject({ type: 'status', status: 'idle' });
+  });
 
+  it('passes an explicitly restored conversation and rejects a foreign returned id', async () => {
+    const f = setup({ conversationId: 'mine' }); const turn = f.backend.sendPrompt('/work', 'hello');
+    const observed = expect(turn).rejects.toThrow(/different conversation/);
+    const i = f.calls[0].args.indexOf('--conversation'); expect(f.calls[0].args[i + 1]).toBe('mine');
+    f.line({ event: 'init', conversation_id: 'theirs' }); f.child.emit('close', 0); await observed;
+    expect(f.onConversationId).not.toHaveBeenCalled();
+  });
+
+  it('reports a nonzero exit as failure', async () => {
+    const f = setup(); const turn = f.backend.sendPrompt('/work', 'hello');
+    const observed = expect(turn).rejects.toThrow(/exited with code 1/);
+    f.child.emit('close', 1); await observed;
+    expect(f.messages.at(-1)).toMatchObject({ type: 'status', status: 'error' });
+  });
+
+  it('emits one error when spawn error is followed by close', async () => {
+    const f = setup(); const turn = f.backend.sendPrompt('/work', 'hello');
+    const observed = expect(turn).rejects.toThrow(/ENOENT/);
+    f.child.emit('error', Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' })); f.child.emit('close', null); await observed;
+    expect(f.messages.filter(m => m.type === 'status' && m.status === 'error')).toHaveLength(1);
+  });
+
+  it('cancels only its own child', async () => {
+    const f = setup(); const turn = f.backend.sendPrompt('/work', 'hello'); const observed = expect(turn).rejects.toThrow();
+    await f.backend.cancel(); expect(f.child.kill).toHaveBeenCalledWith('SIGTERM');
+    f.child.emit('close', null); await observed;
+  });
+
+  it('does not pass a malformed protocol line off as an assistant reply', async () => {
+    const f = setup(); const turn = f.backend.sendPrompt('/work', 'hello'); const observed = expect(turn).rejects.toThrow(/structured output/);
+    f.stdout.emit('data', 'not json\n'); f.child.emit('close', 0); await observed;
+    expect(f.messages.filter(m => m.type === 'model-output')).toHaveLength(0);
+  });
+
+  it('defaults to unlimited turn duration (--print-timeout 0) without arming a 10m watchdog, while keeping explicit timeouts', async () => {
+    vi.useFakeTimers();
+    try {
+      expect(AGY_PRINT_TIMEOUT).toBe('0');
+      expect(parsePrintTimeoutMs('0')).toBeNull();
+      expect(parsePrintTimeoutMs('0s')).toBeNull();
+      expect(parsePrintTimeoutMs('10m')).toBe(600_000);
+
+      const unlimited = setup();
+      const unlimitedTurn = unlimited.backend.sendPrompt('/work', 'long task');
+      const ptIdx = unlimited.calls[0].args.indexOf('--print-timeout');
+      expect(unlimited.calls[0].args[ptIdx + 1]).toBe('0');
+      await vi.advanceTimersByTimeAsync(60 * 60_000);
+      expect(unlimited.child.kill).not.toHaveBeenCalled();
+      unlimited.line({ event: 'result', result: { conversation_id: 'c1', status: 'SUCCESS', response: 'done' } });
+      unlimited.child.emit('close', 0);
+      await unlimitedTurn;
+
+      const bounded = setup({ printTimeout: '10m' });
+      const boundedTurn = bounded.backend.sendPrompt('/work', 'bounded');
+      const observed = expect(boundedTurn).rejects.toThrow();
+      await vi.advanceTimersByTimeAsync(10 * 60_000 + 30_000);
+      expect(bounded.child.kill).toHaveBeenCalledWith('SIGTERM');
+      bounded.child.emit('close', null);
+      await observed;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('automatically retries once with continuation prompt after a mid-turn OAuth 401 token refresh race', async () => {
+    const makeProc = () => {
+      const stdout = Object.assign(new EventEmitter(), { setEncoding: () => {} });
+      const stderr = Object.assign(new EventEmitter(), { setEncoding: () => {} });
+      return Object.assign(new EventEmitter(), { stdout, stderr, kill: vi.fn(() => true) });
+    };
+    const procs = [makeProc(), makeProc()];
+    const calls: string[][] = [];
+    let idx = 0;
+    const spawnFn = ((_cmd: string, args: string[]) => {
+      calls.push(args);
+      return procs[idx++];
+    }) as unknown as SpawnFn;
     const messages: AgentMessage[] = [];
-    backend.onMessage((m) => messages.push(m));
+    const backend = new AgyBackend({ cwd: '/work', permissionMode: 'default', spawnFn, authRetryDelayMs: 5 });
+    backend.onMessage(m => messages.push(m));
 
-    await backend.startSession();
-    const turn = backend.sendPrompt('/work', 'hi');
+    const turn = backend.sendPrompt('/work', 'investigate production logs');
+    procs[0].stdout.emit('data', JSON.stringify({ event: 'init', conversation_id: 'conv-401', init: {} }) + '\n');
+    procs[0].stdout.emit('data', JSON.stringify({
+      event: 'step_update',
+      step_update: { conversation_id: 'conv-401', step_index: 1, step_type: 'agent_response', state: 'DONE', text_delta: 'Checking logs... ' },
+    }) + '\n');
+    procs[0].stderr.emit('data', 'AGY_ERROR: agent executor error: generating and executing: UNAUTHENTICATED (code 401): Request had invalid authentication credentials.\n');
+    procs[0].stdout.emit('data', JSON.stringify({
+      event: 'result',
+      result: { conversation_id: 'conv-401', status: 'ERROR', response: '', error: 'older cached error' },
+    }) + '\n');
+    procs[0].emit('close', 1);
 
-    // Stream two chunks then exit cleanly.
-    stdout.emit('data', 'Hello ');
-    stdout.emit('data', 'world');
-    child.emit('close', 0);
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    const convIdx = calls[1].indexOf('--conversation');
+    expect(calls[1][convIdx + 1]).toBe('conv-401');
+    const printIdx = calls[1].indexOf('--print');
+    expect(calls[1][printIdx + 1]).not.toBe('investigate production logs');
 
-    await expect(turn).resolves.toBeUndefined();
+    procs[1].stdout.emit('data', JSON.stringify({ event: 'init', conversation_id: 'conv-401', init: {} }) + '\n');
+    procs[1].stdout.emit('data', JSON.stringify({
+      event: 'step_update',
+      step_update: { conversation_id: 'conv-401', step_index: 2, step_type: 'agent_response', state: 'DONE', text_delta: 'Done!' },
+    }) + '\n');
+    procs[1].stdout.emit('data', JSON.stringify({
+      event: 'result',
+      result: { conversation_id: 'conv-401', status: 'SUCCESS', response: 'Done!' },
+    }) + '\n');
+    procs[1].emit('close', 0);
 
-    const types = messages.map((m) => m.type);
-    expect(types[0]).toBe('status');
-    expect(messages[0]).toMatchObject({ type: 'status', status: 'running' });
-    // agy --print hangs unless stdin is closed: spawn must give the child an
-    // empty stdin (immediate EOF), not an open pipe.
-    const spawnOpts = (spawnFn as unknown as ReturnType<typeof vi.fn>).mock.calls[0][2];
-    expect(spawnOpts.stdio).toEqual(['ignore', 'pipe', 'pipe']);
-
-    expect(messages.filter((m) => m.type === 'model-output')).toEqual([
-      { type: 'model-output', textDelta: 'Hello ' },
-      { type: 'model-output', textDelta: 'world' },
-    ]);
+    await turn;
+    expect(messages.filter(m => m.type === 'status' && m.status === 'error')).toHaveLength(0);
+    expect(messages.filter(m => m.type === 'model-output').map(m => m.textDelta).join('')).toBe('Checking logs... Done!');
     expect(messages.at(-1)).toMatchObject({ type: 'status', status: 'idle' });
   });
 
-  it('emits an error status and rejects on non-zero exit', async () => {
-    const { child } = makeFakeChild();
-    const spawnFn = vi.fn(() => child) as unknown as SpawnFn;
-
-    const backend = new AgyBackend({
-      cwd: '/work',
-      permissionMode: 'default',
-      spawnFn,
-      resolveConversationId: () => null,
-    });
+  it('stops after one retry when OAuth 401 persists and aborts retry delay on cancel', async () => {
+    const makeProc = () => {
+      const stdout = Object.assign(new EventEmitter(), { setEncoding: () => {} });
+      const stderr = Object.assign(new EventEmitter(), { setEncoding: () => {} });
+      return Object.assign(new EventEmitter(), { stdout, stderr, kill: vi.fn(() => true) });
+    };
+    const procs = [makeProc(), makeProc(), makeProc()];
+    let idx = 0;
+    const calls: string[][] = [];
+    const spawnFn = ((_cmd: string, args: string[]) => {
+      calls.push(args);
+      return procs[idx++];
+    }) as unknown as SpawnFn;
     const messages: AgentMessage[] = [];
-    backend.onMessage((m) => messages.push(m));
+    const backend = new AgyBackend({ cwd: '/work', permissionMode: 'default', spawnFn, authRetryDelayMs: 5 });
+    backend.onMessage(m => messages.push(m));
 
-    await backend.startSession();
-    const turn = backend.sendPrompt('/work', 'hi');
-    child.emit('close', 1);
+    const turn = backend.sendPrompt('/work', 'first');
+    const observed = expect(turn).rejects.toThrow(/401|OAuth/i);
+    procs[0].stderr.emit('data', 'AGY_ERROR: UNAUTHENTICATED (code 401): Request had invalid authentication credentials.\n');
+    procs[0].emit('close', 1);
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    procs[1].stderr.emit('data', 'AGY_ERROR: UNAUTHENTICATED (code 401): Request had invalid authentication credentials.\n');
+    procs[1].emit('close', 1);
+    await observed;
+    expect(calls).toHaveLength(2);
+    expect(messages.filter(m => m.type === 'status' && m.status === 'error')).toHaveLength(1);
 
-    await expect(turn).rejects.toThrow(/exited with code 1/);
-    expect(messages.at(-1)).toMatchObject({ type: 'status', status: 'error' });
+    // Also verify cancel() during the backoff sleep aborts immediately without spawning a retry child.
+    const slowProc = makeProc();
+    const slowCalls: string[][] = [];
+    const slowBackend = new AgyBackend({
+      cwd: '/work',
+      permissionMode: 'default',
+      spawnFn: ((_cmd: string, args: string[]) => { slowCalls.push(args); return slowProc; }) as unknown as SpawnFn,
+      authRetryDelayMs: 60_000,
+    });
+    const slowTurn = slowBackend.sendPrompt('/work', 'second');
+    const slowObserved = expect(slowTurn).rejects.toThrow(/cancelled|aborted|401/i);
+    slowProc.stderr.emit('data', 'AGY_ERROR: UNAUTHENTICATED (code 401): Request had invalid authentication credentials.\n');
+    slowProc.emit('close', 1);
+    await new Promise(r => setTimeout(r, 10));
+    await slowBackend.cancel();
+    await slowObserved;
+    expect(slowCalls).toHaveLength(1);
   });
 
-  it('resumes the captured conversation id on the next turn', async () => {
-    const spawnCalls: string[][] = [];
-    let current = makeFakeChild();
-    const spawnFn = vi.fn((_bin: string, args: string[]) => {
-      spawnCalls.push(args);
-      return current.child;
+  it('repairs corrupted conversation media in-place and retries once on INVALID_ARGUMENT (code 400)', async () => {
+    const makeProc = () => {
+      const stdout = Object.assign(new EventEmitter(), { setEncoding: () => {} });
+      const stderr = Object.assign(new EventEmitter(), { setEncoding: () => {} });
+      return Object.assign(new EventEmitter(), { stdout, stderr, kill: vi.fn(() => true) });
+    };
+    const procs = [makeProc(), makeProc()];
+    let idx = 0;
+    const calls: string[][] = [];
+    const spawnFn = ((_cmd: string, args: string[]) => {
+      calls.push(args);
+      return procs[idx++];
     }) as unknown as SpawnFn;
-
-    // No conversation at start; agy records one after the first turn.
-    let recorded: string | null = null;
-    const backend = new AgyBackend({
-      cwd: '/work',
-      permissionMode: 'default',
-      spawnFn,
-      resolveConversationId: () => recorded,
-    });
-
-    await backend.startSession();
-
-    // First turn: fresh (no --conversation), then a conversation id appears.
-    const t1 = backend.sendPrompt('/work', 'first');
-    recorded = 'cid-xyz';
-    current.child.emit('close', 0);
-    await t1;
-
-    expect(spawnCalls[0]).not.toContain('--conversation');
-
-    // Second turn: resumes the captured id.
-    current = makeFakeChild();
-    const t2 = backend.sendPrompt('/work', 'second');
-    current.child.emit('close', 0);
-    await t2;
-
-    const idx = spawnCalls[1].indexOf('--conversation');
-    expect(idx).toBeGreaterThanOrEqual(0);
-    expect(spawnCalls[1][idx + 1]).toBe('cid-xyz');
-  });
-
-  it('starts fresh instead of resuming a pre-existing cwd conversation (cross-resume guard)', async () => {
-    const spawnCalls: string[][] = [];
-    let current = makeFakeChild();
-    const spawnFn = vi.fn((_bin: string, args: string[]) => {
-      spawnCalls.push(args);
-      return current.child;
-    }) as unknown as SpawnFn;
-
-    // The cwd cache already holds a conversation from another (possibly live) session.
-    const backend = new AgyBackend({
-      cwd: '/work',
-      permissionMode: 'default',
-      spawnFn,
-      resolveConversationId: () => 'other-sessions-conversation',
-    });
-
-    await backend.startSession();
-
-    const t1 = backend.sendPrompt('/work', 'first');
-    current.child.emit('close', 0);
-    await t1;
-    expect(spawnCalls[0]).not.toContain('--conversation');
-
-    // The cache entry never changed, so it was not ours to adopt.
-    current = makeFakeChild();
-    const t2 = backend.sendPrompt('/work', 'second');
-    current.child.emit('close', 0);
-    await t2;
-    expect(spawnCalls[1]).not.toContain('--conversation');
-  });
-
-  it('adopts the id recorded during the first turn even when a stale entry existed', async () => {
-    const spawnCalls: string[][] = [];
-    let current = makeFakeChild();
-    const spawnFn = vi.fn((_bin: string, args: string[]) => {
-      spawnCalls.push(args);
-      return current.child;
-    }) as unknown as SpawnFn;
-
-    let recorded: string | null = 'stale-old';
-    const backend = new AgyBackend({
-      cwd: '/work',
-      permissionMode: 'default',
-      spawnFn,
-      resolveConversationId: () => recorded,
-    });
-
-    await backend.startSession();
-
-    const t1 = backend.sendPrompt('/work', 'first');
-    recorded = 'fresh-1'; // our turn created a new conversation
-    current.child.emit('close', 0);
-    await t1;
-    expect(spawnCalls[0]).not.toContain('--conversation');
-
-    current = makeFakeChild();
-    const t2 = backend.sendPrompt('/work', 'second');
-    current.child.emit('close', 0);
-    await t2;
-    const idx = spawnCalls[1].indexOf('--conversation');
-    expect(idx).toBeGreaterThanOrEqual(0);
-    expect(spawnCalls[1][idx + 1]).toBe('fresh-1');
-  });
-
-  it('re-snapshots the cache every turn while unpinned: a foreign write between turns is not adopted', async () => {
-    const spawnCalls: string[][] = [];
-    let current = makeFakeChild();
-    const spawnFn = vi.fn((_bin: string, args: string[]) => {
-      spawnCalls.push(args);
-      return current.child;
-    }) as unknown as SpawnFn;
-
-    let recorded: string | null = 'stale-S';
-    const backend = new AgyBackend({
-      cwd: '/work',
-      permissionMode: 'default',
-      spawnFn,
-      resolveConversationId: () => recorded,
-    });
-
-    await backend.startSession();
-
-    // Turn 1: cache stays at the stale value → nothing to adopt.
-    const t1 = backend.sendPrompt('/work', 'first');
-    current.child.emit('close', 0);
-    await t1;
-
-    // While idle, a foreign session writes a new id. If the backend kept using
-    // turn 1's snapshot ('stale-S'), turn 2's close would mis-adopt 'foreign-F'.
-    recorded = 'foreign-F';
-
-    current = makeFakeChild();
-    const t2 = backend.sendPrompt('/work', 'second');
-    current.child.emit('close', 0);
-    await t2;
-
-    current = makeFakeChild();
-    const t3 = backend.sendPrompt('/work', 'third');
-    current.child.emit('close', 0);
-    await t3;
-
-    for (const call of spawnCalls) {
-      expect(call).not.toContain('--conversation');
-    }
-  });
-
-  it('keeps the pinned conversation when another session updates the cache', async () => {
-    const spawnCalls: string[][] = [];
-    let current = makeFakeChild();
-    const spawnFn = vi.fn((_bin: string, args: string[]) => {
-      spawnCalls.push(args);
-      return current.child;
-    }) as unknown as SpawnFn;
-
-    let recorded: string | null = null;
-    const backend = new AgyBackend({
-      cwd: '/work',
-      permissionMode: 'default',
-      spawnFn,
-      resolveConversationId: () => recorded,
-    });
-
-    await backend.startSession();
-
-    const t1 = backend.sendPrompt('/work', 'first');
-    recorded = 'mine';
-    current.child.emit('close', 0);
-    await t1;
-
-    // A second agy session in the same cwd finishes a turn: cache now points elsewhere.
-    recorded = 'theirs';
-
-    current = makeFakeChild();
-    const t2 = backend.sendPrompt('/work', 'second');
-    current.child.emit('close', 0);
-    await t2;
-
-    current = makeFakeChild();
-    const t3 = backend.sendPrompt('/work', 'third');
-    current.child.emit('close', 0);
-    await t3;
-
-    for (const call of [spawnCalls[1], spawnCalls[2]]) {
-      const idx = call.indexOf('--conversation');
-      expect(idx).toBeGreaterThanOrEqual(0);
-      expect(call[idx + 1]).toBe('mine');
-    }
-  });
-
-  it('emits only one error when error is followed by close (no double-emit)', async () => {
-    const { child } = makeFakeChild();
-    const spawnFn = vi.fn(() => child) as unknown as SpawnFn;
-
-    const backend = new AgyBackend({
-      cwd: '/work',
-      permissionMode: 'default',
-      spawnFn,
-      resolveConversationId: () => null,
-    });
+    const repairConversationMedia = vi.fn(() => ({ repairedCount: 3, repairedSteps: [12256, 12257, 12258] }));
     const messages: AgentMessage[] = [];
-    backend.onMessage((m) => messages.push(m));
+    const backend = new AgyBackend({
+      cwd: '/work',
+      permissionMode: 'bypassPermissions',
+      conversationId: '47cca48f-7d13-44b7-adea-3bb0373e47eb',
+      spawnFn,
+      repairConversationMedia,
+    });
+    backend.onMessage(m => messages.push(m));
 
-    await backend.startSession();
-    const turn = backend.sendPrompt('/work', 'hi');
+    const turn = backend.sendPrompt('/work', '平台内的文字行距看看需要优化和规范');
+    procs[0].stdout.emit('data', JSON.stringify({ event: 'init', conversation_id: '47cca48f-7d13-44b7-adea-3bb0373e47eb', init: {} }) + '\n');
+    procs[0].stderr.emit('data', 'AGY_ERROR: {"short_error":"INVALID_ARGUMENT (code 400): Request contains an invalid argument.","status":"INVALID_ARGUMENT","error_code":400}\n');
+    procs[0].stdout.emit('data', JSON.stringify({
+      event: 'result',
+      result: { conversation_id: '47cca48f-7d13-44b7-adea-3bb0373e47eb', status: 'ERROR', response: '', error: 'INVALID_ARGUMENT (code 400): Request contains an invalid argument.' },
+    }) + '\n');
+    procs[0].emit('close', 3);
 
-    // Node fires both 'error' and 'close' on spawn failure.
-    child.emit('error', new Error('spawn ENOENT'));
-    child.emit('close', null);
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    expect(repairConversationMedia).toHaveBeenCalledWith('47cca48f-7d13-44b7-adea-3bb0373e47eb');
+    const retryPrintIdx = calls[1].indexOf('--print');
+    expect(calls[1][retryPrintIdx + 1]).toContain('corrupted or truncated image file');
 
-    await expect(turn).rejects.toThrow(/ENOENT/);
-    expect(messages.filter((m) => m.type === 'status' && m.status === 'error')).toHaveLength(1);
+    // Simulate agy 1.4.x resumed turn succeeding with exit 0 while keeping historical result.status=ERROR
+    procs[1].stdout.emit('data', JSON.stringify({ event: 'init', conversation_id: '47cca48f-7d13-44b7-adea-3bb0373e47eb', init: {} }) + '\n');
+    procs[1].stdout.emit('data', JSON.stringify({
+      event: 'step_update',
+      step_update: { conversation_id: '47cca48f-7d13-44b7-adea-3bb0373e47eb', step_index: 12266, step_type: 'agent_response', state: 'DONE', text_delta: '已完成全站文字行距规范梳理与优化。' },
+    }) + '\n');
+    procs[1].stdout.emit('data', JSON.stringify({
+      event: 'result',
+      result: { conversation_id: '47cca48f-7d13-44b7-adea-3bb0373e47eb', status: 'ERROR', response: '已完成全站文字行距梳理与优化。', error: 'INVALID_ARGUMENT (code 400): Request contains an invalid argument.' },
+    }) + '\n');
+    procs[1].emit('close', 0);
+
+    await turn;
+    expect(messages.filter(m => m.type === 'status' && m.status === 'error')).toHaveLength(0);
+    expect(messages.filter(m => m.type === 'model-output').map(m => m.textDelta).join('')).toContain('已完成全站文字行距');
+    expect(messages.at(-1)).toMatchObject({ type: 'status', status: 'idle' });
   });
 
-  it('cancel() kills the running child', async () => {
-    const { child } = makeFakeChild();
-    const spawnFn = vi.fn(() => child) as unknown as SpawnFn;
-
+  it('does not retry INVALID_ARGUMENT (code 400) when no corrupted media exists in the conversation DB', async () => {
+    const stdout = Object.assign(new EventEmitter(), { setEncoding: () => {} });
+    const stderr = Object.assign(new EventEmitter(), { setEncoding: () => {} });
+    const child = Object.assign(new EventEmitter(), { stdout, stderr, kill: vi.fn(() => true) });
+    const calls: string[][] = [];
+    const repairConversationMedia = vi.fn(() => ({ repairedCount: 0, repairedSteps: [] }));
     const backend = new AgyBackend({
       cwd: '/work',
       permissionMode: 'default',
-      spawnFn,
-      resolveConversationId: () => null,
+      conversationId: 'clean-conv',
+      spawnFn: ((_cmd: string, args: string[]) => { calls.push(args); return child; }) as unknown as SpawnFn,
+      repairConversationMedia,
     });
-
-    await backend.startSession();
-    const turn = backend.sendPrompt('/work', 'hi');
-    await backend.cancel();
-    expect(child.kill).toHaveBeenCalled();
-
-    // The kill surfaces as a non-zero close, which rejects the turn.
-    child.emit('close', null);
-    await expect(turn).rejects.toThrow();
+    const turn = backend.sendPrompt('/work', 'hello');
+    const observed = expect(turn).rejects.toThrow(/INVALID_ARGUMENT/i);
+    stdout.emit('data', JSON.stringify({ event: 'init', conversation_id: 'clean-conv', init: {} }) + '\n');
+    stderr.emit('data', 'AGY_ERROR: INVALID_ARGUMENT (code 400): Request contains an invalid argument.\n');
+    child.emit('close', 3);
+    await observed;
+    expect(repairConversationMedia).toHaveBeenCalledTimes(1);
+    expect(calls).toHaveLength(1);
   });
 });

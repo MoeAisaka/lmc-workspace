@@ -1,3 +1,4 @@
+import { openMachineDetails } from '@/components/lmc/MachineDialog';
 import { SessionStatusIndicator } from './SessionStatusIndicator';
 import React from 'react';
 import { View, Pressable, Platform } from 'react-native';
@@ -17,7 +18,7 @@ import { useLmcAction } from '@/hooks/useLmcAction';
 import { LmcError } from '@/utils/errors';
 import { SessionActionsPopover } from './SessionActionsPopover';
 import { SESSION_ROW_MENU_STYLE, useSessionRowMenu } from '@/hooks/useSessionRowMenu';
-import { sessionKill } from '@/sync/ops';
+import { sessionArchive } from '@/sync/ops';
 import { isWorktreePath, getRepoPath, getWorktreeName } from '@/utils/worktree';
 import { useNewSessionDraft } from '@/hooks/useNewSessionDraft';
 import { useRouter } from 'expo-router';
@@ -151,7 +152,7 @@ const MachineSeparator = React.memo(({ machineName, machineId }: { machineName: 
     const router = useRouter();
 
     const handlePress = React.useCallback(() => {
-        router.navigate(`/machine/${machineId}` as any);
+        openMachineDetails(machineId);
     }, [router, machineId]);
 
     return (
@@ -235,10 +236,10 @@ export const CompactSessionRow = React.memo(({ session, selected, showBorder }: 
     const navigateToSession = useNavigateToSession();
     const swipeableRef = React.useRef<Swipeable | null>(null);
     const swipeEnabled = Platform.OS !== 'web';
-    const { anchor: actionsAnchor, closeMenu: closeActionsMenu, menuProps } = useSessionRowMenu(session.id);
+    const { anchor: actionsAnchor, closeMenu: closeActionsMenu, contextHitOverlay, menuProps } = useSessionRowMenu(session.id);
 
     const [archivingSession, performArchive] = useLmcAction(async () => {
-        const result = await sessionKill(session.id);
+        const result = await sessionArchive(session.id);
         if (!result.success) {
             throw new LmcError(result.message || t('sessionInfo.failedToArchiveSession'), false);
         }
@@ -271,6 +272,7 @@ export const CompactSessionRow = React.memo(({ session, selected, showBorder }: 
             onPress={handlePress}
             {...menuProps}
         >
+            {contextHitOverlay}
             <View style={styles.sessionContent}>
                 <View style={styles.sessionTitleRow}>
                     <Text

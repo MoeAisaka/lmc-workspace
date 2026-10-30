@@ -9,7 +9,7 @@ import type { AiTraffic, AiTrafficDay } from '@/api/types';
 const execFileAsync = promisify(execFile);
 
 /**
- * How much network data the two AI providers cost, per day.
+ * How much network data the three AI providers cost, per day.
  *
  * Measured where the traffic leaves this machine, because that is what a
  * metered uplink is billed for. Only traffic to the providers themselves
@@ -17,10 +17,11 @@ const execFileAsync = promisify(execFile);
  * request, cache hit or not, so its traffic is almost all upload: one session
  * measured 18.7 MB up against 0.5 MB down in 70 seconds (2026-10-08).
  */
-export type AiProvider = 'claude' | 'openai';
+export const AI_PROVIDERS = ['claude', 'openai', 'antigravity'] as const;
+export type AiProvider = (typeof AI_PROVIDERS)[number];
 export type TrafficDelta = { provider: AiProvider; up: number; down: number };
 
-const emptyDay = (): AiTrafficDay => ({ claude: { up: 0, down: 0 }, openai: { up: 0, down: 0 } });
+const emptyDay = (): AiTrafficDay => ({ claude: { up: 0, down: 0 }, openai: { up: 0, down: 0 }, antigravity: { up: 0, down: 0 } });
 
 /** Local calendar day, so "today" on the dashboard is the owner's day. */
 export function localDay(now: number): string {
@@ -31,10 +32,10 @@ export function localDay(now: number): string {
 // ---- macOS: per-flow deltas from nettop --------------------------------------
 
 /** The engine binaries, as nettop names them; only their flows are looked at. */
-export const ENGINE_PROCESS_NAMES = ['claude', 'codex'];
+export const ENGINE_PROCESS_NAMES = ['claude', 'codex', 'agy'];
 
 /**
- * Where the two providers are reached. An engine process also talks to its MCP
+ * Where the providers are reached. An engine process also talks to its MCP
  * servers: an idle Claude session was measured exchanging about 6 KB/s with one
  * of them (2026-10-08), none of it Anthropic's. So a flow counts by its remote
  * address, not by the process that owns it.
@@ -42,22 +43,35 @@ export const ENGINE_PROCESS_NAMES = ['claude', 'codex'];
 export const PROVIDER_HOSTS: Record<AiProvider, string[]> = {
     claude: ['api.anthropic.com', 'claude.ai', 'mcp-proxy.anthropic.com', 'statsig.anthropic.com', 'console.anthropic.com', 'platform.claude.com', 'api.claude.com'],
     openai: ['chatgpt.com', 'api.openai.com', 'auth.openai.com', 'ab.chatgpt.com', 'chat.openai.com', 'cdn.oaistatic.com'],
+    antigravity: [
+        'daily-cloudcode-pa.googleapis.com',
+        'cloudcode-pa.googleapis.com',
+        'aicode.googleapis.com',
+        'businessaicode.googleapis.com',
+        'generativelanguage.googleapis.com',
+        'aiplatform.googleapis.com',
+        'alkalimakersuite-pa.googleapis.com',
+        'antigravity-unleash.goog',
+        'antigravity.google',
+        'antigravity.google.com',
+    ],
 };
-/** Anthropic announces its own address space; OpenAI sits behind shared CDN addresses and is only known by name. */
+/** Anthropic announces its own address space; OpenAI and Antigravity sit behind shared Google/CDN addresses and are resolved by name. */
 const PROVIDER_SUBNETS: Record<AiProvider, Array<[string, number, 'ipv4' | 'ipv6']>> = {
     claude: [['160.79.104.0', 23, 'ipv4'], ['2607:6bc0::', 48, 'ipv6']],
     openai: [],
+    antigravity: [],
 };
 
 export type AddressClassifier = (address: string) => AiProvider | null;
 
 /** Remembers every address the providers' names resolved to in the last day; answers change between lookups. */
 export function createProviderAddresses(now: () => number = Date.now, keepMs = 24 * 3600_000) {
-    const seen: Record<AiProvider, Map<string, number>> = { claude: new Map(), openai: new Map() };
+    const seen: Record<AiProvider, Map<string, number>> = { claude: new Map(), openai: new Map(), antigravity: new Map() };
     let lists: Record<AiProvider, BlockList> | null = null;
     const build = () => {
-        const next = { claude: new BlockList(), openai: new BlockList() };
-        for (const provider of ['claude', 'openai'] as const) {
+        const next: Record<AiProvider, BlockList> = { claude: new BlockList(), openai: new BlockList(), antigravity: new BlockList() };
+        for (const provider of AI_PROVIDERS) {
             for (const [network, prefix, family] of PROVIDER_SUBNETS[provider]) next[provider].addSubnet(network, prefix, family);
             for (const address of seen[provider].keys()) { try { next[provider].addAddress(address, isIP(address) === 6 ? 'ipv6' : 'ipv4'); } catch { /* not an address: skip */ } }
         }
@@ -75,7 +89,8 @@ export function createProviderAddresses(now: () => number = Date.now, keepMs = 2
             if (!family) return null;
             lists ??= build();
             const kind = family === 6 ? 'ipv6' : 'ipv4';
-            return lists.claude.check(address, kind) ? 'claude' : lists.openai.check(address, kind) ? 'openai' : null;
+            for (const provider of AI_PROVIDERS) if (lists[provider].check(address, kind)) return provider;
+            return null;
         }) as AddressClassifier,
     };
 }
@@ -115,11 +130,18 @@ export function createNettopParser(classify: AddressClassifier, onDelta: (delta:
 
 // ---- a local proxy core's connection list (Windows; macOS when one is running) ----
 
-/** Only these two are ever counted or kept; any other host is ignored on the spot. */
+/** Only the three AI providers' own service hosts count; generic Google or CDN hosts are ignored. */
 export function providerOfHost(host: string): AiProvider | null {
     const h = host.toLowerCase();
     if (/(^|\.)(anthropic\.com|claude\.ai|claude\.com|claudeusercontent\.com)$/.test(h)) return 'claude';
     if (/(^|\.)(openai\.com|chatgpt\.com|oaistatic\.com|oaiusercontent\.com)$/.test(h)) return 'openai';
+    if (
+        /(^|\.)(antigravity\.google|antigravity\.google\.com|antigravity-unleash\.goog)$/.test(h) ||
+        /^antigravity-cli-auto-updater-[a-z0-9.-]+\.run\.app$/.test(h) ||
+        /(^|[.-])(cloudcode-pa|aicode)(\.sandbox)?\.googleapis\.com$/.test(h) ||
+        /(^|\.)(businessaicode|generativelanguage|alkalimakersuite-pa|alkalimakersuiteapplets\.pa)\.googleapis\.com$/.test(h) ||
+        /(^|[.-])aiplatform\.googleapis\.com$/.test(h)
+    ) return 'antigravity';
     return null;
 }
 
@@ -130,11 +152,12 @@ export type ProxyConnection = { id: string; upload: number; download: number; me
  * the owning process for desktop apps and browsers, but leaves it empty for the
  * engines' own binaries (seen on macOS for both, 2026-10-09). So a named process
  * that is not an engine is left out, and an unnamed one is taken as an engine.
- * Case matters: the desktop app's binary is `Claude`, the engine's is `claude`.
+ * Case matters: the desktop app's binary is `Claude` or `Antigravity`, the engine's is `claude` or `agy`.
  */
 export function isEngineConnection(connection: ProxyConnection): boolean {
-    const name = connection.metadata?.process ?? '', path = connection.metadata?.processPath ?? '';
-    if (!name && !path) return true;
+    const rawName = connection.metadata?.process ?? '', rawPath = connection.metadata?.processPath ?? '';
+    if (!rawName && !rawPath) return true;
+    const name = rawName.replace(/\.exe$/i, ''), path = rawPath.replace(/\\/g, '/').replace(/\.exe$/i, '');
     return ENGINE_PROCESS_NAMES.includes(name) || ENGINE_PROCESS_NAMES.some(engine => path.endsWith(`/${engine}`) || path.includes(`/${engine}/versions/`));
 }
 
@@ -214,12 +237,16 @@ const readCapturesAll = async (endpoint: ProxyEndpoint) => (await readProxyCore(
 export const AI_TRAFFIC_KEEP_DAYS = 120;
 export const AI_TRAFFIC_PUBLISH_DAYS = 35;
 
-export function createTrafficLedger(initial: Record<string, AiTrafficDay> = {}) {
+export function createTrafficLedger(initial: Record<string, Partial<AiTrafficDay>> = {}) {
     const days: Record<string, AiTrafficDay> = {};
     for (const [day, value] of Object.entries(initial)) {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
         const read = (v: unknown) => (Number.isFinite(v) && (v as number) > 0 ? (v as number) : 0);
-        days[day] = { claude: { up: read(value?.claude?.up), down: read(value?.claude?.down) }, openai: { up: read(value?.openai?.up), down: read(value?.openai?.down) } };
+        days[day] = {
+            claude: { up: read(value?.claude?.up), down: read(value?.claude?.down) },
+            openai: { up: read(value?.openai?.up), down: read(value?.openai?.down) },
+            antigravity: { up: read(value?.antigravity?.up), down: read(value?.antigravity?.down) },
+        };
     }
     let dirty = false;
     return {
@@ -238,15 +265,17 @@ export function createTrafficLedger(initial: Record<string, AiTrafficDay> = {}) 
         },
         total(): number {
             let sum = 0;
-            for (const day of Object.values(days)) sum += day.claude.up + day.claude.down + day.openai.up + day.openai.down;
+            for (const day of Object.values(days)) {
+                sum += day.claude.up + day.claude.down + day.openai.up + day.openai.down + day.antigravity.up + day.antigravity.down;
+            }
             return sum;
         },
         takeDirty() { const was = dirty; dirty = false; return was; },
     };
 }
 
-export function readLedgerFile(path: string): Record<string, AiTrafficDay> {
-    try { return (JSON.parse(readFileSync(path, 'utf8')) as { days?: Record<string, AiTrafficDay> }).days ?? {}; } catch { return {}; }
+export function readLedgerFile(path: string): Record<string, Partial<AiTrafficDay>> {
+    try { return (JSON.parse(readFileSync(path, 'utf8')) as { days?: Record<string, Partial<AiTrafficDay>> }).days ?? {}; } catch { return {}; }
 }
 
 function writeLedgerFile(path: string, days: Record<string, AiTrafficDay>) {
@@ -281,7 +310,7 @@ function startNettop(onDelta: (delta: TrafficDelta) => void): () => void {
     let child: ChildProcess | null = null, stopped = false, retry: ReturnType<typeof setTimeout> | null = null;
     const addresses = createProviderAddresses();
     const resolve = async () => {
-        for (const provider of ['claude', 'openai'] as const) {
+        for (const provider of AI_PROVIDERS) {
             const found = await Promise.all(PROVIDER_HOSTS[provider].map(host => lookup(host, { all: true }).then(list => list.map(entry => entry.address), () => [] as string[])));
             if (!stopped) addresses.learn(provider, found.flat());
         }

@@ -151,6 +151,7 @@ describe('modelModeOptions', () => {
             'claude-opus-5-5',
             'claude-fable-5-1',
             'claude-sonnet-5-5',
+            'claude-haiku-5-5',
             'claude-fable-5',
             'claude-opus-5',
             'claude-opus-5[1m]',
@@ -160,6 +161,7 @@ describe('modelModeOptions', () => {
             'Opus 5.5',
             'Fable 5.1',
             'Sonnet 5.5',
+            'Haiku 5.5',
             'Fable 5',
             'Opus 5',
             'Opus 5 [1M]',
@@ -267,16 +269,39 @@ describe('modelModeOptions', () => {
     it('gives agy its own models, not the claude fallback', () => {
         const models = getAvailableModels('agy', null, translate);
         // must be agy's own list, not claude's opus/sonnet/haiku
-        expect(models).toEqual(getAgyModelModes());
+        expect(models.map(m => m.key)).toEqual(getAgyModelModes().map(m => m.key));
+        expect(models.every(m => m.disabled)).toBe(true);
         const keys = models.map((m) => m.key);
         // the agentDefaults agy default must be selectable
-        expect(keys).toContain('Gemini 3.1 Pro (High)');
-        expect(getDefaultModelKey('agy')).toBe('Gemini 3.1 Pro (High)');
-        // no 'default' entry — agy would receive the literal string "default" as --model
-        expect(keys).not.toContain('default');
+        expect(keys).toContain('default');
+        expect(getDefaultModelKey('agy')).toBe('default');
+        // The native default must remain usable before a signed-in catalog exists.
+        expect(keys).not.toContain('Gemini 3.1 Pro (High)');
         // not the claude list
         expect(keys).not.toContain('opus');
         expect(keys).not.toContain('sonnet');
+    });
+
+    it('keeps a configured Antigravity partner model visible without treating it as an engine switch', () => {
+        const models = getAvailableModels('agy', { path: '', host: '', version: '1.2.118' }, translate, 'claude-partner-fixture');
+        expect(models.map(m => m.key)).toEqual(['default', 'claude-partner-fixture']);
+    });
+
+    it('selects the advertised Antigravity family for its native effort ID without a duplicate custom row', () => {
+        const metadata = { path: '', host: '', version: '1.2.130', modelCatalogs: { agy: {
+            runtimeVersion: '1.4.7', capturedAt: 1, models: [{ id: 'gemini-4-argon', name: 'Gemini 4 Argon',
+                aliases: ['gemini-4-argon-high'], efforts: ['high'], effortModels: { high: 'gemini-4-argon-high' } }],
+        } } };
+        const models = getAvailableModels('agy', metadata, translate, 'gemini-4-argon-high');
+        expect(models.map(model => model.key)).toEqual(['gemini-4-argon']);
+        expect(resolveCurrentOption(models, ['gemini-4-argon-high'])).toMatchObject({ key: 'gemini-4-argon', name: 'Gemini 4 Argon' });
+    });
+
+    it('requires a compatible LMC Agent before offering the new Antigravity protocol', () => {
+        const old = getAvailableModels('agy', { path: '', host: '', version: '1.2.117' }, translate);
+        expect(old.every(m => m.disabled)).toBe(true);
+        const ready = getAvailableModels('agy', { path: '', host: '', version: '1.2.118' }, translate);
+        expect(ready.some(m => m.key === 'default' && !m.disabled)).toBe(true);
     });
 
     it('resolves the first matching preferred key', () => {

@@ -69,7 +69,7 @@ export class Encryption {
      * Initialize sessions with their encryption keys
      * This should be called once when sessions are loaded
      */
-    async initializeSessions(sessions: Map<string, Uint8Array | null>): Promise<void> {
+    async initializeSessions(sessions: Map<string, Uint8Array | null>, isCurrent: () => boolean = () => true): Promise<void> {
         for (const [sessionId, dataKey] of sessions) {
             // Skip if already initialized
             if (this.sessionEncryptions.has(sessionId)) {
@@ -85,7 +85,6 @@ export class Encryption {
                 encryptor,
                 this.cache
             );
-            this.sessionEncryptions.set(sessionId, sessionEnc);
 
             // Derive blob key for this session.
             // Legacy sessions (null dataKey) use the master blob key.
@@ -94,6 +93,10 @@ export class Encryption {
             const blobKey = dataKey
                 ? await deriveKey(dataKey, 'Happy Blobs', ['session'])
                 : this.masterBlobKey;
+            // A revoke can arrive during either async derivation. Never restore
+            // a key from a request that predates the current access snapshot.
+            if (!isCurrent()) return;
+            this.sessionEncryptions.set(sessionId, sessionEnc);
             this.sessionBlobKeys.set(sessionId, blobKey);
         }
     }
@@ -110,6 +113,7 @@ export class Encryption {
      * Remove session encryption from memory when session is deleted
      */
     removeSessionEncryption(sessionId: string): void {
+        this.sessionEncryptions.get(sessionId)?.dispose();
         this.sessionEncryptions.delete(sessionId);
         this.sessionBlobKeys.delete(sessionId);
         // Also clear any cached data for this session

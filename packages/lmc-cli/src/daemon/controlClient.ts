@@ -1,3 +1,5 @@
+import { assertSessionOwnerAvailable, SessionOwnershipConflict, SESSION_OWNERSHIP_CONFLICT } from './sessionOwnership';
+import { SESSION_START_RPC_TIMEOUT_MS } from 'lmc-wire';
 import type { SessionRefreshOptions } from './sessionRefresh';
 /**
  * HTTP client helpers for daemon communication
@@ -11,7 +13,7 @@ import { configuration } from '@/configuration';
 import { listSessionProcesses } from './sessionProcesses';
 import { isLmcDaemonProcess } from './sessionSpawnGuard';
 
-async function daemonPost(path: string, body?: any): Promise<{ error?: string } | any> {
+async function daemonPost(path: string, body?: any, timeoutMs = 10_000): Promise<{ error?: string } | any> {
   const state = await readDaemonState();
   if (!state?.httpPort) {
     const errorMessage = 'No daemon running, no state file found';
@@ -32,7 +34,7 @@ async function daemonPost(path: string, body?: any): Promise<{ error?: string } 
   }
 
   try {
-    const timeout = process.env.HAPPY_DAEMON_HTTP_TIMEOUT ? parseInt(process.env.HAPPY_DAEMON_HTTP_TIMEOUT) : 10_000;
+    const timeout = process.env.HAPPY_DAEMON_HTTP_TIMEOUT ? parseInt(process.env.HAPPY_DAEMON_HTTP_TIMEOUT) : timeoutMs;
     const response = await fetch(`http://127.0.0.1:${state.httpPort}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -41,6 +43,10 @@ async function daemonPost(path: string, body?: any): Promise<{ error?: string } 
       signal: AbortSignal.timeout(timeout)
     });
     
+    if (response.status === 409) {
+      const conflict = await response.json().catch(() => null) as { code?: string; error?: string } | null;
+      if (conflict?.code === SESSION_OWNERSHIP_CONFLICT) return conflict;
+    }
     if (!response.ok) {
       const errorMessage = `Request failed: ${path}, HTTP ${response.status}`;
       logger.debug(`[CONTROL CLIENT] ${errorMessage}`);
@@ -83,6 +89,7 @@ export async function notifyDaemonSessionStarted(
 
   while (true) {
     result = await daemonPost('/session-started', payload);
+    if (result?.code === SESSION_OWNERSHIP_CONFLICT) throw new SessionOwnershipConflict(result.error);
     if (!result?.error) {
       return result;
     }
@@ -104,7 +111,7 @@ export async function stopDaemonSession(sessionId: string): Promise<boolean> {
 }
 
 export async function spawnDaemonSession(directory: string, sessionId?: string): Promise<any> {
-  const result = await daemonPost('/spawn-session', { directory, sessionId });
+  const result = await daemonPost('/spawn-session', { directory, sessionId }, SESSION_START_RPC_TIMEOUT_MS);
   return result;
 }
 
@@ -112,8 +119,8 @@ export async function spawnDaemonSession(directory: string, sessionId?: string):
  * A hub starting a worker on its own machine: the daemon spawns it with the
  * binding and title in its environment, so the worker is born bound.
  */
-export async function spawnDaemonSessionWith(options: { directory: string; agent: 'claude' | 'codex'; modelMode?: string; effortLevel?: string; permissionMode?: string; hubSessionId: string; title: string }): Promise<{ success: boolean; sessionId?: string; error?: string }> {
-  const result = await daemonPost('/spawn-session', options);
+export async function spawnDaemonSessionWith(options: { directory: string; agent: 'claude' | 'codex' | 'agy'; modelMode?: string; effortLevel?: string; permissionMode?: string; hubSessionId: string; title: string }): Promise<{ success: boolean; sessionId?: string; error?: string }> {
+  const result = await daemonPost('/spawn-session', options, SESSION_START_RPC_TIMEOUT_MS);
   if (result?.error) return { success: false, error: String(result.error) };
   return { success: !!result?.success, sessionId: result?.sessionId, error: result?.success ? undefined : (result?.actionRequired ?? 'spawn refused') };
 }
@@ -294,5 +301,17 @@ async function waitForProcessDeath(pid: number, timeout: number): Promise<void> 
   throw new Error('Process did not die within timeout');
 }
 export async function prepareDaemonSessionRefresh(sessionId: string, pid: number, options: SessionRefreshOptions): Promise<{ error?: string }> {
-  return daemonPost('/prepare-session-refresh', { sessionId, pid, options });
+  // The daemon lists processes and reads the session from the server first; on
+  // a machine restarting several sessions that passed 10 s and the session was
+  // left on the old engine. Asking again is safe: an accepted job is kept as is.
+  return daemonPost('/prepare-session-refresh', { sessionId, pid, options }, 45_000);
+}
+
+/** Reconnect must prove the previous runner is gone before any server writes. */
+export async function assertSessionReconnectAvailable(sessionId: string): Promise<void> {
+  const result = await daemonPost('/list');
+  if (result?.error || !Array.isArray(result?.children)) {
+    throw new Error('Cannot verify existing session ownership; refusing to reconnect.');
+  }
+  assertSessionOwnerAvailable(sessionId, process.pid, result.children);
 }

@@ -131,15 +131,12 @@ let browser;
         // reveals. The field must now keep its document position, so WebKit
         // stops after one reveal; the backdrop covers the strip past the body.
         const anchored = await measure();
-        // The second flavor runs after the first one taught the 54px strip
-        // (same page, same localStorage): its field is pre-lifted and WebKit
-        // has nothing to reveal. The first flavor learns it here.
+        // Each opening uses observed viewport geometry; prior native pans are
+        // never remembered as an extra lift for the next opening.
         const learnedBefore = await page.evaluate(() => !!localStorage.getItem('lmc.ios-keyboard-reveal-gap.v2'));
-        // The strip remembered so far (0 before any reveal). A re-anchor followed
-        // by another modelled reveal legitimately teaches a larger strip, so the
-        // second flavor starts from whatever the first one ended with.
-        const gap0 = await page.evaluate(() => JSON.parse(localStorage.getItem('lmc.ios-keyboard-reveal-gap.v2') || '{"gap":0}').gap);
-        const expectedPan = learnedBefore ? 0 : 54;
+        const gap0 = 0;
+        const expectedPan = 54;
+        check(`${flavor}: retired reveal cache stays absent`, !learnedBefore);
         let reveals = 0, settled = anchored;
         for (let keystroke = 0; keystroke < 6; keystroke++) {
             let r = settled, steps = 0;
@@ -154,7 +151,7 @@ let browser;
                 && r.fieldTop >= 56 && r.fieldBottom <= 424 && Math.abs(r.headerTop)<1 && r.headerHit && r.sendHit && r.focused && !r.extension, r);
         }
         check(`${flavor}: ${learnedBefore ? 'no' : 'one'} caret reveal in total, no creep`, reveals === (learnedBefore ? 0 : 1), {reveals, learnedBefore});
-        // Learning waits 400ms after the pan settles; the keyboard must stay open that long.
+        // Let native pan geometry settle before reopening.
         await page.waitForTimeout(500);
         // v294 record: pageTop lags scrollY by 20px during the pan. The
         // visible bottom still comes from scrollY; the backdrop covers 54px.
@@ -163,11 +160,8 @@ let browser;
             check(`${flavor}: lagging pageTop ${pageTop} does not move the field`, Math.abs((r.fieldTop + r.pan) - (anchored.fieldTop + anchored.pan)) < 1
                 && r.dockMeets && r.dockExtension === `${54 + gap0}px` && r.sendHit && r.fieldBottom <= 424, r);
         }
-        // The 54px reveal has settled (waits above exceed the 400ms learning
-        // delay). Dismiss the keyboard with the field still focused, re-tap:
-        // the tap must refocus with preventScroll (WebKit would otherwise
-        // force-scroll the old position to the page limit), and the field is
-        // pre-lifted by the remembered 54px so WebKit has nothing to reveal.
+        // Re-tapping a focused field after dismissal still refocuses with
+        // preventScroll, but must not anticipate a cached keyboard or gap.
         await update(756, 0);
         const beforeRetap = await page.evaluate(() => focusCalls.length);
         const dismissedField = await field.boundingBox();
@@ -175,25 +169,21 @@ let browser;
         await page.waitForTimeout(50);
         const retap = await page.evaluate(() => ({ calls: focusCalls.slice(), focused: document.activeElement === panProbe.node, text: panProbe.node.value,
             learned: JSON.parse(localStorage.getItem('lmc.ios-keyboard-reveal-gap.v2') || 'null') }));
-        // The strip in effect from here on: the modelled pans above are recorded
-        // device data, so a pre-lifted flavor may legitimately have learned more.
-        const gap = retap.learned?.gap ?? 0;
+        const gap = 0;
         check(`${flavor}: re-tapping the focused field after keyboard dismissal refocuses with preventScroll`, retap.calls.length === beforeRetap + 1
             && retap.calls[beforeRetap].preventScroll && !retap.calls[beforeRetap].wasFocused && retap.focused && retap.text === '我'
-            && gap >= gap0 + expectedPan && retap.learned?.keyboardHeight === 332, retap);
+            && retap.learned === null, retap);
         // That deliberate blur/refocus is the only focus loss allowed; the send checks below count from here.
         await page.evaluate(() => { panProbe.blurs = 0; });
-        // v299 device trace: WebKit checks the caret while the keyboard frame
-        // is still changing, before any viewport event. The tap alone must
-        // already have lifted the dock to the remembered keyboard geometry.
         await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
         const anticipated = await measure(); frames.push(anticipated);
-        check(`${flavor}: the tap lifts the dock before any keyboard viewport event`, anticipated.height === 756 && Math.abs(anticipated.fieldTop - (305 - gap)) < 1
-            && Math.abs(anticipated.composerBottom + parseFloat(anticipated.dockExtension || '0') - 424) < 1 && anticipated.dockExtension === `${gap}px` && anticipated.focused, anticipated);
+        check(`${flavor}: the tap does not pre-lift before a keyboard viewport event`, anticipated.height === 756
+            && Math.abs(anticipated.composerBottom - 756) < 1 && anticipated.inset === '0px'
+            && !anticipated.dockExtension && anticipated.focused, anticipated);
         const reopened = await update(424, 0);
-        const reopenReveal = reopened.fieldTop > 251 ? 'needed' : 'none';
-        check(`${flavor}: the remembered reveal pre-lifts the field so the reopened keyboard needs no pan`, reopenReveal === 'none' && reopened.dockMeets
-            && reopened.dockExtension === `${gap}px` && Math.abs(reopened.fieldTop - (305 - gap)) < 1 && reopened.sendHit && reopened.focused, reopened);
+        check(`${flavor}: reopened composer is flush without a remembered gap`, reopened.dockMeets
+            && !reopened.dockExtension && Math.abs(reopened.composerBottom - 424) < 1
+            && Math.abs(reopened.fieldTop - 305) < 1 && reopened.sendHit && reopened.focused, reopened);
         // v296 device screenshot: an unsuppressed focus reveal panned the page
         // to its limit, leaving the field above the header. Re-anchor after
         // the pan settles, then WebKit's next reveal is anchored again.
@@ -204,9 +194,8 @@ let browser;
         await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
         const recovered = await measure(); frames.push(recovered);
         check(`${flavor}: the field returns to the keyboard once the limit pan settles`, recovered.dockMeets
-            && Math.abs(recovered.fieldTop - (305 - gap)) < 1 && recovered.fieldBottom <= 424 && recovered.dockExtension === `${gap}px` && recovered.sendHit && recovered.focused, recovered);
-        // A further modelled reveal after the re-anchor: anchored, and (being a
-        // real pan) it teaches the larger strip for the next flavor.
+            && Math.abs(recovered.fieldTop - (305 - gap)) < 1 && recovered.fieldBottom <= 424 && !recovered.dockExtension && recovered.sendHit && recovered.focused, recovered);
+        // A further modelled reveal after the re-anchor remains anchored.
         const revealed = await update(424, 386, 365.7);
         check(`${flavor}: WebKit's following reveal is anchored again`, revealed.dockMeets && revealed.dockExtension === `${gap + 54}px`
             && revealed.fieldTop >= 56 && revealed.fieldBottom <= 424 && revealed.sendHit, revealed);
@@ -217,7 +206,7 @@ let browser;
         await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
         const rebased = await measure(); frames.push(rebased);
         const gapNow = await page.evaluate(() => JSON.parse(localStorage.getItem('lmc.ios-keyboard-reveal-gap.v2') || '{"gap":0}').gap);
-        check(`${flavor}: a settled under-pan lifts the field back to the keyboard`, rebased.dockMeets && rebased.dockExtension === `${gapNow}px` && Math.abs(rebased.fieldTop - (305 - gapNow)) < 1 && rebased.sendHit, rebased);
+        check(`${flavor}: a settled under-pan lifts the field back to the keyboard`, rebased.dockMeets && !rebased.dockExtension && Math.abs(rebased.fieldTop - (305 - gapNow)) < 1 && rebased.sendHit, rebased);
         // A finger pan with the keyboard open is followed once it ends.
         await page.evaluate(() => document.dispatchEvent(new Event('touchstart', {bubbles: true})));
         const dragged = await update(424, 386, 365.7);

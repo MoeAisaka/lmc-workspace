@@ -1,3 +1,4 @@
+import { isSessionStartRpc, SESSION_START_RPC_TIMEOUT_MS } from 'lmc-wire';
 import { log } from "@/utils/log";
 import { Server, Socket } from "socket.io";
 import type { RemoteSocket } from "socket.io";
@@ -216,7 +217,7 @@ export function rpcHandler(userId: string, socket: Socket, io: Server) {
             //
             // Requires 2 consecutive empty polls before declaring disconnect
             // to avoid false positives from transient Redis/adapter timeouts.
-            const ackPromise = target.timeout(RPC_CALL_TIMEOUT_MS)
+            const ackPromise = target.timeout(isSessionStartRpc(method) ? SESSION_START_RPC_TIMEOUT_MS : RPC_CALL_TIMEOUT_MS)
                 .emitWithAck('rpc-request', { method, params });
 
             let presenceAlive = true;

@@ -15,7 +15,7 @@ import type { SwitchableEngine } from './engineSwitch';
  * entry, so the knob stays where it was when a session changes engine — the
  * same position means the same thing on both sides.
  */
-const SCALES: Record<SwitchableEngine, readonly string[]> = {
+const SCALES: Record<Exclude<SwitchableEngine, 'agy'>, readonly string[]> = {
     claude: ['plan', 'default', 'auto', 'acceptEdits', 'bypassPermissions'],
     codex: ['read-only', 'default', 'auto', 'safe-yolo', 'yolo'],
 };

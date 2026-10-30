@@ -14,7 +14,7 @@ const ALLOWED = ['engine', 'permissionMode', 'model', 'effort', 'fallbackBriefin
 export function readSwitchEngine(request: unknown): SwitchableEngine | null {
     if (!request || typeof request !== 'object') return null;
     const engine = (request as Record<string, unknown>).engine;
-    if (engine !== 'claude' && engine !== 'codex') return null;
+    if (engine !== 'claude' && engine !== 'codex' && engine !== 'agy') return null;
     if (Object.keys(request).some((key) => !ALLOWED.includes(key))) return null;
     for (const key of ALLOWED.slice(1)) {
         const value = (request as Record<string, unknown>)[key];

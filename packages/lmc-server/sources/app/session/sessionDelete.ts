@@ -5,6 +5,8 @@ import { allocateUserSeq } from "@/storage/seq";
 import { randomKeyNaked } from "@/utils/randomKeyNaked";
 import { log } from "@/utils/log";
 import { deleteSessionAttachments } from "@/storage/files";
+import { multiAccountEnabled } from '@/lmc/access/features';
+import { notifySessionAccessChanged } from '@/lmc/access/sessionNotifications';
 
 /**
  * Delete a session and all its related data.
@@ -21,6 +23,7 @@ import { deleteSessionAttachments } from "@/storage/files";
  */
 export async function sessionDelete(ctx: Context, sessionId: string): Promise<boolean> {
     return await inTx(async (tx) => {
+        if (multiAccountEnabled()) await tx.$queryRaw`SELECT id FROM LmcAccessLock WHERE id = 1 FOR UPDATE`;
         // Verify session exists and belongs to the user
         const session = await tx.session.findFirst({
             where: {
@@ -37,6 +40,8 @@ export async function sessionDelete(ctx: Context, sessionId: string): Promise<bo
             }, `Session not found or not owned by user`);
             return false;
         }
+        const sharing = multiAccountEnabled() ? await tx.lmcResourcePolicy.findUnique({ where: { kind_resourceId: { kind: 'session', resourceId: sessionId } }, include: { grants: true } }) : null;
+        if (sharing) await tx.lmcResourcePolicy.delete({ where: { id: sharing.id } });
 
         // Delete all related data
         // Note: Order matters to avoid foreign key constraint violations
@@ -86,6 +91,7 @@ export async function sessionDelete(ctx: Context, sessionId: string): Promise<bo
 
         // Send notification and clean up storage after transaction commits
         afterTx(tx, async () => {
+            if (sharing) notifySessionAccessChanged(sessionId, sharing.grants.map(g => g.accountId));
             const updSeq = await allocateUserSeq(ctx.uid);
             const updatePayload = buildDeleteSessionUpdate(sessionId, updSeq, randomKeyNaked(12));
 

@@ -1,7 +1,7 @@
+import { openUsage } from '@/components/lmc/UsageDialog';
 import * as React from 'react';
 import { Pressable, ScrollView, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
@@ -52,7 +52,6 @@ const styles = StyleSheet.create((theme) => ({
  */
 export function AccountMenu({ anchor, onClose }: { anchor: AccountMenuAnchor; onClose?: () => void }) {
     const { theme } = useUnistyles();
-    const router = useRouter();
     const auth = useAuth();
     const quota = useAccountQuota();
     const { width: windowWidth, height } = useWindowDimensions();
@@ -101,12 +100,9 @@ export function AccountMenu({ anchor, onClose }: { anchor: AccountMenuAnchor; on
                 <ScrollView testID="account-menu-scroll" showsVerticalScrollIndicator contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: 2 }}>
                 <AccountQuotaCards {...quota} onRefresh={quota.refresh} />
                 <View style={styles.divider} />
-                <Item icon="analytics-outline" label="用量看板" onPress={go(() => router.push('/settings/usage'))} />
-                <Item icon="laptop-outline" label={t('lmc.menu.devices')} onPress={open('devices')} />
-                <Item icon="person-circle-outline" label={t('lmc.menu.profile')} onPress={open('account')} />
+                <Item icon="analytics-outline" label="用量看板" onPress={go(() => openUsage())} />
                 <Item icon="settings-outline" label={t('lmc.menu.settings')} onPress={open('general')} />
                 <View style={styles.divider} />
-                <Item icon="sparkles-outline" label={t('lmc.menu.changelog')} onPress={go(() => router.push('/changelog'))} />
                 <Item icon="log-out-outline" label={t('lmc.menu.signOut')} onPress={logout} destructive />
                 </ScrollView>
             </View>

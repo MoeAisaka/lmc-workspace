@@ -26,7 +26,7 @@ export class WorkerConfigValidationError extends Error {}
 /** Observe accepted configuration without injecting a model/user turn. */
 export function watchSessionConfiguration(
     session: Pick<ApiSessionClient, 'on' | 'off' | 'getMetadata' | 'sendSessionEvent'> & Partial<Pick<ApiSessionClient, 'requestHubDecision'>>,
-    engine: 'claude' | 'codex',
+    engine: 'claude' | 'codex' | 'agy',
     apply: (metadata: Pick<Metadata, 'modelMode' | 'effortLevel' | 'permissionMode'>) => void | Promise<void>,
 ): () => void {
     const keys = ['modelMode', 'effortLevel', 'permissionMode'] as const;
@@ -133,7 +133,7 @@ export function configAsMetadata(config: WorkerConfig): { modelMode?: string; ef
 export function applyWorkerConfig(metadata: Metadata, config: WorkerConfig): Metadata {
     const o = metadata.orchestration;
     const permissionMode = config.permissionMode && resolveWorkerPermissionMode({ ...metadata, permissionMode: config.permissionMode, permissionModeSource: 'explicit' }, metadata.flavor ?? 'claude');
-    if (config.permissionMode && !(metadata.flavor === 'codex' ? isRemoteCodexPermissionMode(permissionMode) : (metadata.flavor === 'claude' || !metadata.flavor) && isPermissionMode(permissionMode ?? undefined))) {
+    if (config.permissionMode && !(metadata.flavor === 'codex' ? isRemoteCodexPermissionMode(permissionMode) : (metadata.flavor === 'claude' || metadata.flavor === 'agy' || !metadata.flavor) && isPermissionMode(permissionMode ?? undefined))) {
         throw new Error('This permission mode is not supported by the worker’s current engine.');
     }
     return {

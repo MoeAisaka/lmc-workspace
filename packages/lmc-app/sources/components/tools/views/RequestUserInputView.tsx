@@ -1,7 +1,7 @@
 import * as React from 'react';
 
 import { sessionAnswerQuestion } from '@/sync/ops';
-import { useSessionAgentFormCommunication } from '@/sync/storage';
+import { useSession, useSessionAgentFormCommunication } from '@/sync/storage';
 import type { AgentQuestionAnswer } from '@/sync/storageTypes';
 import { ToolViewProps } from './_all';
 import {
@@ -11,6 +11,7 @@ import {
 
 /** Inline renderer for Happy/Codex request_user_input communications. */
 export const RequestUserInputView = React.memo<ToolViewProps>(({ tool, sessionId }) => {
+    const session = useSession(sessionId ?? '');
     const communication = useSessionAgentFormCommunication(sessionId ?? '', tool.callId ?? '');
 
     const submittedAnswers = React.useMemo<InlineQuestionAnswers | null>(() => {
@@ -48,7 +49,7 @@ export const RequestUserInputView = React.memo<ToolViewProps>(({ tool, sessionId
     return (
         <InlineQuestionForm
             questions={communication.questions}
-            canInteract={tool.state === 'running' && communication.status === 'pending'}
+            canInteract={(!session?.shared || !!session.accessActions?.includes('approve')) && tool.state === 'running' && communication.status === 'pending'}
             submittedAnswers={submittedAnswers}
             onSubmit={handleSubmit}
         />

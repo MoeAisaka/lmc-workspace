@@ -1,3 +1,4 @@
+import { QuotaEfficiencyCard } from './QuotaEfficiencyCard';
 import * as React from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, View } from 'react-native';
 import Svg, { Circle, Line, Path, Text as SvgText } from 'react-native-svg';
@@ -7,11 +8,12 @@ import { Text } from '@/components/StyledText';
 import { ProviderIcon } from '@/components/ProviderIcon';
 import { lmcColors } from '@/components/lmc/lmcColors';
 import { lmcElevation, lmcSurfaceBorder } from '@/components/lmc/elevation';
-import { compactTokens as fmt, summarizeUsage, type UsageBucket, type UsagePeriod } from '@/sync/usageAnalytics';
+import { compactTokens as fmt, fiveHourUsageRange, summarizeUsage, type UsageBucket, type UsagePeriod } from '@/sync/usageAnalytics';
 import type { UsageAnalyticsState } from '@/sync/useUsageAnalytics';
-import { emptyUsage, usageTotal, type UsageTokens } from 'lmc-wire';
+import { emptyUsage, usageTotal, type AccountQuotaSnapshot } from 'lmc-wire';
 import { UsageSessionDetails } from './UsageSessionDetails';
 import { AiTrafficCard, type AiTrafficMachine } from './AiTrafficCard';
+import { UsageCalendar } from './UsageCalendar';
 import type { UsageSessionRole } from '@/sync/usageSessionGroups';
 
 const palette = { input: '#0060F0', output: '#DE7358', cacheWrite: '#9981CF', cacheRead: '#4D9C78' };
@@ -50,6 +52,8 @@ function Trend({ buckets, daily, small = false, onSelect, selected, emptyLabel }
     const x = (i: number) => buckets.length === 1 ? width / 2 : i * width / Math.max(1, buckets.length - 1);
     const y = (n: number) => height - bottom - (height - bottom - top) * n / max;
     const sums = buckets.map(() => 0);
+    const labelCount = Math.min(buckets.length, Math.max(2, Math.min(6, Math.floor(width / 72))));
+    const labelIndexes = new Set(Array.from({ length: labelCount }, (_, i) => Math.round(i * (buckets.length - 1) / Math.max(1, labelCount - 1))));
     if (!buckets.some(b => b.count > 0)) return <View testID={small ? 'usage-pulse-empty' : 'usage-trend-empty'} style={{ minHeight: small ? 72 : 144, width: '100%', flexShrink: 0, alignItems: 'center', justifyContent: 'center', gap: 8 }}>
         {!small && <Ionicons name="bar-chart-outline" size={24} color={theme.colors.textSecondary} />}
         <Caption>{emptyLabel ?? (small ? '近 30 分钟暂无用量' : '所选时间段暂无用量')}</Caption>
@@ -69,7 +73,7 @@ function Trend({ buckets, daily, small = false, onSelect, selected, emptyLabel }
                     : `M ${upperPath.join(' L ')} L ${lowerPath.join(' L ')} Z`;
                 return <Path key={key} d={d} fill={palette[key]} fillOpacity={small ? 0.72 : 0.58} stroke={palette[key]} strokeWidth={1.4} />;
             })}
-            {!small && buckets.map((b, i) => (i === 0 || i === buckets.length - 1 || i % Math.max(1, Math.ceil(buckets.length / 5)) === 0) &&
+            {!small && buckets.map((b, i) => labelIndexes.has(i) &&
                 <SvgText key={b.at} x={x(i)} y={height - 3} fill={theme.colors.textSecondary} fontSize={11} textAnchor={i === 0 ? 'start' : i === buckets.length - 1 ? 'end' : 'middle'}>
                     {new Date(b.at).toLocaleString('zh-CN', daily ? { month: 'numeric', day: 'numeric' } : { hour: '2-digit', minute: '2-digit', hour12: false })}
                 </SvgText>)}
@@ -93,6 +97,7 @@ function Ring({ value }: { value: number | null }) {
 
 export type UsageDashboardProps = UsageAnalyticsState & {
     period: UsagePeriod; onPeriod: (period: UsagePeriod) => void; onRefresh: () => void;
+    monthOffset?: number; onMonth?: (offset: number) => void; quotaSnapshot?: AccountQuotaSnapshot | null;
     sessionNames: Record<string, string>; machineNames: Record<string, string>;
     sessionRoles?: Record<string, UsageSessionRole>;
     onSession: (id: string) => void; quota?: React.ReactNode;
@@ -105,22 +110,29 @@ export function UsageDashboard(props: UsageDashboardProps) {
     const [engine, setEngine] = React.useState('');
     const [machineId, setMachine] = React.useState('');
     const [sessionId, setSession] = React.useState('');
-    const [selected, setSelected] = React.useState<number | null>(null);
+    const [selectedAt, setSelectedAt] = React.useState<number | null>(null);
     const [recordPage, setRecordPage] = React.useState(1);
     const phone = width < 640, wide = width >= 1020;
-    const summary = React.useMemo(() => summarizeUsage(props.records, props.period, props.now, { engine, machineId, sessionId }), [props.records, props.period, props.now, engine, machineId, sessionId]);
-    React.useEffect(() => { setSelected(null); }, [engine, machineId, sessionId, props.period]);
-    React.useEffect(() => { setRecordPage(1); }, [engine, machineId, sessionId, props.period, selected]);
+    const monthOffset = props.monthOffset ?? 0;
+    const window = React.useMemo(() => fiveHourUsageRange(props.quotaSnapshot, engine, props.now), [props.quotaSnapshot, engine, props.now]);
+    const scope = { engine, machineId, sessionId, monthOffset, ...(props.period === '5hours' ? { range: window } : {}) };
+    const summary = React.useMemo(() => summarizeUsage(props.records, props.period, props.now, scope), [props.records, props.period, props.now, engine, machineId, sessionId, monthOffset, window]);
+    React.useEffect(() => { setSelectedAt(null); }, [engine, machineId, sessionId, props.period, monthOffset]);
+    React.useEffect(() => { setRecordPage(1); }, [engine, machineId, sessionId, props.period, monthOffset, selectedAt]);
     const machines = [...new Set(props.records.map(r => r.machineId))];
     const sessionName = (id: string) => props.sessionNames[id] ?? `会话 ${id.slice(-8)}`;
     const total = usageTotal(summary.total);
     const ready = props.updatedAt !== null;
     const display = (n: number) => ready ? fmt(n) : '—';
-    const selectedBucket = selected == null ? null : summary.buckets[selected];
+    const selected = summary.buckets.findIndex(b => b.at === selectedAt);
+    const selectedBucket = selected < 0 ? null : summary.buckets[selected];
     const detailRecords = selectedBucket ? summary.records.filter(r => {
-        const next = summary.buckets[selected! + 1]?.at ?? props.now + 1;
+        const next = summary.buckets[selected + 1]?.at ?? summary.range.end;
         return r.occurredAt >= selectedBucket.at && r.occurredAt < next;
     }) : summary.records;
+    const breakdown = selectedBucket ? summarizeUsage(detailRecords, props.period, props.now, scope) : summary;
+    const timeLabel = (at: number) => new Date(at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const dayLabel = selectedBucket ? new Date(selectedBucket.at).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }) : '';
     // Only horizontal siblings share available width. A flex basis of zero in
     // a vertical scroll flow collapses cards below their content's natural height.
     const card = (horizontal = false, grow = 1) => [styles.card, horizontal ? { flexGrow: grow, flexBasis: 0 } : { width: '100%' as const }];
@@ -128,8 +140,8 @@ export function UsageDashboard(props: UsageDashboardProps) {
     return <ScrollView style={{ flex: 1, backgroundColor: theme.colors.surfaceHigh }} contentContainerStyle={{ flexGrow: 1 }}>
         <View testID="usage-dashboard" onLayout={e => setWidth(e.nativeEvent.layout.width)} style={[styles.page, phone && { padding: 14, gap: 14 }]}>
             <View style={styles.spread}>
-                <View style={{ gap: 5 }}><Text accessibilityRole="header" style={styles.heading}>用量看板</Text><Caption>LMC 管理的 Claude 与 Codex 会话</Caption></View>
-                <View style={styles.row}>{([['today', '今日'], ['7days', '7 天'], ['30days', '30 天']] as const).map(([value, label]) =>
+                <View style={{ gap: 5 }}><Text accessibilityRole="header" style={styles.heading}>用量看板</Text><Caption>Codex、Claude Code 与 Antigravity · Token 与额度观察</Caption></View>
+                <View style={styles.row}>{([['5hours', '5 小时'], ['today', '今日'], ['7days', '7 天'], ['30days', '30 天'], ['month', '月历']] as const).map(([value, label]) =>
                     <Choice key={value} label={label} selected={props.period === value} onPress={() => props.onPeriod(value)} />)}
                     <Pressable accessibilityRole="button" accessibilityLabel="刷新用量" onPress={props.onRefresh} style={styles.chip}>
                         {props.loading ? <ActivityIndicator size="small" color={theme.colors.text} /> : <Ionicons name="refresh-outline" size={17} color={theme.colors.text} />}
@@ -137,20 +149,25 @@ export function UsageDashboard(props: UsageDashboardProps) {
                 </View>
             </View>
             <View style={styles.spread}>
-                <View style={styles.row}>{[['', '全部引擎'], ['claude', 'Claude'], ['codex', 'Codex']].map(([id, label]) => <Choice key={id} label={label} selected={engine === id} onPress={() => setEngine(id)} />)}</View>
+                <View style={styles.row}>{[['', '全部引擎'], ['claude', 'Claude'], ['codex', 'Codex'], ['agy', 'Antigravity']].map(([id, label]) => <Choice key={id} label={label} selected={engine === id} onPress={() => setEngine(id)} />)}</View>
                 <View style={styles.row}><Choice label="全部设备" selected={!machineId} onPress={() => setMachine('')} />{machines.map(id => <Choice key={id} label={props.machineNames[id] ?? `设备 ${id.slice(-6)}`} selected={machineId === id} onPress={() => setMachine(id)} />)}</View>
             </View>
             {sessionId && <View style={styles.row}><Caption>筛选会话：{sessionName(sessionId)}</Caption><Choice label="清除会话筛选" onPress={() => setSession('')} /></View>}
+            {props.period === '5hours' && <View testID="usage-window" style={styles.spread}>
+                <Text style={styles.text}>{window.official ? `${engine === 'claude' ? 'Claude' : 'Codex'} 官方 5 小时窗口` : '近 5 小时 · 滚动统计'}</Text>
+                <Caption>{timeLabel(summary.range.start)} – {timeLabel(summary.range.end - 1)}{window.official ? ' · 统计至当前' : engine ? ' · 暂无有效官方窗口，按最近 5 小时统计' : ' · 筛选单一引擎可按其官方窗口对齐'}</Caption>
+            </View>}
             {props.error && <View accessibilityRole="alert" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={[styles.card, { borderColor: lmcColors(theme).attention }]}><Text style={styles.text}>{props.error}{ready ? ' 以下保留上次成功获取的数据。' : ''}</Text><Choice label="重新加载" onPress={props.onRefresh} /></View>}
             {!ready && props.loading && <Caption>正在获取用量记录…</Caption>}
             {ready && !summary.count && <View {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={styles.card}><Text style={styles.title}>这个范围内还没有用量记录</Text><Caption>Agent 1.2.95 起逐条累计。会话在新版运行并产生用量后，这里会自动更新；旧版的不完整记录不计入合计。</Caption></View>}
+            <QuotaEfficiencyCard records={props.records} range={summary.range} machineNames={props.machineNames} />
             <View style={{ flexDirection: wide ? 'row' : 'column', gap: 14 }}>
-                <View testID="usage-live-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={[...card(wide, 1.12), { justifyContent: 'space-between' }]}>
+                {!(props.period === 'month' && monthOffset < 0) && <View testID="usage-live-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={[...card(wide, 1.12), { justifyContent: 'space-between' }]}>
                     <View style={styles.spread}><Text style={styles.title}>实时用量</Text><View style={styles.row}><View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: props.error ? lmcColors(theme).attention : lmcColors(theme).brand }} /><Caption>近 10 分钟</Caption></View></View>
                     <View style={styles.row}><Text testID="usage-rate" style={[styles.number, { fontSize: phone ? 44 : 54 }]}>{display(summary.perMinute)}</Text><Caption>Token / 分钟</Caption></View>
                     <Trend buckets={summary.pulse} small emptyLabel={emptyChartLabel} />
                     <Caption>近 30 分钟 · 每格一分钟 · 含缓存 Token</Caption>
-                </View>
+                </View>}
                 <View style={[{ gap: 14, minWidth: 0, flexShrink: 0 }, wide && { flexGrow: 1.3, flexBasis: 0 }]}>
                     <View style={{ flexDirection: phone ? 'column' : 'row', gap: 14 }}>
                         <View {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={card(!phone)}><Caption>总 Token</Caption><Text testID="usage-total" style={styles.number}>{display(total)}</Text><Caption>{summary.count.toLocaleString()} 条用量记录 · {summary.sessions.length} 个会话</Caption></View>
@@ -161,35 +178,43 @@ export function UsageDashboard(props: UsageDashboardProps) {
                     <View {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={[...card(), styles.spread]}><View style={{ gap: 8 }}><Caption>缓存命中率</Caption><Text style={styles.number}>{summary.cacheRate === null || !ready ? '—' : `${(summary.cacheRate * 100).toFixed(1)}%`}</Text><Caption>读取 {display(summary.total.cacheRead)} · 写入 {display(summary.total.cacheWrite)}</Caption></View><Ring value={summary.cacheRate} /></View>
                 </View>
             </View>
-            <View style={{ flexDirection: phone ? 'column' : 'row', gap: 14 }}>{(['claude', 'codex'] as const).map(id => {
+            <View style={{ flexDirection: phone ? 'column' : 'row', gap: 14 }}>{(['claude', 'codex', 'agy'] as const).map(id => {
                 const stats = summary.engines.find(e => e.id === id), tokens = stats?.tokens ?? emptyUsage();
-                return <Pressable key={id} accessibilityRole="button" accessibilityState={{ selected: engine === id }} accessibilityLabel={`筛选 ${id === 'claude' ? 'Claude' : 'Codex'} 用量`} onPress={() => setEngine(engine === id ? '' : id)} {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={[...card(!phone), engine === id && { borderColor: lmcColors(theme).brand }]}>
-                    <View style={styles.spread}><View style={styles.row}><ProviderIcon kind={id} size={22} /><Text style={styles.title}>{id === 'claude' ? 'Claude Code' : 'Codex'}</Text></View><Caption>{summary.sessions.filter(s => s.engines.includes(id)).length} 个会话</Caption></View>
+                return <Pressable key={id} accessibilityRole="button" accessibilityState={{ selected: engine === id }} accessibilityLabel={`筛选 ${id === 'claude' ? 'Claude' : id === 'agy' ? 'Antigravity' : 'Codex'} 用量`} onPress={() => setEngine(engine === id ? '' : id)} {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={[...card(!phone), engine === id && { borderColor: lmcColors(theme).brand }]}>
+                    <View style={styles.spread}><View style={styles.row}><ProviderIcon kind={id} size={22} /><Text style={styles.title}>{id === 'claude' ? 'Claude Code' : id === 'agy' ? 'Antigravity' : 'Codex'}</Text></View><Caption>{summary.sessions.filter(s => s.engines.includes(id)).length} 个会话</Caption></View>
                     <View style={styles.spread}><Text style={[styles.number, { fontSize: 29 }]}>{display(usageTotal(tokens))}</Text><Caption>{stats?.count ?? 0} 条用量记录</Caption></View>
                     <View style={{ height: 4, borderRadius: 3, backgroundColor: lmcColors(theme).border }}><View style={{ height: 4, borderRadius: 3, width: `${total ? usageTotal(tokens) / total * 100 : 0}%`, backgroundColor: id === 'claude' ? palette.output : palette.input }} /></View>
                 </Pressable>;
             })}</View>
+            {props.period === 'month' && <View {...(Platform.OS === 'web' ? { dataSet: { lmcChromeSurface: 'true' } } : {})} style={styles.card}>
+                <UsageCalendar buckets={summary.buckets} now={props.now} monthOffset={monthOffset} onMonth={offset => props.onMonth?.(offset)}
+                    selectedAt={selectedBucket?.at ?? null} onSelect={setSelectedAt} collectedSince={props.collectedSince} ready={ready} />
+            </View>}
+            {selectedBucket && <View style={styles.spread} testID="usage-detail-scope">
+                <Text style={styles.title}>{dayLabel}{props.period === '5hours' || props.period === 'today' ? ` ${timeLabel(selectedBucket.at)}` : ''} · {fmt(usageTotal(breakdown.total))} Token · {breakdown.count} 条记录</Text>
+                <Choice label={props.period === 'month' ? '返回整月' : '清除时间筛选'} onPress={() => setSelectedAt(null)} />
+            </View>}
             <View style={{ flexDirection: wide ? 'row' : 'column', gap: 14, alignItems: 'stretch' }}>
-                <View testID="usage-trend-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={card(wide, 2.4)}><View style={styles.spread}><Text style={styles.title}>用量趋势</Text><Caption>{props.period === 'today' ? '按小时' : '按天'} · 本地时区</Caption></View><Legend />
-                    <Trend buckets={summary.buckets} daily={props.period !== 'today'} selected={selected} onSelect={i => setSelected(selected === i ? null : i)} emptyLabel={emptyChartLabel} />
+                <View testID="usage-trend-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={card(wide, 2.4)}><View style={styles.spread}><Text style={styles.title}>用量趋势</Text><Caption>{props.period === '5hours' ? '每 15 分钟' : props.period === 'today' ? '按小时' : '按天'} · 本地时区</Caption></View><Legend />
+                    <Trend buckets={summary.buckets} daily={props.period !== 'today' && props.period !== '5hours'} selected={selected < 0 ? null : selected} onSelect={i => setSelectedAt(selected === i ? null : summary.buckets[i].at)} emptyLabel={emptyChartLabel} />
                     {!!summary.count && <Caption>{selectedBucket ? `${new Date(selectedBucket.at).toLocaleString('zh-CN')} · ${usageTotal(selectedBucket.tokens).toLocaleString()} Token · ${selectedBucket.count} 条记录` : '点击时间段，查看下面的用量明细。'}</Caption>}
                 </View>
-                <View testID="usage-model-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={card(wide)}><Text style={styles.title}>模型分布</Text>{summary.models.length ? summary.models.slice(0, 5).map(m => <View key={m.id} style={{ gap: 5 }}><View style={styles.spread}><Text numberOfLines={1} style={[styles.muted, { flex: 1 }]}>{m.id}</Text><Text style={styles.text}>{fmt(usageTotal(m.tokens))}</Text></View><View style={{ height: 4, backgroundColor: lmcColors(theme).border, borderRadius: 3 }}><View style={{ height: 4, width: `${usageTotal(m.tokens) / Math.max(1, total) * 100}%`, backgroundColor: m.engines[0] === 'claude' ? palette.output : palette.input, borderRadius: 3 }} /></View></View>) : <Caption>产生用量后显示型号分布</Caption>}
-                    {summary.models.length > 5 && <Caption>另有 {summary.models.length - 5} 个型号，可在用量明细查看。</Caption>}
+                <View testID="usage-model-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={card(wide)}><Text style={styles.title}>{selectedBucket ? `${dayLabel} · ` : ''}模型分布</Text>{breakdown.models.length ? breakdown.models.slice(0, 5).map(m => <View key={m.id} style={{ gap: 5 }}><View style={styles.spread}><Text numberOfLines={1} style={[styles.muted, { flex: 1 }]}>{m.id}</Text><Text style={styles.text}>{fmt(usageTotal(m.tokens))}</Text></View><View style={{ height: 4, backgroundColor: lmcColors(theme).border, borderRadius: 3 }}><View style={{ height: 4, width: `${usageTotal(m.tokens) / Math.max(1, usageTotal(breakdown.total)) * 100}%`, backgroundColor: m.engines[0] === 'claude' ? palette.output : palette.input, borderRadius: 3 }} /></View></View>) : <Caption>当前范围没有型号用量记录</Caption>}
+                    {breakdown.models.length > 5 && <Caption>另有 {breakdown.models.length - 5} 个型号，可在用量明细查看。</Caption>}
                     <View style={styles.line} /><Caption>费用暂不估算：Token 用量不等于订阅额度，也不等于实际账单。</Caption>
                 </View>
             </View>
-            {props.aiTraffic && <View testID="usage-traffic-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={styles.card}>
+            {props.aiTraffic && props.period !== '5hours' && props.period !== 'month' && <View testID="usage-traffic-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={styles.card}>
                 <AiTrafficCard machines={props.aiTraffic} period={props.period} now={props.now} machineId={machineId} phone={phone} />
             </View>}
             <View style={{ flexDirection: wide ? 'row' : 'column', gap: 14, alignItems: 'flex-start' }}>
                 <View testID="usage-session-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={card(wide, 2.4)}>
-                    <UsageSessionDetails sessions={summary.sessions} roles={props.sessionRoles} names={props.sessionNames} total={total} ready={ready}
-                        scopeKey={`${props.period}:${engine}:${machineId}:${sessionId}`} onSession={props.onSession} onFilterSession={setSession} />
+                    <UsageSessionDetails sessions={breakdown.sessions} roles={props.sessionRoles} names={props.sessionNames} total={usageTotal(breakdown.total)} ready={ready}
+                        scopeKey={`${props.period}:${monthOffset}:${engine}:${machineId}:${sessionId}:${selectedAt}`} onSession={props.onSession} onFilterSession={setSession} />
                 </View>
                 {props.quota && <View testID="usage-quota-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={card(wide)}><Text style={styles.title}>账号额度 · 独立参考</Text><Caption>来自账号额度接口，可能包含 LMC 之外的使用；不参与本页用量合计，也不随本页筛选变化。</Caption>{props.quota}</View>}
             </View>
-            <View testID="usage-records-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={styles.card}><View style={styles.spread}><Text style={styles.title}>{selectedBucket ? '所选时间段' : '最近'}用量记录</Text><Caption>显示 {Math.min(recordPage * 10, detailRecords.length)} / {detailRecords.length} 条</Caption></View>
+            <View testID="usage-records-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={styles.card}><View style={styles.spread}><Text style={styles.title}>{selectedBucket ? `${dayLabel} · ` : '最近'}用量记录</Text><Caption>显示 {Math.min(recordPage * 10, detailRecords.length)} / {detailRecords.length} 条</Caption></View>
                 {detailRecords.slice(0, recordPage * 10).map(r => <View key={`${r.sessionId}:${r.key}`} style={styles.spread}>
                     <View style={{ flex: 1, minWidth: 160 }}><Text numberOfLines={1} style={styles.text}>{sessionName(r.sessionId)}</Text><Caption>{new Date(r.occurredAt).toLocaleString('zh-CN')} · {r.engine} · {r.model ?? '型号未上报'}</Caption></View>
                     <Text style={styles.title}>{fmt(usageTotal(r.tokens))}</Text><Caption>新入 {fmt(r.tokens.input)} / 出 {fmt(r.tokens.output)} / 读 {fmt(r.tokens.cacheRead)} / 写 {fmt(r.tokens.cacheWrite)}</Caption>
@@ -199,7 +224,7 @@ export function UsageDashboard(props: UsageDashboardProps) {
             </View>
             <View style={{ gap: 5, paddingBottom: 12 }}>
                 <Caption>{props.collectedSince ? `已记录数据起点：${new Date(props.collectedSince).toLocaleString('zh-CN')}。` : '等待新版 Agent 的首条用量记录。'}旧版历史不完整，未计入本页；各会话从升级后开始累计。</Caption>
-                <Caption>总 Token = 新输入 + 输出 + 缓存写入 + 缓存读取。记录按引擎用量更新去重，不代表请求次数。Claude 型号来自响应，Codex 型号来自该回合配置。</Caption>
+                <Caption>总 Token = 新输入 + 输出 + 缓存写入 + 缓存读取。记录按引擎用量更新去重，不代表请求次数。Claude 型号来自响应，Codex / Antigravity 型号来自该回合配置。Antigravity 从本次升级后开始采集。</Caption>
                 <Caption>{props.updatedAt ? `最近同步 ${new Date(props.updatedAt).toLocaleTimeString('zh-CN')} · 前台每 30 秒刷新` : '尚未完成同步'}</Caption>
             </View>
         </View>

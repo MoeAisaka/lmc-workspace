@@ -56,11 +56,11 @@ for(let i=0;i<6;i++)records.push({key:'u2:live:'+i,sessionId:'s1',machineId:'m1'
 records.push({key:'u2:worker-only',sessionId:'s7',machineId:'m2',engine:'codex',model:'gpt-6-astra',occurredAt:now-60000,tokens:{input:10000,output:20000,cacheRead:170000,cacheWrite:0}});
 const manyRecords=[...records,...extraIds.map((id,i)=>({key:'u2:'+id,sessionId:id,machineId:'m2',engine:i%2?'claude':'codex',model:'model',occurredAt:now-60000,tokens:{input:1000+i,output:2000,cacheRead:17000,cacheWrite:0}}))];
 const GB=1024**3,MB=1024**2,dayKey=i=>{const d=new Date(now-i*86400000);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
-const trafficDay=(cu,cd,ou,od)=>({claude:{up:cu,down:cd},openai:{up:ou,down:od}});
+const trafficDay=(cu,cd,ou,od,au=0,ad=0)=>({claude:{up:cu,down:cd},openai:{up:ou,down:od},antigravity:{up:au,down:ad}});
 // m1 has a week behind it; m2 began yesterday, so it has no whole day yet; m3 does not report.
 const fixtureTraffic=[
- {id:'m1',name:'Mac mini',traffic:{updatedAt:now,days:Object.fromEntries([[dayKey(0),trafficDay(1.5*GB,60*MB,90*MB,100*MB)],...[1,2,3,4,5,6,7,8].map(i=>[dayKey(i),trafficDay(3*GB,100*MB,400*MB,500*MB)])])}},
- {id:'m2',name:'MacBook',traffic:{updatedAt:now,days:{[dayKey(0)]:trafficDay(2*GB,70*MB,55*MB,65*MB),[dayKey(1)]:trafficDay(200*MB,10*MB,0,0)}}},
+ {id:'m1',name:'Mac mini',traffic:{updatedAt:now,days:Object.fromEntries([[dayKey(0),trafficDay(1.5*GB,60*MB,90*MB,100*MB,320*MB,40*MB)],...[1,2,3,4,5,6,7,8].map(i=>[dayKey(i),trafficDay(3*GB,100*MB,400*MB,500*MB)])])}},
+ {id:'m2',name:'MacBook',traffic:{updatedAt:now,days:{[dayKey(0)]:trafficDay(2*GB,70*MB,55*MB,65*MB,480*MB,30*MB),[dayKey(1)]:trafficDay(200*MB,10*MB,0,0)}}},
  {id:'m3',name:'Ubuntu',traffic:null}];
 function App(){
  const [period,onPeriod]=React.useState('today'),[mode,setMode]=React.useState('normal'),[receipt,setReceipt]=React.useState(''),[quotaLoaded,setQuotaLoaded]=React.useState(true);

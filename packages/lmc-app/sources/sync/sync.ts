@@ -1,4 +1,5 @@
-import { isMatchingQueueReceipt } from './queueReceiptRecovery';
+import { isMatchingQueueReceipt, isMatchingQueuedPromptMessage } from './queueReceiptRecovery';
+import { visibleTranscriptMessages } from './queuedMessageVisibility';
 import { resolveSessionLifecycle, resolveFetchedSessionLifecycle, type SessionLifecycle } from './sessionLifecycle';
 import { UnsupportedCodexEffortError } from '@/components/modelModeOptions';
 import Constants from 'expo-constants';
@@ -8,11 +9,11 @@ import { notifyUnreadMessage } from '@/sync/webTabTitle';
 import { AuthCredentials } from '@/auth/tokenStorage';
 import { Encryption } from '@/sync/encryption/encryption';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
-import { storage } from './storage';
+import { storage, reloadAccountPersistence } from './storage';
 // Circular at module level (ops.ts imports sync) but safe: both sides only
 // touch each other's exports at runtime, never during module initialization.
 import { sessionSetAgentModes } from './ops';
-import { getImageAttachmentSendPlan, isAttachmentAllowedByPolicy } from './attachmentSupport';
+import { getImageAttachmentSendPlan, isAttachmentAllowedByPolicy, supportsImageAttachmentsForFlavor } from './attachmentSupport';
 import {
     errorMessageFromUnknown,
     formatAttachmentDiagnosticForLog,
@@ -31,7 +32,7 @@ import { isRunningOnMac } from '@/utils/platform';
 import { NormalizedMessage, normalizeRawMessage, RawRecord } from './typesRaw';
 import { applySettings, Settings, settingsDefaults, settingsParse, settingsToSyncPayload, SUPPORTED_SCHEMA_VERSION } from './settings';
 import { Profile, profileParse } from './profile';
-import { loadPendingSettings, savePendingSettings } from './persistence';
+import { loadPendingSettings, savePendingSettings, selectAccountPersistence } from './persistence';
 import {
     initializeTracking,
     trackGitHubConnected,
@@ -105,6 +106,7 @@ type OutboxMessage = {
 };
 
 type SendMessageOptions = {
+    sharedRequestId?: string;
     displayText?: string;
     source?: MessageSentSource;
     /** Optional image attachments to send before the text message. */
@@ -133,6 +135,27 @@ function avatarDescriptorKey(descriptor: NonNullable<DecryptedProjectRecord['ava
     return `${descriptor.ref}:${descriptor.version}`;
 }
 
+type ApiSessionSnapshot = {
+    id: string;
+    tag: string;
+    seq: number;
+    metadata: string;
+    metadataVersion: number;
+    agentState: string | null;
+    agentStateVersion: number;
+    dataEncryptionKey: string | null;
+    projectId?: string | null;
+    active: boolean;
+    activeAt: number;
+    createdAt: number;
+    updatedAt: number;
+    lastMessage: ApiMessage | null;
+    shared?: boolean;
+    accessVersion?: number;
+    accessActions?: string[];
+};
+
+
 class Sync {
     private static readonly BACKGROUND_SEND_TIMEOUT_MS = 30_000;
     encryption!: Encryption;
@@ -143,6 +166,8 @@ class Sync {
     private sessionsSync: InvalidateSync;
     private projectsSync: InvalidateSync;
     private messagesSync = new Map<string, InvalidateSync>();
+    private sharedAccessEpoch = 0;
+    private sharedSessionSync = new Map<string, InvalidateSync>();
     private sendSync = new Map<string, InvalidateSync>();
     private sendAbortControllers = new Map<string, AbortController>();
     private sessionLastSeq = new Map<string, number>();
@@ -278,11 +303,11 @@ class Sync {
         }
     }
 
-    async create(credentials: AuthCredentials, encryption: Encryption) {
+    async create(credentials: AuthCredentials, encryption: Encryption, accountId?: string) {
         this.credentials = credentials;
         this.encryption = encryption;
         this.anonID = encryption.anonID;
-        this.serverID = await lmcIdentity(credentials.token);
+        this.serverID = accountId ?? await lmcIdentity(credentials.token);
         await this.#init();
 
         // Await settings sync to have fresh settings
@@ -295,13 +320,13 @@ class Sync {
         await this.purchasesSync.awaitQueue();
     }
 
-    async restore(credentials: AuthCredentials, encryption: Encryption) {
+    async restore(credentials: AuthCredentials, encryption: Encryption, accountId?: string) {
         // NOTE: No awaiting anything here, we're restoring from a disk (ie app restarted)
         // Purchases sync is invalidated in #init() and will complete asynchronously
         this.credentials = credentials;
         this.encryption = encryption;
         this.anonID = encryption.anonID;
-        this.serverID = await lmcIdentity(credentials.token);
+        this.serverID = accountId ?? await lmcIdentity(credentials.token);
         await this.#init();
     }
 
@@ -377,7 +402,7 @@ class Sync {
         this.getMessagesSync(sessionId).invalidate();
 
         // Also invalidate git status sync for this session
-        gitStatusSync.getSync(sessionId).invalidate();
+        if (!storage.getState().sessions[sessionId]?.shared) gitStatusSync.getSync(sessionId).invalidate();
 
         // Notify voice assistant about session visibility
         const session = storage.getState().sessions[sessionId];
@@ -712,6 +737,17 @@ class Sync {
             encryption = this.encryption.getSessionEncryption(sessionId);
             session = storage.getState().sessions[sessionId];
         }
+        if (session?.shared) {
+            if (!encryption || !session.accessActions?.includes('send')) throw new Error('没有发送权限或共享已撤销');
+            if (options?.attachments?.length) throw new Error('共享消息暂不支持上传新附件');
+            const response = await apiSocket.request(`/v1/lmc/sessions/${encodeURIComponent(sessionId)}/commands`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(15000),
+                body: JSON.stringify({ requestId: options?.sharedRequestId ?? randomUUID(), content: await encryption.encryptRaw({ text }) }),
+            });
+            if (!response.ok) { const body = await response.json(); throw new Error(body.error || '共享消息未发送'); }
+            this.messagesSync.get(sessionId)?.invalidate();
+            return;
+        }
         if (!encryption || !session) {
             console.error(`Session ${sessionId} not found after sync`, {
                 hasEncryption: !!encryption,
@@ -751,7 +787,7 @@ class Sync {
             attachmentCount: attachments?.length ?? 0,
             supportsAttachments: isRigMetadataV1(session.metadata)
                 ? rigCanUseAttachments(session.metadata)
-                : undefined,
+                : supportsImageAttachmentsForFlavor(flavor, session.metadata?.sessionCapabilities?.fileInbox === true),
         });
         const effectiveAttachments = attachmentPlan.shouldUseAttachments
             ? (rigAttachmentPolicy
@@ -1183,6 +1219,7 @@ class Sync {
 
     private fetchSessions = async () => {
         if (!this.credentials) return;
+        const accessEpoch = this.sharedAccessEpoch;
 
         const API_ENDPOINT = getServerUrl();
         const response = await fetch(`${API_ENDPOINT}/v1/sessions`, {
@@ -1198,22 +1235,23 @@ class Sync {
         }
 
         const data = await response.json();
-        const sessions = data.sessions as Array<{
-            id: string;
-            tag: string;
-            seq: number;
-            metadata: string;
-            metadataVersion: number;
-            agentState: string | null;
-            agentStateVersion: number;
-            dataEncryptionKey: string | null;
-            projectId?: string | null;
-            active: boolean;
-            activeAt: number;
-            createdAt: number;
-            updatedAt: number;
-            lastMessage: ApiMessage | null;
-        }>;
+        if (accessEpoch !== this.sharedAccessEpoch) { this.sessionsSync.invalidate(); return; }
+        // The membership list is not paginated: absence from the recent-session
+        // page alone must never be mistaken for a revocation.
+        if (Array.isArray(data.sharedSessionIds)) {
+            const allowed = new Set<string>(data.sharedSessionIds);
+            for (const session of Object.values(storage.getState().sessions)) {
+                if (session.shared && !allowed.has(session.id)) this.forgetSession(session.id);
+            }
+            const listed = new Set((data.sessions as ApiSessionSnapshot[]).map(s => s.id));
+            for (const id of allowed) if (!listed.has(id)) this.invalidateSharedSession(id);
+        }
+        await this.applySessionSnapshot(data.sessions as ApiSessionSnapshot[], accessEpoch);
+        this.projectsSync.invalidate();
+    }
+
+    private applySessionSnapshot = async (sessions: ApiSessionSnapshot[], accessEpoch: number) => {
+        if (accessEpoch !== this.sharedAccessEpoch) return;
 
         // Initialize all session encryptions first
         const sessionKeys = new Map<string, Uint8Array | null>();
@@ -1225,11 +1263,12 @@ class Sync {
                     continue;
                 }
                 sessionKeys.set(session.id, decrypted);
-            } else {
+            } else if (!session.shared) {
                 sessionKeys.set(session.id, null);
             }
         }
-        await this.encryption.initializeSessions(sessionKeys);
+        await this.encryption.initializeSessions(sessionKeys, () => accessEpoch === this.sharedAccessEpoch);
+        if (accessEpoch !== this.sharedAccessEpoch) return;
 
         // Decrypt sessions
         let decryptedSessions: (Omit<Session, 'presence'> & { presence?: "online" | number })[] = [];
@@ -1271,15 +1310,63 @@ class Sync {
         //   thinking in the meantime.
         // - Gated on `active`: a dead session can never send the clearing
         //   ephemeral, so a preserved `true` would otherwise be immortal.
+        if (accessEpoch !== this.sharedAccessEpoch) {
+            for (const s of sessions) if (s.shared && !storage.getState().sessions[s.id]) this.encryption.removeSessionEncryption(s.id);
+            return;
+        }
         const current = storage.getState().sessions;
         this.applySessions(decryptedSessions.map(s => ({
             ...s,
             thinking: s.active ? (current[s.id]?.thinking ?? false) : false,
             thinkingAt: s.active ? (current[s.id]?.thinkingAt ?? 0) : 0,
         })));
-        this.projectsSync.invalidate();
         log.log(`📥 fetchSessions completed - processed ${decryptedSessions.length} sessions`);
 
+    }
+
+    private forgetSession(sessionId: string) {
+        storage.getState().deleteSession(sessionId);
+        this.encryption.removeSessionEncryption(sessionId);
+        gitStatusSync.clearForSession(sessionId);
+        this.messagesSync.get(sessionId)?.stop();
+        this.messagesSync.delete(sessionId);
+        this.sharedSessionSync.get(sessionId)?.stop();
+        this.sharedSessionSync.delete(sessionId);
+        this.sendSync.get(sessionId)?.stop();
+        this.sendSync.delete(sessionId);
+        this.sendAbortControllers.get(sessionId)?.abort();
+        this.sendAbortControllers.delete(sessionId);
+        this.pendingOutbox.delete(sessionId);
+        this.sessionLastSeq.delete(sessionId);
+        this.sessionLifecycles.delete(sessionId);
+        this.sessionOldestSeq.delete(sessionId);
+        this.sessionMessageLocks.delete(sessionId);
+        this.sessionMessageQueue.delete(sessionId);
+        this.sessionQueueProcessing.delete(sessionId);
+        this.sessionDataKeys.delete(sessionId);
+        this.projectsSync.invalidate();
+    }
+
+    private invalidateSharedSession(sessionId: string) {
+        let refresh = this.sharedSessionSync.get(sessionId);
+        if (!refresh) {
+            refresh = new InvalidateSync(async () => {
+                const epoch = this.sharedAccessEpoch;
+                const response = await apiSocket.request(`/v1/sessions/${encodeURIComponent(sessionId)}`);
+                if (epoch !== this.sharedAccessEpoch) return;
+                if (response.status === 404 || response.status === 403) {
+                    if (storage.getState().sessions[sessionId]?.shared) this.forgetSession(sessionId);
+                    return;
+                }
+                if (!response.ok) throw new Error(`Shared session refresh failed: ${response.status}`);
+                const { session } = await response.json() as { session: ApiSessionSnapshot };
+                await this.applySessionSnapshot([session], epoch);
+                if (epoch === this.sharedAccessEpoch && storage.getState().sessions[sessionId]
+                    && storage.getState().currentViewingSessionId === sessionId) this.getMessagesSync(sessionId).invalidate();
+            });
+            this.sharedSessionSync.set(sessionId, refresh);
+        }
+        refresh.invalidate();
     }
 
     public refreshMachines = async () => {
@@ -2067,17 +2154,26 @@ class Sync {
             }
 
             const data = await response.json() as V3PostSessionMessagesResponse;
-            pending.splice(0, batch.length);
-            if (Array.isArray(data.messages) && data.messages.length > 0) {
-                const currentLastSeq = this.sessionLastSeq.get(sessionId) ?? 0;
-                let maxSeq = currentLastSeq;
-                for (const message of data.messages) {
-                    if (message.seq > maxSeq) {
-                        maxSeq = message.seq;
-                    }
-                }
-                this.sessionLastSeq.set(sessionId, maxSeq);
+            const encryption = this.encryption.getSessionEncryption(sessionId);
+            if (!encryption) {
+                throw new Error(`Session encryption not ready for ${sessionId}`);
             }
+            const sentByLocalId = new Map(batch.map(message => [message.localId, message]));
+            const acknowledged: ApiMessage[] = (Array.isArray(data.messages) ? data.messages : []).flatMap(receipt => {
+                const sent = receipt.localId ? sentByLocalId.get(receipt.localId) : undefined;
+                return sent ? [{ ...receipt, content: { t: 'encrypted' as const, c: sent.content } }] : [];
+            });
+            if (new Set(acknowledged.map(message => message.localId)).size !== sentByLocalId.size) {
+                throw new Error(`Incomplete message acknowledgement for ${sessionId}`);
+            }
+            // POST may arrive before the socket echo; a deduplicated retry may
+            // have no echo at all. Apply its sequence numbers to the optimistic
+            // rows, serialized with their queued insertion and history fetches.
+            await this.getSessionMessageLock(sessionId).inLock(() =>
+                this.applyFetchedMessages(sessionId, encryption, acknowledged));
+            pending.splice(0, batch.length);
+            // A POST receipt only covers this batch, not intervening messages.
+            // Leave the history cursor to socket/GET sync so it cannot skip a gap.
         } catch (error) {
             this.maybeStartBackgroundSendWatchdog();
             throw error;
@@ -2098,6 +2194,7 @@ class Sync {
     }
 
     private fetchMessages = async (sessionId: string) => {
+        if (!storage.getState().sessions[sessionId]) return;
         log.log(`💬 fetchMessages starting for session ${sessionId} - acquiring lock`);
         const lock = this.getSessionMessageLock(sessionId);
         await lock.inLock(async () => {
@@ -2107,6 +2204,7 @@ class Sync {
                 throw new Error(`Session encryption not ready for ${sessionId}`);
             }
 
+            if (!storage.getState().sessions[sessionId]) return;
             const knownLastSeq = this.sessionLastSeq.get(sessionId);
             const isInitialLoad = knownLastSeq === undefined;
             if (isInitialLoad) {
@@ -2129,6 +2227,7 @@ class Sync {
                 await this.fetchForwardSince(sessionId, encryption, knownLastSeq);
             }
 
+            if (this.encryption.getSessionEncryption(sessionId) !== encryption || !storage.getState().sessions[sessionId]) return;
             storage.getState().applyMessagesLoaded(sessionId);
             log.log(`💬 fetchMessages completed for session ${sessionId}`);
 
@@ -2149,7 +2248,25 @@ class Sync {
         // 其余历史留给 loadOlderMessages 在用户上滑时按需加载，
         // 避免长会话被整段解密进内存导致 web 端内存无上限增长。
         const MAX_PREFETCH_PAGES = 2;
+        // When an active turn emits hundreds of tool calls (which collapse into
+        // a single summary card in the UI), two pages of 100 messages can stop
+        // mid-turn before reaching `turn-start` or `queue-released`. Allow a
+        // bounded extension until at least one turn boundary is in the store.
+        const MAX_TURN_BOUNDARY_PREFETCH_PAGES = 10;
         let prefetchedPages = 0;
+        const hasLoadedTurnBoundary = () => {
+            const state = storage.getState();
+            const current = state.sessionMessages[sessionId];
+            if (!current) return true;
+            if (current.sourceMessages.some((m) => !m.isSidechain && m.role === 'event' && m.content.type === 'ready')) {
+                return true;
+            }
+            if (current.messages.some((m) => m.kind === 'agent-event' && m.event.type === 'queue-released')) {
+                return true;
+            }
+            const queue = state.sessions[sessionId]?.agentState?.queue;
+            return visibleTranscriptMessages(current.messages, queue).some((m) => m.kind === 'user-text');
+        };
         // While loadOlderMessages handles the actual work, this loop is what
         // keeps it going without user input. We keep stepping until either:
         //   - the server says there is no more older history, or
@@ -2171,8 +2288,9 @@ class Sync {
             if (oldestSeq === undefined || oldestSeq <= 1) {
                 return;
             }
-            if (prefetchedPages >= MAX_PREFETCH_PAGES) {
-                log.log(`💬 prefetchOlderMessagesInBackground: page budget (${MAX_PREFETCH_PAGES}) reached for ${sessionId}, leaving rest to on-demand loading`);
+            const pageBudget = hasLoadedTurnBoundary() ? MAX_PREFETCH_PAGES : MAX_TURN_BOUNDARY_PREFETCH_PAGES;
+            if (prefetchedPages >= pageBudget) {
+                log.log(`💬 prefetchOlderMessagesInBackground: page budget (${pageBudget}) reached for ${sessionId}, leaving rest to on-demand loading`);
                 return;
             }
 
@@ -2218,6 +2336,96 @@ class Sync {
         });
     };
 
+    getSessionOldestSeq = (sessionId: string): number | undefined => this.sessionOldestSeq.get(sessionId);
+
+    /** Backward counterpart to `recoverQueueReceiptPage`: when a `queue-released`
+     * receipt (or live queue entry) sits in the loaded window while its user
+     * prompt is hundreds of tool-call messages earlier in unloaded history,
+     * scan backward using the server's cleartext `localId` (500 rows/page) and
+     * decrypt only the matched prompt plus its immediately preceding attachment
+     * candidates, without mutating `sessionOldestSeq`. */
+    recoverQueuedPromptsPage = async (sessionId: string, keys: string[], beforeSeq: number) => {
+        if (!keys.length || !Number.isSafeInteger(beforeSeq) || beforeSeq <= 1) {
+            throw new Error('Invalid queued prompt recovery range');
+        }
+        return this.getSessionMessageLock(sessionId).inLock(async () => {
+            const encryption = this.encryption.getSessionEncryption(sessionId);
+            if (!encryption) throw new Error('Session encryption not ready');
+            const response = await apiSocket.request(`/v3/sessions/${sessionId}/messages?before_seq=${beforeSeq}&limit=500`);
+            if (!response.ok) throw new Error(`Queued prompt recovery: ${response.status}`);
+            const data = await response.json() as V3GetSessionMessagesResponse;
+            const page = Array.isArray(data.messages) ? data.messages : [];
+            if (page.length === 0) {
+                return { nextBeforeSeq: beforeSeq, hasMore: false, foundKeys: [] as string[] };
+            }
+            const wanted = new Set(keys);
+            let minSeq = beforeSeq;
+            const matchedIndices: number[] = [];
+            for (let i = 0; i < page.length; i++) {
+                if (page[i].seq < minSeq) minSeq = page[i].seq;
+                if ((page[i].localId && wanted.has(page[i].localId!)) || wanted.has(page[i].id)) {
+                    matchedIndices.push(i);
+                }
+            }
+            const foundKeys = new Set<string>();
+            if (matchedIndices.length > 0) {
+                const ATTACHMENT_LOOKBACK = 24;
+                const candidatesById = new Map<string, ApiMessage>();
+                let needsBoundaryLookback = false;
+                for (const matchIndex of matchedIndices) {
+                    const end = Math.min(page.length, matchIndex + 1 + ATTACHMENT_LOOKBACK);
+                    for (let j = matchIndex; j < end; j++) {
+                        candidatesById.set(page[j].id, page[j]);
+                    }
+                    if (matchIndex + ATTACHMENT_LOOKBACK >= page.length && data.hasMore && minSeq > 1) {
+                        needsBoundaryLookback = true;
+                    }
+                }
+                if (needsBoundaryLookback) {
+                    const tailResponse = await apiSocket.request(
+                        `/v3/sessions/${sessionId}/messages?before_seq=${minSeq}&limit=${ATTACHMENT_LOOKBACK}`,
+                    );
+                    if (tailResponse.ok) {
+                        const tailData = await tailResponse.json() as V3GetSessionMessagesResponse;
+                        const tail = Array.isArray(tailData.messages) ? tailData.messages : [];
+                        for (const msg of tail) {
+                            candidatesById.set(msg.id, msg);
+                        }
+                    }
+                }
+                const candidates = [...candidatesById.values()].sort((a, b) => a.seq - b.seq);
+                const decrypted = await encryption.decryptMessages(candidates);
+                const recovered: NormalizedMessage[] = [];
+                for (let i = 0; i < candidates.length; i++) {
+                    const raw = decrypted[i];
+                    if (!raw) throw new Error('Queued prompt could not be decrypted');
+                    const message = normalizeRawMessage(raw.id, raw.localId, raw.createdAt, raw.content);
+                    if (message && isMatchingQueuedPromptMessage(message, wanted)) {
+                        recovered.push({ ...message, serverSeq: candidates[i].seq });
+                        if (message.role === 'user') {
+                            const matchedKey = (message.meta?.queueKey && wanted.has(message.meta.queueKey))
+                                ? message.meta.queueKey
+                                : (message.localId && wanted.has(message.localId))
+                                    ? message.localId
+                                    : wanted.has(message.id) ? message.id : undefined;
+                            if (matchedKey) foundKeys.add(matchedKey);
+                        }
+                    }
+                }
+                if (recovered.length > 0 && storage.getState().sessions[sessionId]) {
+                    storage.getState().applyMessages(sessionId, recovered, {
+                        edge: storage.getState().sessionMessages[sessionId]?.windowEdge ?? 'newest',
+                    });
+                }
+            }
+            return {
+                nextBeforeSeq: minSeq,
+                hasMore: !!data.hasMore && minSeq < beforeSeq && minSeq > 1,
+                foundKeys: [...foundKeys],
+            };
+        });
+    };
+
     private fetchInitialLatestPage = async (
         sessionId: string,
         encryption: ReturnType<Encryption['getSessionEncryption']> & {}
@@ -2231,7 +2439,7 @@ class Sync {
         const data = await response.json() as V3GetSessionMessagesResponse;
         const messages = Array.isArray(data.messages) ? data.messages : [];
 
-        await this.applyFetchedMessages(sessionId, encryption, messages);
+        if (!await this.applyFetchedMessages(sessionId, encryption, messages)) return;
 
         // Anchor both ends so future incremental forward sync resumes from
         // maxSeq, and loadOlderMessages can page backward from minSeq.
@@ -2242,11 +2450,13 @@ class Sync {
             if (message.seq < minSeq) minSeq = message.seq;
         }
         this.sessionLastSeq.set(sessionId, maxSeq);
+        const rebuiltFloor = this.sessionOldestSeq.get(sessionId);
+        const evictedFromInitialPage = rebuiltFloor !== undefined && rebuiltFloor > minSeq;
         if (messages.length > 0) {
-            this.sessionOldestSeq.set(sessionId, minSeq);
+            this.sessionOldestSeq.set(sessionId, evictedFromInitialPage ? rebuiltFloor : minSeq);
         }
         storage.getState().applyOlderMessagesPagination(sessionId, {
-            hasMore: !!data.hasMore && messages.length > 0
+            hasMore: (!!data.hasMore || evictedFromInitialPage) && messages.length > 0
         });
     }
 
@@ -2264,7 +2474,7 @@ class Sync {
             const data = await response.json() as V3GetSessionMessagesResponse;
             const messages = Array.isArray(data.messages) ? data.messages : [];
 
-            await this.applyFetchedMessages(sessionId, encryption, messages);
+            if (!await this.applyFetchedMessages(sessionId, encryption, messages)) return;
 
             let maxSeq = afterSeq;
             for (const message of messages) {
@@ -2287,15 +2497,26 @@ class Sync {
         messages: ApiMessage[],
         edge: 'newest' | 'older' = 'newest',
     ) => {
-        if (messages.length === 0) return;
+        const stillReadable = () => this.encryption.getSessionEncryption(sessionId) === encryption && !!storage.getState().sessions[sessionId];
+        if (!stillReadable()) return false;
+        if (messages.length === 0) return true;
         const loadedThrough = this.sessionLastSeq.get(sessionId) ?? 0;
         const decryptedMessages = await encryption.decryptMessages(messages);
+        if (!stillReadable()) {
+            if (!storage.getState().sessions[sessionId]) this.encryption.removeSessionEncryption(sessionId);
+            return false;
+        }
         // Read ownership after decryption: a newer realtime turn may have arrived
         // while awaiting it. History repairs matching only, never visible thinking.
-        const lifecycle = resolveFetchedSessionLifecycle(this.sessionLifecycles.get(sessionId),
+        const previousLifecycle = this.sessionLifecycles.get(sessionId);
+        const lifecycle = resolveFetchedSessionLifecycle(previousLifecycle,
             decryptedMessages.flatMap((decrypted, i) => decrypted ? [{ seq: messages[i].seq, raw: decrypted.content, receivedAt: decrypted.createdAt }] : []),
             edge, loadedThrough);
-        if (lifecycle) {
+        const hasLaterCompletedTurn = edge === 'older' && !previousLifecycle && !!lifecycle
+            && (storage.getState().sessionMessages[sessionId]?.sourceMessages.some(
+                (m) => !m.isSidechain && m.role === 'event' && m.content.type === 'ready' && (m.serverSeq ?? 0) > lifecycle.seq,
+            ) ?? false);
+        if (lifecycle && !hasLaterCompletedTurn) {
             this.sessionLifecycles.set(sessionId, lifecycle);
             const session = storage.getState().sessions[sessionId];
             if (session && session.turnLifecycle !== lifecycle) this.applySessions([{ ...session, turnLifecycle: lifecycle }]);
@@ -2312,6 +2533,7 @@ class Sync {
         if (normalizedMessages.length > 0) {
             this.applyMessages(sessionId, normalizedMessages, { edge });
         }
+        return true;
     }
 
     /**
@@ -2355,7 +2577,7 @@ class Sync {
                 const data = await response.json() as V3GetSessionMessagesResponse;
                 const messages = Array.isArray(data.messages) ? data.messages : [];
 
-                await this.applyFetchedMessages(sessionId, encryption, messages, 'older');
+                if (!await this.applyFetchedMessages(sessionId, encryption, messages, 'older')) return;
 
                 let minSeq = beforeSeq;
                 for (const message of messages) {
@@ -2369,7 +2591,7 @@ class Sync {
                 });
             });
         } finally {
-            storage.getState().applyOlderMessagesLoading(sessionId, false);
+            if (storage.getState().sessions[sessionId]) storage.getState().applyOlderMessagesLoading(sessionId, false);
         }
     }
 
@@ -2379,10 +2601,26 @@ class Sync {
         // Subscribe to message updates
         apiSocket.onMessage('update', this.handleUpdate.bind(this));
         apiSocket.onMessage('ephemeral', this.handleEphemeralUpdate.bind(this));
+        apiSocket.onMessage('shared-session-changed', (hint: { sessionId?: string }) => {
+            if (typeof hint?.sessionId === 'string') this.invalidateSharedSession(hint.sessionId);
+        });
+        apiSocket.onMessage('session-access-changed', (hint: { sessionId?: string }) => {
+            if (typeof hint?.sessionId !== 'string') return;
+            this.sharedAccessEpoch++;
+            if (storage.getState().sessions[hint.sessionId]?.shared) this.forgetSession(hint.sessionId);
+            this.sessionsSync.invalidate();
+            this.invalidateSharedSession(hint.sessionId);
+        });
 
         // Subscribe to connection state changes
         apiSocket.onReconnected(() => {
             log.log('🔌 Socket reconnected');
+            // A grant may have been revoked while disconnected. Hide stale
+            // shared data until the authenticated catalog has been revalidated.
+            this.sharedAccessEpoch++;
+            for (const session of Object.values(storage.getState().sessions)) {
+                if (session.shared) this.forgetSession(session.id);
+            }
 
             // Send current focus state on reconnect so the server's
             // suppression rules pick up where we left off (handshake.auth.appState
@@ -2517,24 +2755,8 @@ class Sync {
             log.log('🗑️ Delete session update received');
             const sessionId = updateData.body.sid;
 
-            // Remove session from storage
-            storage.getState().deleteSession(sessionId);
-
-            // Remove encryption keys from memory
-            this.encryption.removeSessionEncryption(sessionId);
-
-            // Clear any cached git status
-            gitStatusSync.clearForSession(sessionId);
-            this.messagesSync.delete(sessionId);
-            this.sendSync.delete(sessionId);
-            this.pendingOutbox.delete(sessionId);
-            this.sessionLastSeq.delete(sessionId);
-            this.sessionLifecycles.delete(sessionId);
-            this.sessionOldestSeq.delete(sessionId);
-            this.sessionMessageLocks.delete(sessionId);
-            this.sessionMessageQueue.delete(sessionId);
-            this.sessionQueueProcessing.delete(sessionId);
-            this.projectsSync.invalidate();
+            this.sharedAccessEpoch++;
+            this.forgetSession(sessionId);
 
             log.log(`🗑️ Session ${sessionId} deleted from local storage`);
         } else if (updateData.body.t === 'update-session') {
@@ -3023,17 +3245,8 @@ class Sync {
 
     private applyMessages = (sessionId: string, messages: NormalizedMessage[], options?: { edge?: 'newest' | 'older' }) => {
         const result = storage.getState().applyMessages(sessionId, messages, options);
-        const residentSources = storage.getState().sessionMessages[sessionId]?.sourceMessages;
-        if (residentSources && residentSources.length > 0) {
-            let minResidentSeq = Number.POSITIVE_INFINITY;
-            for (const source of residentSources) {
-                if (source.serverSeq !== undefined && source.serverSeq < minResidentSeq) {
-                    minResidentSeq = source.serverSeq;
-                }
-            }
-            if (Number.isFinite(minResidentSeq)) {
-                this.sessionOldestSeq.set(sessionId, minResidentSeq);
-            }
+        if (result.windowRebuilt && result.windowStartSeq !== undefined) {
+            this.sessionOldestSeq.set(sessionId, result.windowStartSeq);
         }
         let m: Message[] = [];
         for (let messageId of result.changed) {
@@ -3046,7 +3259,7 @@ class Sync {
         }
         if (result.hasReadyEvent) {
         }
-        if (result.enteredPlanMode) {
+        if (result.enteredPlanMode && !storage.getState().sessions[sessionId]?.shared) {
             // The EnterPlanMode auto-switch only wrote the local mirror; push
             // it into synced metadata so other devices see plan mode and the
             // next inbound metadata update doesn't revert it (#1492)
@@ -3106,6 +3319,10 @@ export async function syncRestore(credentials: AuthCredentials) {
 
 async function syncInit(credentials: AuthCredentials, restore: boolean) {
 
+    const accountId = await lmcIdentity(credentials.token);
+    selectAccountPersistence(getServerUrl(), accountId);
+    reloadAccountPersistence();
+
     // Initialize sync engine
     const secretKey = decodeBase64(credentials.secret, 'base64url');
     if (secretKey.length !== 32) {
@@ -3127,8 +3344,8 @@ async function syncInit(credentials: AuthCredentials, restore: boolean) {
 
     // Initialize sessions engine
     if (restore) {
-        await sync.restore(credentials, encryption);
+        await sync.restore(credentials, encryption, accountId);
     } else {
-        await sync.create(credentials, encryption);
+        await sync.create(credentials, encryption, accountId);
     }
 }

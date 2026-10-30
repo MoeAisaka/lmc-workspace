@@ -1,18 +1,19 @@
 import type { QueryOptions } from '@/claude/sdk';
 import type { PermissionMode } from '@/api/types';
 import { logger } from '@/ui/logger';
+import { normalizePermissionModeForEngine } from 'lmc-wire';
 
 /** Derived from SDK's QueryOptions - the modes Claude actually supports */
 export type ClaudeSdkPermissionMode = NonNullable<QueryOptions['permissionMode']>;
 
 /**
  * Map any PermissionMode (8 modes) to a Claude-compatible mode (5 modes)
- * This is the ONLY place where Codex modes are mapped to Claude equivalents.
+ * Uses the same intent mapping as engine switches and restored app state.
  *
  * Mapping:
  * - yolo → bypassPermissions (both skip all permissions)
- * - safe-yolo → default (ask for permissions)
- * - read-only → default (Claude doesn't support read-only)
+ * - safe-yolo → acceptEdits (edits allowed, other tools still reviewed)
+ * - read-only → plan (preserve the no-edit intent)
  *
  * Claude modes pass through unchanged:
  * - auto, default, acceptEdits, bypassPermissions, plan
@@ -29,12 +30,7 @@ export function mapToClaudeMode(mode: PermissionMode | undefined): ClaudeSdkPerm
     if (mode === undefined) {
         return undefined;
     }
-    const codexToClaudeMap: Record<string, ClaudeSdkPermissionMode> = {
-        'yolo': 'bypassPermissions',
-        'safe-yolo': 'default',
-        'read-only': 'default',
-    };
-    return codexToClaudeMap[mode] ?? (mode as ClaudeSdkPermissionMode);
+    return normalizePermissionModeForEngine('claude', mode) as ClaudeSdkPermissionMode;
 }
 
 const VALID_PERMISSION_MODES: readonly PermissionMode[] = [

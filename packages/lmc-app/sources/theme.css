@@ -161,3 +161,22 @@ html[data-lmc-motion="off"] [data-lmc-resource-window] { transition: none !impor
 @media (prefers-reduced-motion: reduce) {
     [data-lmc-message] { animation: none !important; }
 }
+
+/* iPadOS trackpad two-finger tap hit overlay: must remain selectable for
+   WebCore's selectClosestContextualWordOrLinkFromHitTestResult while staying
+   completely invisible (selectstart is preventDefault()ed in JS). */
+[data-lmc-context-hit] {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    -webkit-touch-callout: none !important;
+    color: transparent !important;
+    -webkit-text-fill-color: transparent !important;
+}
+[data-lmc-context-hit="inert"] {
+    user-select: none !important;
+    -webkit-user-select: none !important;
+}
+[data-lmc-context-hit]::selection {
+    background: transparent !important;
+    color: transparent !important;
+}

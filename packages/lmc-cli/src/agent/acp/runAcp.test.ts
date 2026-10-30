@@ -245,6 +245,8 @@ describe('runAcp', () => {
     await mocks.getKillHandler()!();
     await runPromise;
 
+    expect(mocks.mockSession.updateMetadata.mock.calls.map(([update]) => update({ lifecycleState: 'running' }))
+      .some(metadata => metadata.lifecycleState === 'archived')).toBe(true);
     expect(mocks.backendState.constructorArgs.command).toBe('opencode');
     expect(mocks.backendState.constructorArgs.args).toEqual(['--acp']);
     expect(mocks.backendState.prompts[0]).toEqual({
@@ -441,6 +443,8 @@ describe('runAcp', () => {
     expect(consoleLines()).toContain('Status: error: spawn opencode ENOENT');
     expect(mocks.mockSession.close).toHaveBeenCalled();
     expect(mocks.backendState.disposeCalls).toBe(1);
+    expect(mocks.mockSession.updateMetadata.mock.calls.map(([update]) => update({ lifecycleState: 'running' }))
+      .some(metadata => metadata.lifecycleState === 'archived')).toBe(false);
   });
 
   it('updates session metadata with ACP config options (models and operating modes)', async () => {

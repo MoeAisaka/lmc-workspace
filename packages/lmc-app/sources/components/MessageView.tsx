@@ -20,6 +20,7 @@ import { parseLocalCommandMessage, isUserSlashCommandEcho } from './parseLocalCo
 import { resolveUserMessageBubbleColor } from '@/utils/userMessageBubbleColor';
 import { LongPressCopyable } from './LongPressCopyable';
 import { MessageCopyButton } from './MessageCopyButton';
+import { MessageImageCopyButton } from './MessageImageCopyButton';
 import { useMessageFlavor } from './MessageEngineContext';
 import { isHandoffDelivery } from '@/sync/engineHandoff';
 import { isEngineSwitchRequest, switchDurationEndingAt } from '@/sync/engineSwitchProgress';
@@ -215,6 +216,7 @@ function UserTextBlock(props: {
 
   return (
     <View style={styles.userMessageContainer}>
+      {props.message.meta?.actor && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 6 }}>{props.message.meta.actor.name}</Text>}
       {/* Native long-press remains available; the visible button also works in
           phone browsers, where the OS can swallow long-press gestures. */}
       <LongPressCopyable style={styles.userCopyTarget} text={parsed.text}>
@@ -244,7 +246,10 @@ function AgentTextBlock(props: {
   return (
     <View style={styles.agentMessageContainer}>
       <MarkdownView markdown={props.message.text} inferOptions onOptionPress={handleOptionPress} sessionId={props.sessionId} />
-      {props.copyText ? <MessageCopyButton text={props.copyText} /> : null}
+      {props.copyText ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 28 }}>
+        <MessageCopyButton text={props.copyText} />
+        <MessageImageCopyButton text={props.copyText} sessionId={props.sessionId} />
+      </View> : null}
     </View>
   );
 }

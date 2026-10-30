@@ -1,4 +1,5 @@
 import { withModelCatalogs } from '@/sync/modelCatalogMetadata';
+import { findCatalogModel } from 'lmc-wire';
 import type { MachineMetadata } from '@/sync/storageTypes';
 import type { Session } from '@/sync/storageTypes';
 import type { AgentDefaultOverrides } from '@/sync/agentDefaults';
@@ -15,12 +16,19 @@ export function resolveSessionModelDisplay(
 ): { modelName: string | null; effortName: string | null } {
     session = { ...session, metadata: withModelCatalogs(session.metadata, machine) ?? session.metadata };
     const flavor = session.metadata?.flavor;
-    if (flavor !== 'claude' && flavor !== 'codex') return { modelName: null, effortName: null };
+    if (flavor !== 'claude' && flavor !== 'codex' && flavor !== 'agy') return { modelName: null, effortName: null };
     const defaults = resolveAgentDefaultConfig(overrides, flavor, session.metadata?.version, session.metadata?.modelCatalogs);
     const selectedModel = session.modelMode ?? session.metadata?.modelMode;
-    const models = getAvailableModels(flavor, session.metadata, translate, selectedModel ?? defaults.modelMode);
-    const model = resolveCurrentOption(models, [selectedModel, defaults.modelMode, session.metadata?.currentModelCode]);
-    const selectedEffort = session.effortLevel ?? session.metadata?.effortLevel;
+    // Native Antigravity IDs include the effort variant. Use the published
+    // mapping, not suffix guessing, to show its family name and exact effort.
+    const agyModel = flavor === 'agy' ? findCatalogModel(session.metadata?.modelCatalogs?.agy, selectedModel) : undefined;
+    const modelKey = agyModel?.id ?? selectedModel;
+    const nativeEffort = agyModel?.effortModels
+        ? Object.entries(agyModel.effortModels).find(([, id]) => id === selectedModel)?.[0]
+        : undefined;
+    const models = getAvailableModels(flavor, session.metadata, translate, modelKey ?? defaults.modelMode);
+    const model = resolveCurrentOption(models, [modelKey, defaults.modelMode, session.metadata?.currentModelCode]);
+    const selectedEffort = session.effortLevel ?? session.metadata?.effortLevel ?? nativeEffort;
     const efforts = getEffortLevelsForModel(flavor, model?.key ?? 'default', session.metadata, translate);
     const defaultEffort = getCatalogDefaultEffort(flavor, model?.key, session.metadata, defaults.effortLevel);
     const effort = preserveCodexEffortSelection(flavor, selectedEffort ?? defaultEffort,

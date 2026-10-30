@@ -1,3 +1,5 @@
+import { assertSessionReconnectAvailable } from '@/daemon/controlClient';
+import { SessionOwnershipConflict } from '@/daemon/sessionOwnership';
 import { isLargeFileEvent, receiveLargeFileEvent } from '@/modules/common/largeFileEvent';
 import type { PendingAttachment } from '@/utils/MessageQueue2';
 import { resolveSessionChoice } from './utils/launchChoice';
@@ -18,7 +20,7 @@ import packageJson from '../../package.json';
 import { Credentials, readSettings } from '@/persistence';
 import { EnhancedMode, PermissionMode } from './loop';
 import { MessageQueue2 } from '@/utils/MessageQueue2';
-import { attachQueuePublisher } from '@/utils/sessionQueueControl';
+import { attachQueuePublisher, bindQueuedReportConsumer } from '@/utils/sessionQueueControl';
 import { readMessageIntent } from '@/utils/queueControlRequest';
 import { hashObject } from '@/utils/deterministicJson';
 import { parseSpecialCommand } from '@/parsers/specialCommands';
@@ -60,6 +62,7 @@ import { createWorkerFailureReporter } from '@/modules/orchestration/workerFailu
 import { createTaskMeter } from '@/modules/orchestration/meter';
 import { hubDisallowedTools } from '@/modules/orchestration/hubGuard';
 import { consumePendingHandoff, createHandoffPort } from '@/utils/handoffPort';
+import { poeClaudeEnvironment, readPoeSettings } from '@/runtime/poe';
 
 /** JavaScript runtime to use for spawning Claude Code */
 export type JsRuntime = 'node' | 'bun'
@@ -95,6 +98,8 @@ type PendingClaudeGoalAction = {
 };
 
 export async function runClaude(credentials: Credentials, options: StartOptions = {}): Promise<void> {
+    const poeEnv = poeClaudeEnvironment(readPoeSettings());
+    if (poeEnv) options = { ...options, claudeEnvVars: { ...options.claudeEnvVars, ...poeEnv } };
     const computerUse = readComputerUseSetup('claude');
     options = { ...options, claudeArgs: withClaudeChromeDefault(options.claudeArgs, computerUse.chrome) };
     logger.debug(`[CLAUDE] ===== CLAUDE MODE STARTING =====`);
@@ -190,6 +195,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
 
     // Check for session reconnection env vars (set by daemon for resume-in-place)
     const reconnectSessionId = process.env.HAPPY_RECONNECT_SESSION_ID;
+    if (reconnectSessionId) await assertSessionReconnectAvailable(reconnectSessionId);
     const reconnectKeyBase64 = process.env.HAPPY_RECONNECT_ENCRYPTION_KEY;
     const reconnectVariant = process.env.HAPPY_RECONNECT_ENCRYPTION_VARIANT as 'legacy' | 'dataKey' | undefined;
     const reconnectSeq = process.env.HAPPY_RECONNECT_SEQ;
@@ -309,6 +315,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
             logger.debug(`[START] Reported session ${response.id} to daemon`);
         }
     } catch (error) {
+        if (error instanceof SessionOwnershipConflict) throw error;
         logger.debug('[START] Failed to report to daemon (may not be running):', error);
     }
 
@@ -527,7 +534,14 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         // mid-session, and the one being left is the one running now.
         return { engine: 'Claude Code', id, transcriptPath: join(getProjectPath(workingDirectory), `${id}.jsonl`) };
     });
-    const happyServer = await startHappyServer(session, agentMail.mail, handoffPort, { cwd: workingDirectory, machineId, meter });
+    let consumeQueuedReport: ((id: string, attempt: number, dispatchId?: string) => void) | undefined;
+    const happyServer = await startHappyServer(session, agentMail.mail, handoffPort, {
+        cwd: workingDirectory,
+        machineId,
+        meter,
+        pollMail: () => agentMail.pollNow?.() ?? Promise.resolve(),
+        consumeQueuedReport: (id, attempt, dispatchId) => consumeQueuedReport?.(id, attempt, dispatchId),
+    });
     // Taking a session over: the briefing goes in the same way agent mail does,
     // as a user message, because that is the only door into a running engine.
     const inherited = await consumePendingHandoff(session);
@@ -615,6 +629,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     // The app sees the queue through agentState; the consumption mode survives
     // relaunches through metadata.
     attachQueuePublisher(messageQueue, session, session.getMetadata()?.queueMode);
+    consumeQueuedReport = bindQueuedReportConsumer(messageQueue);
 
     // Forward messages to the queue
     // Permission modes: Use the unified 7-mode type, mapping happens at SDK boundary in claudeRemote.ts
@@ -977,24 +992,10 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         logger.debugLargeJson('User message pushed to queue:', message)
     });
 
-    // Setup signal handlers for graceful shutdown
-    //
-    // `archive`: whether to stamp lifecycleState='archived' on the way
-    // out. Two reasons we'd want to skip it:
-    //   - The user pressed Ctrl-C in their terminal. They almost
-    //     certainly want to come back to this session later — pinning
-    //     it as `archived` would hide it from the active sessions list
-    //     and force them to dig it up by URL just to hit Resume.
-    //   - Same for SIGTERM (e.g. the system shutting us down).
-    //
-    // Browser-side "Archive" is intentionally explicit and DOES want
-    // the metadata stamped — it routes through the killSession RPC
-    // handler which calls cleanup({ archive: true }).
-    //
-    // Crashes (uncaughtException / unhandledRejection) keep archiving
-    // because the session is genuinely toast at that point.
-    const cleanup = async (opts: { archive?: boolean } = { archive: true }) => {
-        logger.debug(`[START] Received termination signal, cleaning up (archive=${opts.archive ?? true})...`);
+    // Only the explicit Archive RPC stamps the lifecycle. Disconnects, signals
+    // and crashes leave the session visible and available for later recovery.
+    const cleanup = async (opts: { archive?: boolean } = {}) => {
+        logger.debug(`[START] Received termination signal, cleaning up (archive=${opts.archive === true})...`);
 
         try {
             // Update lifecycle state to archived before closing — only
@@ -1003,7 +1004,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
             // like a network blip: active=false via missed keepalives,
             // but the session stays visible and resumable in the app.
             if (session) {
-                if (opts.archive ?? true) {
+                if (opts.archive === true) {
                     session.updateMetadata((currentMetadata) => ({
                         ...currentMetadata,
                         lifecycleState: 'archived',
@@ -1062,16 +1063,15 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     process.on('SIGTERM', () => { void cleanup({ archive: false }); });
     process.on('SIGINT', () => { void cleanup({ archive: false }); });
 
-    // Crashes archive on the way out so the session shows up correctly
-    // in the app rather than masquerading as live.
+    // A crash ends the connection, not the user's intent to keep the session.
     process.on('uncaughtException', (error) => {
         logger.debug('[START] Uncaught exception:', error);
-        void cleanup({ archive: true });
+        void cleanup();
     });
 
     process.on('unhandledRejection', (reason) => {
         logger.debug('[START] Unhandled rejection:', reason);
-        void cleanup({ archive: true });
+        void cleanup();
     });
 
     // Browser-side "Archive" button routes through this RPC and DOES

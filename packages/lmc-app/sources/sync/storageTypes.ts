@@ -31,7 +31,7 @@ const SpawnRequestSchema = z.object({
     id: z.string(),
     machine: z.string(),
     directory: z.string(),
-    agent: z.enum(['claude', 'codex']),
+    agent: z.enum(['claude', 'codex', 'agy']),
     model: z.string().optional(),
     effort: z.string().optional(),
     permissionMode: z.string().optional(),
@@ -45,11 +45,12 @@ const SpawnRequestSchema = z.object({
 export type SpawnRequest = z.infer<typeof SpawnRequestSchema>;
 
 export const MetadataSchema = z.object({
+    sharedDevice: z.boolean().optional(),
     modelCatalogs: ModelCatalogsSchema.optional().catch(undefined),
     agentBuild: z.string().optional(),
     claudeNativeActive: z.boolean().optional(),
     engineRuntime: z.object({engine:z.string(),version:z.string(),packageVersion:z.string().optional(),source:z.string(),path:z.string()}).optional(),
-    sessionCapabilities: z.object({ largeFiles: z.boolean().optional(), nativeComputer: z.boolean().optional(), automaticGoals: z.boolean().optional(), authenticationRecovery: z.boolean().optional(), modelDiscovery: z.boolean().optional(), refresh: z.boolean(), authentication: z.boolean(), runtimeConfiguration: z.boolean(), resourceFiles: z.boolean().optional(), resourceSearch: z.boolean().optional(), fileInbox: z.boolean().optional(), resume:z.boolean().optional(), model:z.boolean().optional(),effort:z.boolean().optional(),context:z.boolean().optional(),serviceTier:z.boolean().optional(), cancelRefresh: z.boolean().optional(), turnQueue: z.boolean().optional(), turnSteer: z.boolean().optional(), turnQueueLifecycle: z.boolean().optional() }).optional(),
+    sessionCapabilities: z.object({ persistentFiles: z.boolean().optional(), largeFiles: z.boolean().optional(), nativeComputer: z.boolean().optional(), automaticGoals: z.boolean().optional(), authenticationRecovery: z.boolean().optional(), modelDiscovery: z.boolean().optional(), refresh: z.boolean(), authentication: z.boolean(), runtimeConfiguration: z.boolean(), resourceFiles: z.boolean().optional(), resourceSearch: z.boolean().optional(), fileInbox: z.boolean().optional(), resume:z.boolean().optional(), model:z.boolean().optional(),effort:z.boolean().optional(),context:z.boolean().optional(),serviceTier:z.boolean().optional(), cancelRefresh: z.boolean().optional(), engineHandoff: z.boolean().optional(), turnQueue: z.boolean().optional(), turnSteer: z.boolean().optional(), turnQueueLifecycle: z.boolean().optional() }).optional(),
     engineAuth: z.object({ status: z.enum(['ready', 'required', 'unknown']), checkedAt: z.number() }).optional(),
     sessionConfiguration: z.boolean().optional(),
     sessionConfigState: z.enum(['queued', 'applied', 'error', 'refreshing', 'verifying']).optional(),
@@ -199,11 +200,12 @@ export const MetadataSchema = z.object({
     machineId: z.string().optional(),
     claudeSessionId: z.string().optional(), // Claude Code session ID
     codexThreadId: z.string().optional(), // Codex app-server thread ID
+    agyConversationId: z.string().optional(),
     // Set while a session is moving between engines; the runner taking over
     // consumes it and clears it. See engineHandoff.ts.
     pendingHandoff: z.object({
         from: z.string(),
-        fromFlavor: z.enum(['claude', 'codex']).optional(),
+        fromFlavor: z.enum(['claude', 'codex', 'agy']).optional(),
         source: z.enum(['engine', 'compiled']),
         briefing: z.string(),
         // The engine-native conversation being left; a reference, not something
@@ -225,7 +227,7 @@ export const MetadataSchema = z.object({
     // references the briefing lists, never something a relaunch resumes.
     engineThreadHistory: z.array(z.object({
         engine: z.string(),
-        flavor: z.enum(['claude', 'codex']),
+        flavor: z.enum(['claude', 'codex', 'agy']),
         id: z.string(),
         transcriptPath: z.string().optional(),
         endedAt: z.number(),
@@ -302,7 +304,7 @@ export const MetadataSchema = z.object({
 
 export type Metadata = z.infer<typeof MetadataSchema>;
 
-export const AgentGoalSourceSchema = z.enum(['claude', 'codex']);
+export const AgentGoalSourceSchema = z.enum(['claude', 'codex', 'agy']);
 
 export const AgentGoalProgressStepSchema = z.object({
     text: z.string().trim().min(1),
@@ -496,6 +498,10 @@ export interface SessionAgentModesPatch {
 export interface Session {
     /** User-owned account setting; never taken from CLI metadata. */
     customName?: string | null;
+    /** Server-authorized read-only grant; never inferred from encrypted metadata. */
+    shared?: boolean;
+    accessVersion?: number;
+    accessActions?: string[];
     id: string,
     seq: number,
     createdAt: number,
@@ -548,6 +554,7 @@ export interface DecryptedMessage {
 export const MachineMetadataSchema = z.object({
     systemDiagnostics: MachineSystemDiagnosticsSchema.optional().catch(undefined),
     accountQuota: z.boolean().optional(),
+    poeBalance: z.boolean().optional(),
     engineLogin: z.object({claude: z.boolean(), codex: z.boolean()}).optional(),
     modelDiscovery: z.boolean().optional(),
     modelCatalogs: ModelCatalogsSchema.optional().catch(undefined),

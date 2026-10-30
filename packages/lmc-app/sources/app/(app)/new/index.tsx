@@ -1,4 +1,7 @@
+import { CreationPicker } from '@/components/lmc/CreationPicker';
+import { creationPath, creationPermission } from '@/utils/lmc/newSessionDefaults';
 import { Text } from '@/components/StyledText';
+import { SharedDeviceEntry } from '@/components/lmc/SharedDevicesDialog';
 import { machineModelMetadata } from '@/sync/modelCatalogMetadata';
 import { getAvailableModels, getCatalogDefaultEffort } from '@/components/modelModeOptions';
 import React from 'react';
@@ -26,7 +29,8 @@ import type { NewSessionAgentType } from '@/sync/persistence';
 import { sync } from '@/sync/sync';
 import { isMachineOnline } from '@/utils/machineUtils';
 import { machineSpawnNewSession, sessionSetAgentModes } from '@/sync/ops';
-import { createWorktree, listWorktrees } from '@/utils/worktree';
+import { createWorktree } from '@/utils/worktree';
+import { useNewSessionWorktrees } from '@/hooks/useNewSessionWorktrees';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { formatPathRelativeToHome, formatLastSeen } from '@/utils/sessionUtils';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
@@ -61,6 +65,7 @@ import {
     type ModelMode,
     type EffortLevel,
 } from '@/components/modelModeOptions';
+import { supportsAntigravityProtocol, ANTIGRAVITY_UPGRADE_MESSAGE } from '@/sync/antigravityCompatibility';
 import { isRunningOnMac } from '@/utils/platform';
 import { getNewSessionSidebarLayout } from '@/utils/newSessionSidebarLayout';
 import { getAgentPickerItems, getModePickerItems } from '@/utils/newSessionPickerItems';
@@ -109,9 +114,9 @@ type AgentKey = NewSessionAgentType;
 // Lowercased to match this screen's type, but the same names and pick order as
 // the Home composer's harness picker. Retired harnesses are absent from both.
 const ALL_AGENTS: { key: AgentKey; label: string }[] = [
-    { key: 'claude', label: 'claude code' },
-    { key: 'codex', label: 'codex' },
-    { key: 'agy', label: 'antigravity' },
+    { key: 'claude', label: 'Claude Code' },
+    { key: 'codex', label: 'Codex' },
+    { key: 'agy', label: 'Antigravity' },
     { key: 'rig', label: 'happy' },
 ];
 
@@ -317,6 +322,7 @@ function PickerContent({
                 scaleFeedback={false}
                 style={(p) => [
                     pickerStyles.option,
+                    Platform.OS === 'web' && !embedded && { height: 54 },
                     embedded && pickerStyles.embeddedOption,
                     p.pressed && pickerStyles.optionPressed,
                     item.dimmed && { opacity: 0.45 },
@@ -343,7 +349,7 @@ function PickerContent({
     };
 
     return (
-        <View style={[pickerStyles.container, embedded && pickerStyles.embeddedContainer]}>
+        <View style={[pickerStyles.container, Platform.OS === 'web' && !embedded && { flex: 1, minHeight: 0 }, embedded && pickerStyles.embeddedContainer]}>
             {!embedded && (
                 <Text style={[pickerStyles.title, { color: theme.colors.text }]}>{title}</Text>
             )}
@@ -368,7 +374,7 @@ function PickerContent({
             )}
 
             <ScrollView
-                style={[pickerStyles.optionList, embedded && pickerStyles.embeddedOptionList]}
+                style={[pickerStyles.optionList, Platform.OS === 'web' && !embedded && { flex: 1, minHeight: 0 }, embedded && pickerStyles.embeddedOptionList]}
                 contentContainerStyle={embedded && pickerStyles.embeddedOptionListContent}
                 keyboardShouldPersistTaps="handled"
             >
@@ -804,8 +810,9 @@ function NewSessionScreen() {
     const pendingPickerRef = React.useRef<PickerType | null>(null);
     const pickerKeyboardSubscriptionRef = React.useRef<ReturnType<typeof Keyboard.addListener> | null>(null);
     const pickerOpenTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-    React.useEffect(() => () => {
-        isMountedRef.current = false;
+    React.useEffect(() => {
+        isMountedRef.current = true;
+        return () => { isMountedRef.current = false; };
     }, []);
 
     // Config collapse — auto-collapses when typing, expands when empty
@@ -918,14 +925,12 @@ function NewSessionScreen() {
         }));
     }, [places, selectedHomeDir]);
 
-    // Auto-select first path when machine changes
+    // Paths are device presets, not user-facing creation choices. Ignore stale
+    // drafts (including temporary verification directories) on device changes.
     React.useEffect(() => {
-        if (!selectedChoice || selectedPath !== null) {
-            return;
-        }
-
-        setSelectedPath(pathItems[0]?.key ?? '~');
-    }, [pathItems, selectedChoice, selectedPath, setSelectedPath]);
+        if (selectedChoice) setSelectedPath(creationPath(selectedHomeDir));
+        setWorktreeKey('__none__');
+    }, [selectedChoice?.id, selectedHomeDir, setSelectedPath]);
 
     const resolvedSelectedPath = React.useMemo(() => {
         return normalizePathForComparison(selectedPath, selectedHomeDir);
@@ -961,38 +966,18 @@ function NewSessionScreen() {
     const canCreateWorktree = createsNativeHappyAgentWorkspace
         || (selectedAgent !== 'rig' && worktreeCreationMachine !== null);
 
-    // Fetch existing worktrees/workspaces from the selected computer/path
-    const [worktreeItems, setWorktreeItems] = React.useState<PickerItem[]>([]);
-    React.useEffect(() => {
-        if (!debouncedResolvedSelectedPath) {
-            setWorktreeItems([]);
-            return;
-        }
-
-        if (picksWorkspaces) {
-            setWorktreeItems(agentWorkspaces.map((workspace) => ({
-                key: workspace.key,
-                label: workspace.name,
-                subtitle: workspace.path,
-            })));
-            return;
-        }
-
-        if (!supportsWorktree || !worktreeMachine || !isMachineOnline(worktreeMachine)) {
-            setWorktreeItems([]);
-            return;
-        }
-        let cancelled = false;
-        listWorktrees(worktreeMachine.id, debouncedResolvedSelectedPath).then(worktrees => {
-            if (cancelled) return;
-            setWorktreeItems(worktrees.map(wt => ({
-                key: wt.path,
-                label: wt.branch,
-                subtitle: wt.path,
-            })));
-        });
-        return () => { cancelled = true; };
-    }, [agentWorkspaces, debouncedResolvedSelectedPath, picksWorkspaces, supportsWorktree, worktreeMachine]);
+    // Session activity and machine heartbeats replace the objects above. They
+    // must not retrigger Git on the remote computer (even when no worktree is
+    // selected). Catalog workspaces are local data, independent of Git loading.
+    const gitWorktrees = useNewSessionWorktrees(
+        worktreeMachine?.id ?? null,
+        debouncedResolvedSelectedPath,
+        !picksWorkspaces && supportsWorktree && !!worktreeMachine && isMachineOnline(worktreeMachine),
+    );
+    const worktreeItems = React.useMemo<PickerItem[]>(() => picksWorkspaces
+        ? agentWorkspaces.map(workspace => ({ key: workspace.key, label: workspace.name, subtitle: workspace.path }))
+        : (gitWorktrees ?? []).map(wt => ({ key: wt.path, label: wt.branch, subtitle: wt.path })),
+    [picksWorkspaces, agentWorkspaces, gitWorktrees]);
 
     React.useEffect(() => {
         if (!canPickWorktree) {
@@ -1185,7 +1170,7 @@ function NewSessionScreen() {
         ?? ALL_AGENTS[0];
     // A Rig machine can publish an empty catalog, so every current pick is
     // nullable — the composer hides the picker instead of rendering a pick.
-    const currentPermission = resolveSelectedOption(permissionModes, permissionIndex);
+    const currentPermission = creationPermission(permissionModes) ?? resolveSelectedOption(permissionModes, permissionIndex);
     const currentEffort = preserveCodexEffortSelection(selectedAgent, draft.effortLevel ?? effectiveEffortDefault, resolveSelectedOption(effortLevels, effortIndex));
     const permissionStyle = resolvePermissionStyle(currentPermission);
     const composerSettingsItems = React.useMemo(() => {
@@ -1313,6 +1298,7 @@ function NewSessionScreen() {
             case 'agent':
                 if (availableAgents.some((candidate) => candidate.key === key)) {
                     setSelectedAgent(key as NewSessionAgentType);
+                    if (key === 'agy') draft.setEffortLevel(agentDefaultOverrides?.agy?.effortLevel ?? null);
                 }
                 break;
             case 'model': {
@@ -1320,7 +1306,7 @@ function NewSessionScreen() {
                 if (next >= 0) {
                     setModelIndex(next);
                     draft.setModelMode(modelModes[next]?.key ?? 'default');
-                    if (!rigCreation && getEffortLevelsForModel(selectedAgent, key, machineModelMetadata(selectedChoice?.lmcMachine?.metadata), t).length === 0) draft.setEffortLevel(null);
+                    if (selectedAgent === 'agy' || (!rigCreation && getEffortLevelsForModel(selectedAgent, key, machineModelMetadata(selectedChoice?.lmcMachine?.metadata), t).length === 0)) draft.setEffortLevel(null);
                 }
                 break;
             }
@@ -1367,7 +1353,7 @@ function NewSessionScreen() {
                 if (next >= 0) {
                     setModelIndex(next);
                     draft.setModelMode(modelModes[next]?.key ?? 'default');
-                    if (!rigCreation && getEffortLevelsForModel(selectedAgent, key, machineModelMetadata(selectedChoice?.lmcMachine?.metadata), t).length === 0) draft.setEffortLevel(null);
+                    if (selectedAgent === 'agy' || (!rigCreation && getEffortLevelsForModel(selectedAgent, key, machineModelMetadata(selectedChoice?.lmcMachine?.metadata), t).length === 0)) draft.setEffortLevel(null);
                 }
                 break;
             }
@@ -1404,6 +1390,10 @@ function NewSessionScreen() {
         // Resolve again at the moment of use: the draft can outlive a daemon restart, a machine
         // pairing update, or a change in the CLI catalog.
         const agentType = resolveChoiceAgent(choice, selectedAgent);
+        if (agentType === 'agy' && !supportsAntigravityProtocol(choice.lmcMachine?.metadata?.happyCliVersion)) {
+            Modal.alert(t('common.error'), ANTIGRAVITY_UPGRADE_MESSAGE);
+            return;
+        }
         try {
             assertModelEffort(agentType, currentModelKey, currentEffort?.key, selectedChoice?.lmcMachine?.metadata?.modelCatalogs);
         } catch (error) {
@@ -1436,7 +1426,7 @@ function NewSessionScreen() {
         }
         const agentSupportsWorktree = spawnRigCreation?.supportsWorktrees
             ?? (agentType === 'rig' ? false : getSupportsWorktree(agentType));
-        const requestedWorktree = canPickWorktree ? worktreeKey : '__none__';
+        const requestedWorktree = '__none__' as string;
         let happyAgentTarget: ReturnType<typeof resolveHappyAgentSpawnTarget>;
         try {
             happyAgentTarget = spawnRigCreation
@@ -1468,7 +1458,7 @@ function NewSessionScreen() {
 
         setIsSpawning(true);
         try {
-            const pathToUse = trimPathInput(selectedPath) || '~';
+            const pathToUse = creationPath(machine.metadata?.homeDir);
             const absolutePath = resolveAbsolutePath(pathToUse, machine.metadata?.homeDir);
             const permissionKey = currentPermission?.key ?? null;
             // Same key for every retry of this request (directory approval,
@@ -1706,8 +1696,9 @@ function NewSessionScreen() {
         ) : null;
 
         return (
-            <View style={[styles.popover, { backgroundColor: theme.colors.surface }, lmcElevation(theme, 3)]}>
+            <View style={[styles.popover, { backgroundColor: theme.colors.surface, height: '100%', maxHeight: '100%', flexShrink: 1 }, lmcElevation(theme, 3)]}>
                 {content}
+                {type === 'machine' && <View style={{ paddingHorizontal: 16 }}><SharedDeviceEntry onCreated={navigateToSession} /></View>}
             </View>
         );
     }, [
@@ -1900,105 +1891,29 @@ function NewSessionScreen() {
                 <Text style={styles.targetRowLabel}>{options.label}</Text>
                 <Text style={styles.targetRowValue} numberOfLines={1}>{options.value}</Text>
             </View>
-            <Ionicons name="chevron-forward" size={15} color={theme.colors.groupped.chevron} />
+            {!options.disabled && <Ionicons name="chevron-down" size={15} color={theme.colors.groupped.chevron} />}
         </BubblePressable>
     );
 
-    // On a phone the pills wrapped onto three lines and read as a form again,
-    // so the narrow layout uses one full-width row per choice and folds the
-    // engine, model, effort and permission into a single "model" row that
-    // opens the same two-level menu the composer uses.
-    const phoneTargetRows = (
-        <View style={styles.targetRowGroup}>
-            {targetRow({
-                key: 'machine',
-                label: t('localFeatures.machines'),
-                value: machineName,
-                icon: <Ionicons name="desktop-outline" size={17} color={theme.colors.textSecondary} />,
-            })}
-            {targetRow({
-                key: 'path',
-                label: 'Project',
-                value: pathName,
-                disabled: isOffline,
-                icon: <Ionicons name="folder-outline" size={17} color={theme.colors.textSecondary} />,
-            })}
-            {targetRow({
-                key: composerSettingsItems.length > 0 ? 'settings' : 'agent',
-                label: t('settings.title'),
-                disabled: isOffline,
-                value: [
-                    agent.label,
-                    showModel ? currentModel?.name : null,
-                    showEffort ? currentEffort?.name : null,
-                    showPermission ? currentPermission?.name : null,
-                ].filter(Boolean).join(' · '),
-                icon: <Ionicons name="sparkles-outline" size={17} color={theme.colors.textSecondary} />,
-            })}
-            {canPickWorktree && targetRow({
-                key: 'worktree',
-                label: picksWorkspaces ? t('localFeatures.workspace') : t('localFeatures.worktree'),
-                value: worktreeLabel,
-                disabled: isOffline,
-                icon: <MaterialCommunityIcons name="tree" size={17} color={theme.colors.textSecondary} />,
-            })}
+    const targetAreaRef = React.useRef<View>(null);
+    const pickerAnchors = React.useRef<Record<string, View | null>>({});
+
+    // One ordered selection chain on every screen; no secondary creation form.
+    const creationChoices = (
+        <View style={[styles.targetRowGroup, { flexDirection: 'row', flexWrap: 'wrap' }]}>
+            {([
+                { key: 'machine', label: '设备', value: machineName, icon: 'desktop-outline', disabled: false },
+                { key: 'agent', label: 'CLI', value: agent.label, icon: 'terminal-outline', disabled: isOffline },
+                { key: 'model', label: '模型', value: currentModel?.name ?? 'CLI 默认', icon: 'sparkles-outline', disabled: isOffline || modelModes.length < 2 },
+                { key: 'effort', label: '思考强度', value: currentEffort?.name ?? 'CLI 默认', icon: 'speedometer-outline', disabled: isOffline || !showEffort },
+            ] as const).map(choice => <View key={choice.key} ref={node => { pickerAnchors.current[choice.key] = node; }} style={{ flexGrow: 1, flexBasis: windowWidth >= 800 ? '22%' : '45%', minWidth: 0 }}>
+                {targetRow({ ...choice, icon: <Ionicons name={choice.icon} size={17} color={theme.colors.textSecondary} /> })}
+            </View>)}
         </View>
     );
-
-    // One pill per choice, wrapping under the composer, with a single popover
-    // beneath the row — the old right-hand sidebar turned the whole screen
-    // into a form and left the composer looking incidental.
     const webTargetArea = (
         <View style={styles.targetArea}>
-            {!sidebarLayout.showSidebar ? phoneTargetRows : <View style={styles.targetPillRow}>
-                {renderTargetPill({
-                    key: 'machine',
-                    label: machineName,
-                    icon: <Ionicons name="desktop-outline" size={14} color={theme.colors.textSecondary} />,
-                })}
-                {renderTargetPill({
-                    key: 'path',
-                    label: pathName,
-                    disabled: isOffline,
-                    icon: <Ionicons name="folder-outline" size={14} color={theme.colors.textSecondary} />,
-                })}
-                {renderTargetPill({
-                    key: 'agent',
-                    label: agent.label,
-                    disabled: isOffline,
-                    icon: (
-                        <RNImage
-                            source={agentIcons[agent.key]}
-                            style={[styles.targetPillIcon, { tintColor: theme.colors.textSecondary }]}
-                            resizeMode="contain"
-                        />
-                    ),
-                })}
-                {showModel && currentModel && renderTargetPill({
-                    key: 'model',
-                    label: currentModel.name,
-                    disabled: isOffline,
-                    icon: <Ionicons name="sparkles-outline" size={14} color={theme.colors.textSecondary} />,
-                })}
-                {showEffort && currentEffort && renderTargetPill({
-                    key: 'effort',
-                    label: currentEffort.name,
-                    disabled: isOffline,
-                    icon: <Ionicons name="speedometer-outline" size={14} color={theme.colors.textSecondary} />,
-                })}
-                {showPermission && currentPermission && renderTargetPill({
-                    key: 'permission',
-                    label: currentPermission.name,
-                    disabled: isOffline,
-                    icon: <Ionicons name={permissionStyle?.icon ?? 'shield-outline'} size={14} color={theme.colors.textSecondary} />,
-                })}
-                {canPickWorktree && renderTargetPill({
-                    key: 'worktree',
-                    label: worktreeLabel,
-                    disabled: isOffline,
-                    icon: <MaterialCommunityIcons name="tree" size={14} color={theme.colors.textSecondary} />,
-                })}
-            </View>}
+            {creationChoices}
 
             {isOffline && (
                 <View style={styles.offlineHelp}>
@@ -2014,11 +1929,9 @@ function NewSessionScreen() {
                 </View>
             )}
 
-            {activePicker && (
-                <View style={sidebarLayout.showSidebar ? styles.targetPopover : undefined}>
-                    {renderActivePickerPopover(activePicker)}
-                </View>
-            )}
+            {activePicker && <CreationPicker anchor={pickerAnchors.current[activePicker]} area={targetAreaRef} onClose={closePicker}>
+                {renderActivePickerPopover(activePicker)}
+            </CreationPicker>}
         </View>
     );
 
@@ -2297,22 +2210,6 @@ function NewSessionScreen() {
         </>
     );
 
-    // Outside-click close done at the document: a backdrop element here has to
-    // sit above the hero to catch the click, and then it also swallows taps on
-    // the picker it is supposed to be guarding.
-    const targetAreaRef = React.useRef<View>(null);
-    React.useEffect(() => {
-        if (Platform.OS !== 'web' || !activePicker) return;
-        const onPointerDown = (event: Event) => {
-            const target = event.target as Node | null;
-            const area = targetAreaRef.current as unknown as HTMLElement | null;
-            if (!target || area?.contains(target)) return;
-            closePicker();
-        };
-        document.addEventListener('pointerdown', onPointerDown, true);
-        return () => document.removeEventListener('pointerdown', onPointerDown, true);
-    }, [activePicker, closePicker]);
-
     const composerPlaceholder = selectedAgent === 'codex' ? 'Ask Codex' : `Ask ${agent.label}`;
     const sendButtonIconColor = isNativeMobile
         ? theme.colors.text
@@ -2379,7 +2276,7 @@ function NewSessionScreen() {
                 <PromptInput
                     ref={composerInputRef}
                     compact={isNativeMobile}
-                    placeholder={isNativeMobile ? composerPlaceholder : 'What would you like to work on?'}
+                    placeholder={composerPlaceholder}
                     onKeyPress={handleKeyPress}
                 />
             </View>
@@ -2556,7 +2453,7 @@ function NewSessionScreen() {
                             </Text>
                             {composerNode}
                             <View ref={targetAreaRef}>{webTargetArea}</View>
-                            {recentTargetsNode}
+
                         </View>
                     </ScrollView>
                 </View>
@@ -2596,7 +2493,7 @@ function NewSessionScreen() {
                                 }}
                                 style={[styles.inlineConfigWrap, styles.mobileInlineConfigWrap]}
                             >
-                                {configContent}
+                                {creationChoices}
                             </View>
                         </Pressable>
                     </ScrollView>
@@ -2715,6 +2612,7 @@ const styles = StyleSheet.create((theme) => ({
         gap: 8,
     },
     targetRow: {
+        height: 58,
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,

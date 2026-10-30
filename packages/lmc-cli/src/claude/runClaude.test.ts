@@ -294,6 +294,36 @@ describe('runClaude remote JSONL scanner', () => {
         originalListeners.clear();
     });
 
+    it.each(['SIGTERM', 'SIGINT', 'uncaughtException', 'unhandledRejection'] as const)('keeps the session unarchived after %s', async (event) => {
+        const harness = await startRemoteRunClaudeHarness({ metadata: { lifecycleState: 'running' } });
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+        try {
+            // Invoke only this runner's listener, not the test process's own handlers.
+            const listener = (process.listeners(event as any) as Array<(...args: any[]) => void>).at(-1)!;
+            listener(new Error('simulated shutdown'));
+            await vi.waitFor(() => expect(exitSpy).toHaveBeenCalled());
+            expect(harness.sessionClient.getMetadata().lifecycleState).toBe('running');
+            expect(harness.sessionClient.sendSessionDeath).toHaveBeenCalled();
+            expect(harness.api.deactivateSession).toHaveBeenCalledWith('happy-session-1');
+        } finally {
+            exitSpy.mockRestore();
+            await harness.finish();
+        }
+    });
+
+    it('still archives when the user explicitly invokes the archive RPC', async () => {
+        const harness = await startRemoteRunClaudeHarness({ metadata: { lifecycleState: 'running' } });
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+        try {
+            await mockRegisterKillSessionHandler.mock.calls.at(-1)![1]();
+            expect(harness.sessionClient.getMetadata()).toMatchObject({ lifecycleState: 'archived', archiveReason: 'User terminated' });
+            expect(harness.sessionClient.close).toHaveBeenCalled();
+        } finally {
+            exitSpy.mockRestore();
+            await harness.finish();
+        }
+    });
+
     it('does not forward terminal JSONL messages while local mode owns the transcript', async () => {
         const sentMessages: unknown[] = [];
         const sessionClient = {

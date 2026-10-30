@@ -1,9 +1,12 @@
+import { openSessionFiles } from '@/components/lmc/SessionFilesDialog';
+import { SharedSessionComposer } from '@/components/lmc/SharedSessionComposer';
+import { openSessionInfo } from '@/components/lmc/SessionInfoDialog';
 import { useLayoutWindowDimensions } from '@/hooks/useLayoutWindowDimensions';
 import { useQueueReceiptRecovery } from '@/hooks/useQueueReceiptRecovery';
 import { Typography } from '@/constants/Typography';
 import { Text } from '@/components/StyledText';
 import { resolveTurnElapsed } from '@/utils/turnElapsed';
-import { pendingQueuePrompts } from '@/sync/queuedMessageVisibility';
+import { pendingQueuePrompts, visibleTranscriptMessages } from '@/sync/queuedMessageVisibility';
 import { useMachine } from '@/sync/storage';
 import { withModelCatalogs } from '@/sync/modelCatalogMetadata';
 import { EngineAuthBanner } from '@/components/EngineAuthBanner';
@@ -154,7 +157,7 @@ export const SessionView = React.memo((props: { id: string }) => {
     }, [sessionId]);
 
     // Base condition: can we show the diff sidebar at all?
-    const canShowSidebar = fileDiffsSidebarEnabled
+    const canShowSidebar = !session?.shared && fileDiffsSidebarEnabled
         && (isRunningOnMac() || Platform.OS === 'web')
         && windowWidth >= SIDEBAR_MIN_WINDOW_WIDTH
         && (!session || (rigCanBrowseFiles(session.metadata) && rigCanUseShell(session.metadata)))
@@ -391,7 +394,7 @@ export const SessionView = React.memo((props: { id: string }) => {
             return { title: '', folderName: undefined, isConnected: false };
         }
         if (!session) {
-            return { title: t('errors.sessionDeleted'), folderName: undefined, isConnected: false };
+            return { title: t('errors.sessionUnavailable'), folderName: undefined, isConnected: false };
         }
         const isConnected = session.presence === 'online';
         const pathSegments = session.metadata?.path?.split(/[/\\]/).filter(Boolean);
@@ -409,7 +412,7 @@ export const SessionView = React.memo((props: { id: string }) => {
         : session && deviceType === 'phone' && Platform.OS !== 'web'
         ? (
             <Pressable
-                onPress={() => router.push(`/session/${sessionId}/info`)}
+                onPress={() => openSessionInfo(sessionId)}
                 hitSlop={10}
             >
                 <Avatar
@@ -515,9 +518,9 @@ export const SessionView = React.memo((props: { id: string }) => {
                     </View>
                 ) : !session ? (
                     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                        <Ionicons name="trash-outline" size={48} color={theme.colors.textSecondary} />
-                        <Text style={{ color: theme.colors.text, fontSize: 20, marginTop: 16, fontWeight: '600' }}>{t('errors.sessionDeleted')}</Text>
-                        <Text style={{ color: theme.colors.textSecondary, fontSize: 15, marginTop: 8, textAlign: 'center', paddingHorizontal: 32 }}>{t('errors.sessionDeletedDescription')}</Text>
+                        <Ionicons name="lock-closed-outline" size={48} color={theme.colors.textSecondary} />
+                        <Text style={{ color: theme.colors.text, fontSize: 20, marginTop: 16, fontWeight: '600' }}>{t('errors.sessionUnavailable')}</Text>
+                        <Text style={{ color: theme.colors.textSecondary, fontSize: 15, marginTop: 8, textAlign: 'center', paddingHorizontal: 32 }}>{t('errors.sessionUnavailableDescription')}</Text>
                     </View>
                 ) : (
                     <SessionViewLoaded
@@ -553,7 +556,7 @@ export const SessionView = React.memo((props: { id: string }) => {
                 and the same width — so the two sides read as one row rather than
                 two floating boxes. A phone has no gutter, so they stay under the
                 header and span the column there. */}
-            {session && (
+            {session && !session.shared && (
                 <View
                     pointerEvents="box-none"
                     style={{
@@ -661,7 +664,7 @@ export const SessionView = React.memo((props: { id: string }) => {
                                 {(!isTablet || Platform.OS === 'web') && paneActions}
                             </View>
                         }
-                        onTitlePress={session ? () => router.push(`/session/${sessionId}/info`) : undefined}
+                        onTitlePress={session ? () => openSessionInfo(sessionId) : undefined}
                         onBackPress={() => router.back()}
                         onMenuPress={Platform.OS === 'web' && !isTablet ? openSessionDrawer : undefined}
                     />
@@ -987,7 +990,7 @@ export function SessionViewLoaded({
     const availableEffortLevels = React.useMemo<EffortLevel[]>(() => (
         getEffortLevelsForModel(flavor, modelKey, catalogMetadata, t)
     ), [flavor, modelKey, catalogMetadata]);
-    const catalogEffortDefault = getCatalogDefaultEffort(flavor, modelKey, catalogMetadata, effectiveAgentDefaults.effortLevel);
+    const catalogEffortDefault = getCatalogDefaultEffort(flavor, flavor === 'agy' ? session.modelMode ?? modelKey : modelKey, catalogMetadata, effectiveAgentDefaults.effortLevel);
     const effortLevel = React.useMemo<EffortLevel | null>(() => (
         preserveCodexEffortSelection(
             isRig ? 'rig' : flavor,
@@ -1013,7 +1016,7 @@ export function SessionViewLoaded({
 
     const canUseAttachments = isRigMetadataV1(session.metadata)
         ? rigCanUseAttachments(session.metadata)
-        : supportsImageAttachmentsForFlavor(session.metadata?.flavor);
+        : supportsImageAttachmentsForFlavor(session.metadata?.flavor, session.metadata?.sessionCapabilities?.fileInbox === true);
     const canSendFilesResolved = canUseAttachments && session.metadata?.sessionCapabilities?.fileInbox === true;
     React.useEffect(() => {
         if (!canUseAttachments && selectedImages.length > 0) {
@@ -1051,7 +1054,9 @@ export function SessionViewLoaded({
             : true;
         sessionSetAgentModes(sessionId, {
             modelMode: mode.key,
-            ...((isRig || flavor !== 'codex' || nextEffortLevels.length === 0) && !currentEffortSupported ? { effortLevel: mode.defaultThinkingLevel ?? null } : {}),
+            ...(flavor === 'agy'
+                ? { effortLevel: null }
+                : ((isRig || flavor !== 'codex' || nextEffortLevels.length === 0) && !currentEffortSupported ? { effortLevel: mode.defaultThinkingLevel ?? null } : {})),
         });
     }, [sessionId, flavor, isRig, catalogMetadata, session.effortLevel]);
 
@@ -1199,7 +1204,7 @@ export function SessionViewLoaded({
     }, [sessionId]);
 
     const handleFileViewerPress = React.useCallback(() => {
-        router.push(`/session/${sessionId}/files`);
+        openSessionFiles(sessionId);
     }, [router, sessionId]);
 
     const handleAutocompleteSuggestions = React.useCallback((query: string) => (
@@ -1213,9 +1218,13 @@ export function SessionViewLoaded({
         isPulsing: sessionStatus.isPulsing,
     }), [sessionStatus.statusText, sessionStatus.statusColor, sessionStatus.statusDotColor, sessionStatus.isPulsing]);
 
-    const turnElapsed = React.useMemo(() => resolveTurnElapsed(messages, session.turnLifecycle,
+    const transcriptMessages = React.useMemo(
+        () => visibleTranscriptMessages(messages, session.agentState?.queue),
+        [messages, session.agentState?.queue],
+    );
+    const turnElapsed = React.useMemo(() => resolveTurnElapsed(transcriptMessages, session.turnLifecycle,
         session.active && (session.thinking || Object.keys(session.agentState?.requests ?? {}).length > 0)),
-    [messages, session.turnLifecycle, session.active, session.thinking, session.agentState?.requests]);
+    [transcriptMessages, session.turnLifecycle, session.active, session.thinking, session.agentState?.requests]);
 
     const usageData = React.useMemo(() => {
         const source = sessionUsage ?? session.latestUsage;
@@ -1419,7 +1428,9 @@ export function SessionViewLoaded({
         </AnimatedFade>
     ) : null;
 
-    const input = (
+    const input = session.shared ? (
+        <SharedSessionComposer key={session.id} sessionId={session.id} actions={session.accessActions ?? []} connected={sessionStatus.isConnected} />
+    ) : (
         <>
             {inactiveHint}
             {visibleAgentGoal && (

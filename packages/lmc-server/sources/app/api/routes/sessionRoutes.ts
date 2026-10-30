@@ -7,6 +7,7 @@ import { log } from "@/utils/log";
 import { randomKeyNaked } from "@/utils/randomKeyNaked";
 import { allocateUserSeq } from "@/storage/seq";
 import { sessionDelete } from "@/app/session/sessionDelete";
+import { readableSession, sessionResponse, sharedSessionIds, visibleSessionRows } from '@/lmc/access/sessions';
 import { activityCache } from "@/app/presence/sessionCache";
 
 export function sessionRoutes(app: Fastify) {
@@ -17,11 +18,14 @@ export function sessionRoutes(app: Fastify) {
     }, async (request, reply) => {
         const userId = request.userId;
 
+        reply.header('Cache-Control', 'no-store');
+        const sharedIds = await sharedSessionIds(userId, request.authKind);
         const sessions = await db.session.findMany({
-            where: { accountId: userId },
+            where: { OR: [{ accountId: userId }, { id: { in: sharedIds } }] },
             orderBy: { updatedAt: 'desc' },
             take: 150,
             select: {
+                accountId: true,
                 id: true,
                 seq: true,
                 createdAt: true,
@@ -49,7 +53,8 @@ export function sessionRoutes(app: Fastify) {
         });
 
         return reply.send({
-            sessions: sessions.map((v) => {
+            sharedSessionIds: await sharedSessionIds(userId, request.authKind),
+            sessions: (await visibleSessionRows(userId, request.authKind, sessions)).map((v) => {
                 // const lastMessage = v.messages[0];
                 const sessionUpdatedAt = v.updatedAt.getTime();
                 // const lastMessageCreatedAt = lastMessage ? lastMessage.createdAt.getTime() : 0;
@@ -67,6 +72,7 @@ export function sessionRoutes(app: Fastify) {
                     agentStateVersion: v.agentStateVersion,
                     dataEncryptionKey: v.dataEncryptionKey ? Buffer.from(v.dataEncryptionKey).toString('base64') : null,
                     projectId: v.projectId,
+                    shared: v.shared, accessVersion: v.accessVersion, accessActions: v.accessActions,
                     lastMessage: null
                 };
             })
@@ -85,15 +91,18 @@ export function sessionRoutes(app: Fastify) {
         const userId = request.userId;
         const limit = request.query?.limit || 150;
 
+        reply.header('Cache-Control', 'no-store');
+        const sharedIds = await sharedSessionIds(userId, request.authKind);
         const sessions = await db.session.findMany({
             where: {
-                accountId: userId,
+                OR: [{ accountId: userId }, { id: { in: sharedIds } }],
                 active: true,
                 lastActiveAt: { gt: new Date(Date.now() - 1000 * 60 * 15) /* 15 minutes */ }
             },
             orderBy: { lastActiveAt: 'desc' },
             take: limit,
             select: {
+                accountId: true,
                 id: true,
                 seq: true,
                 createdAt: true,
@@ -110,7 +119,8 @@ export function sessionRoutes(app: Fastify) {
         });
 
         return reply.send({
-            sessions: sessions.map((v) => ({
+            sharedSessionIds: await sharedSessionIds(userId, request.authKind),
+            sessions: (await visibleSessionRows(userId, request.authKind, sessions)).map((v) => ({
                 id: v.id,
                 seq: v.seq,
                 createdAt: v.createdAt.getTime(),
@@ -123,6 +133,7 @@ export function sessionRoutes(app: Fastify) {
                 agentStateVersion: v.agentStateVersion,
                 dataEncryptionKey: v.dataEncryptionKey ? Buffer.from(v.dataEncryptionKey).toString('base64') : null,
                 projectId: v.projectId,
+                shared: v.shared, accessVersion: v.accessVersion, accessActions: v.accessActions,
             }))
         });
     });
@@ -152,13 +163,13 @@ export function sessionRoutes(app: Fastify) {
         }
 
         // Build where clause
-        const where: Prisma.SessionWhereInput = { accountId: userId };
+        reply.header('Cache-Control', 'no-store');
+        const sharedIds = await sharedSessionIds(userId, request.authKind);
+        const where: Prisma.SessionWhereInput = { OR: [{ accountId: userId }, { id: { in: sharedIds } }] };
 
         // Add changedSince filter (just a filter, doesn't affect pagination)
         if (changedSince) {
-            where.updatedAt = {
-                gt: new Date(changedSince)
-            };
+            where.AND = [{ OR: [{ updatedAt: { gt: new Date(changedSince) } }, { id: { in: sharedIds } }] }];
         }
 
         // Add cursor pagination - always by ID descending (most recent first)
@@ -176,6 +187,7 @@ export function sessionRoutes(app: Fastify) {
             orderBy,
             take: limit + 1, // Fetch one extra to determine if there are more
             select: {
+                accountId: true,
                 id: true,
                 seq: true,
                 createdAt: true,
@@ -203,7 +215,8 @@ export function sessionRoutes(app: Fastify) {
         }
 
         return reply.send({
-            sessions: resultSessions.map((v) => ({
+            sharedSessionIds: await sharedSessionIds(userId, request.authKind),
+            sessions: (await visibleSessionRows(userId, request.authKind, resultSessions)).map((v) => ({
                 id: v.id,
                 seq: v.seq,
                 createdAt: v.createdAt.getTime(),
@@ -216,10 +229,21 @@ export function sessionRoutes(app: Fastify) {
                 agentStateVersion: v.agentStateVersion,
                 dataEncryptionKey: v.dataEncryptionKey ? Buffer.from(v.dataEncryptionKey).toString('base64') : null,
                 projectId: v.projectId,
+                shared: v.shared, accessVersion: v.accessVersion, accessActions: v.accessActions,
             })),
             nextCursor,
             hasNext
         });
+    });
+
+    app.get('/v1/sessions/:sessionId', {
+        preHandler: app.authenticate,
+        schema: { params: z.object({ sessionId: z.string() }) },
+    }, async (request, reply) => {
+        reply.header('Cache-Control', 'no-store');
+        const session = await readableSession(request.userId, request.params.sessionId, request.authKind);
+        if (!session) return reply.code(404).send({ error: 'Session not found' });
+        return { session: sessionResponse(session) };
     });
 
     // Create or load session by tag
@@ -354,12 +378,8 @@ export function sessionRoutes(app: Fastify) {
         const { sessionId } = request.params;
 
         // Verify session belongs to user
-        const session = await db.session.findFirst({
-            where: {
-                id: sessionId,
-                accountId: userId
-            }
-        });
+        reply.header('Cache-Control', 'no-store');
+        const session = await readableSession(userId, sessionId, request.authKind);
 
         if (!session) {
             return reply.code(404).send({ error: 'Session not found' });
@@ -382,6 +402,7 @@ export function sessionRoutes(app: Fastify) {
             }
         });
 
+        if (session.shared && !(await readableSession(userId, sessionId, request.authKind))) return reply.code(404).send({ error: 'Session not found' });
         return reply.send({
             messages: messages.map((v) => ({
                 id: v.id,
@@ -406,8 +427,6 @@ export function sessionRoutes(app: Fastify) {
         const userId = request.userId;
         const { sessionId } = request.params;
 
-        activityCache.clearSessionUpdates(sessionId);
-
         const result = await db.session.updateMany({
             where: { id: sessionId, accountId: userId },
             data: { active: false, lastActiveAt: new Date() }
@@ -416,6 +435,8 @@ export function sessionRoutes(app: Fastify) {
         if (result.count === 0) {
             return reply.code(404).send({ error: 'Session not found' });
         }
+
+        activityCache.clearSessionUpdates(sessionId);
 
         // Notify all clients about the session deactivation
         const sessionActivity = buildSessionActivityEphemeral(sessionId, false, Date.now(), false);
@@ -440,14 +461,13 @@ export function sessionRoutes(app: Fastify) {
         const userId = request.userId;
         const { sessionId } = request.params;
 
-        activityCache.clearSessionUpdates(sessionId);
-
         const deleted = await sessionDelete({ uid: userId }, sessionId);
 
         if (!deleted) {
             return reply.code(404).send({ error: 'Session not found or not owned by user' });
         }
 
+        activityCache.clearSessionUpdates(sessionId);
         return reply.send({ success: true });
     });
 }

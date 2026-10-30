@@ -53,6 +53,27 @@ describe('codex fork ops', () => {
         );
     });
 
+    it.each(['codex', 'claude'] as const)('reports the encrypted RPC error envelope for %s instead of silently falling through', async (agent) => {
+        machineRPC.mockResolvedValue({ error: 'Session webhook timeout for PID 23800' });
+        const { machineSpawnNewSession } = await import('./ops');
+        expect(await machineSpawnNewSession({ machineId: 'machine-1', directory: '/tmp/project', agent }))
+            .toEqual({ type: 'error', errorMessage: 'Session webhook timeout for PID 23800' });
+    });
+
+    it('preserves a pending response without a delay so the catalog fallback can be used', async () => {
+        machineRPC.mockResolvedValue({ type: 'pending', clientRequestId: 'request-1' });
+        const { machineSpawnNewSession } = await import('./ops');
+        expect(await machineSpawnNewSession({ machineId: 'machine-1', directory: '/tmp/project', agent: 'rig', clientRequestId: 'request-1' }))
+            .toEqual({ type: 'pending', clientRequestId: 'request-1' });
+    });
+
+    it.each([undefined, null, {}, { type: 'success' }, { type: 'pending' }])('reports malformed spawn responses (%j)', async (response) => {
+        machineRPC.mockResolvedValue(response);
+        const { machineSpawnNewSession } = await import('./ops');
+        const result = await machineSpawnNewSession({ machineId: 'machine-1', directory: '/tmp/project', agent: 'codex' });
+        expect(result).toMatchObject({ type: 'error', errorMessage: expect.any(String) });
+    });
+
     it('forks a full Codex thread and spawns a Codex session resumed to the new thread', async () => {
         machineRPC.mockImplementation(async (_machineId: string, method: string) => {
             if (method === 'codex-fork-thread') {

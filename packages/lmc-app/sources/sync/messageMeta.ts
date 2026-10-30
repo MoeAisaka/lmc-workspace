@@ -1,6 +1,9 @@
+import { findCatalogModel } from 'lmc-wire';
 import { withModelCatalogs } from './modelCatalogMetadata';
+import { assertAntigravityProtocol } from './antigravityCompatibility';
+import { normalizePermissionModeForEngine } from 'lmc-wire';
 import type { MachineMetadata } from './storageTypes';
-import { getCatalogDefaultEffort } from '@/components/modelModeOptions';
+import { getCatalogDefaultEffort, resolveAgyCatalogDefaultEffort } from '@/components/modelModeOptions';
 import type { Session } from './storageTypes';
 import type { Settings } from './settings';
 import { getAgentDefaultOverride, resolveAgentDefaultConfig, retirePermissionMode } from './agentDefaults';
@@ -51,6 +54,7 @@ export function resolveMessageModeMeta(
     machine?: MachineMetadata | null,
 ): MessageModeMeta {
     session = { ...session, metadata: withModelCatalogs(session.metadata, machine) ?? session.metadata };
+    assertAntigravityProtocol(session.metadata?.flavor, session.metadata?.version);
     if (isRigMetadataV1(session.metadata)) {
         const meta: MessageModeMeta = {};
         const permissionMode = session.permissionMode
@@ -90,6 +94,7 @@ export function resolveMessageModeMeta(
     // mapped: substituting a mode would silently change permissions.
     const cliVersion = session.metadata?.version;
     const supported = (mode: PermissionModeKey | undefined) => {
+        if (mode !== undefined) mode = normalizePermissionModeForEngine(flavor, mode);
         if (mode !== undefined && !permissionModeSupportedByCli(mode, cliVersion)) {
             throw new UnsupportedPermissionModeError(mode, cliVersion ?? 'unknown');
         }
@@ -135,9 +140,10 @@ export function resolveMessageModeMeta(
     // itself be undefined, which is the right answer: send no model at all and
     // let the running engine resolve its own.
     const pickedModel = session.modelMode ?? agentOverrides.modelMode;
-    const foreignModel = isForeignModelKey(pickedModel, flavor);
+    const nativeAgyModel = flavor === 'agy' && !!findCatalogModel(session.metadata?.modelCatalogs?.agy, pickedModel);
+    const foreignModel = !nativeAgyModel && isForeignModelKey(pickedModel, flavor);
     const modelMode = foreignModel ? agentOverrides.modelMode : pickedModel;
-    if (modelMode !== undefined && !isForeignModelKey(modelMode, flavor)) {
+    if (modelMode !== undefined && (nativeAgyModel || !isForeignModelKey(modelMode, flavor))) {
         meta.model = modelMode === 'default' ? null : modelMode;
     }
 
@@ -148,5 +154,17 @@ export function resolveMessageModeMeta(
     }
 
     assertModelEffort(flavor, meta.model, meta.effort, session.metadata?.modelCatalogs);
+    if (flavor === 'agy') {
+        const model = findCatalogModel(session.metadata?.modelCatalogs?.agy, meta.model);
+        if (model?.effortModels) {
+            const effort = meta.effort ?? resolveAgyCatalogDefaultEffort(model);
+            const nativeModel = effort ? model.effortModels[effort] : undefined;
+            if (!nativeModel) throw new Error('This Antigravity model does not support the selected effort.');
+            meta.model = nativeModel;
+        }
+        // Native variant IDs already encode effort. Existing agy adapters accept
+        // --model, so this also works in sessions created before discovery shipped.
+        meta.effort = null;
+    }
     return meta;
 }

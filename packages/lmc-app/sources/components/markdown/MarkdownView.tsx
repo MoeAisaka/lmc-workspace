@@ -26,6 +26,10 @@ import { inferQuestionOptions } from './inferQuestionOptions';
 import { useMarkdownImage } from '@/hooks/useMarkdownImage';
 import { openImagePreview } from '../ImagePreviewModal';
 import { parseMarkdownImageSource } from '@/utils/markdownImage';
+import { canCopyImage, copyTable, copyTableImage, renderTableImage, saveTableImage } from './tableCopy';
+import { showToast } from '../lmc/Toast';
+import { currentSavedFileId } from '@/utils/lmc/savedFileLink';
+import { openSavedFile } from '@/components/SavedFileDialog';
 
 // Option type for callback
 export type Option = {
@@ -36,6 +40,8 @@ export type Option = {
 
 export const MarkdownView = React.memo((props: { 
     markdown: string;
+    /** Static whole-reply export: expand disclosures and omit live embedded apps. */
+    imageExport?: boolean;
     onOptionPress?: (option: Option) => void;
     /** Recover brief answer lists in assistant prose, never in documents/tool output. */
     inferOptions?: boolean;
@@ -63,6 +69,8 @@ export const MarkdownView = React.memo((props: {
     const router = useRouter();
 
     const handleLinkPress = React.useCallback((url: string) => {
+        const savedId = currentSavedFileId(url);
+        if (savedId) { openSavedFile(savedId); return; }
         if (isHttpMarkdownLink(url)) {
             void openExternalUrl(url);
             return;
@@ -103,7 +111,7 @@ export const MarkdownView = React.memo((props: {
                         return <View {...{ dataSet: { lmcBlock: 'rule' } }} style={style.horizontalRule} key={index} />;
                     } else if (block.type === 'quote') {
                         return <View {...{ dataSet: { lmcBlock: 'quote' } }} style={style.quote} key={index}>
-                            <MarkdownView markdown={block.content} sessionId={props.sessionId} presentation={props.presentation} externalCopyHandler={props.externalCopyHandler || markdownCopyV2} />
+                            <MarkdownView imageExport={props.imageExport} markdown={block.content} sessionId={props.sessionId} presentation={props.presentation} externalCopyHandler={props.externalCopyHandler || markdownCopyV2} />
                         </View>;
                     } else if (block.type === 'list') {
                         return <RenderListBlock items={block.items} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} onLinkPress={handleLinkPress} />;
@@ -114,7 +122,7 @@ export const MarkdownView = React.memo((props: {
                     } else if (block.type === 'mermaid') {
                         return <MermaidRenderer content={block.content} key={index} />;
                     } else if (block.type === 'interactive') {
-                        return <InteractiveBlock block={block} sessionId={props.sessionId} key={index} />;
+                        return props.imageExport ? <Text key={index} style={style.text}>[互动内容请在原消息中查看]</Text> : <InteractiveBlock block={block} sessionId={props.sessionId} key={index} />;
                     } else if (block.type === 'options' || block.type === 'followups') {
                         return <RenderOptionsBlock items={block.items} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} onOptionPress={props.onOptionPress} />;
                     } else if (block.type === 'table') {
@@ -122,8 +130,8 @@ export const MarkdownView = React.memo((props: {
                     } else if (block.type === 'image') {
                         return <RenderImageBlock url={block.url} alt={block.alt} sessionId={props.sessionId} key={index} first={index === 0} last={index === blocks.length - 1} />;
                     } else if (block.type === 'details') {
-                        return <RenderDetailsBlock block={block} key={index}>
-                            <MarkdownView markdown={block.content} sessionId={props.sessionId} presentation={props.presentation} inferOptions={props.inferOptions} onOptionPress={props.onOptionPress} externalCopyHandler={props.externalCopyHandler || markdownCopyV2} />
+                        return <RenderDetailsBlock block={block} forceExpanded={props.imageExport} key={index}>
+                            <MarkdownView imageExport={props.imageExport} markdown={block.content} sessionId={props.sessionId} presentation={props.presentation} inferOptions={props.inferOptions} onOptionPress={props.onOptionPress} externalCopyHandler={props.externalCopyHandler || markdownCopyV2} />
                         </RenderDetailsBlock>;
                     } else {
                         return null;
@@ -166,12 +174,14 @@ type RenderSpanProps = {
     onLinkPress: (url: string) => void;
 };
 
-function RenderDetailsBlock({ block, children }: {
+function RenderDetailsBlock({ block, children, forceExpanded }: {
+    forceExpanded?: boolean;
     block: Extract<MarkdownBlock, { type: 'details' }>;
     children: React.ReactNode;
 }) {
     // Preserve the user's choice when streamed content updates this block.
-    const [expanded, setExpanded] = React.useState(block.open);
+    const [userExpanded, setExpanded] = React.useState(block.open);
+    const expanded = forceExpanded || userExpanded;
     const { theme } = useUnistyles();
     const label = block.summary.map(span => span.text).join('') || t('profile.details');
     return (
@@ -268,6 +278,7 @@ function RenderCodeBlock(props: { content: string, language: string | null, firs
                 />
             </HorizontalScrollView>
             <View
+                {...{ dataSet: { imageExportIgnore: 'true' } }}
                 style={[style.copyButtonWrapper, isHovered && style.copyButtonWrapperVisible]}
                 {...(Platform.OS === 'web' ? ({ className: 'copy-button-wrapper' } as any) : {})}
             >
@@ -285,6 +296,7 @@ function RenderCodeBlock(props: { content: string, language: string | null, firs
 function RenderImageBlock(props: { url: string, alt: string, sessionId?: string, first: boolean, last: boolean }) {
     const accessibleLabel = props.alt || 'Markdown image';
     const image = useMarkdownImage(props.url, props.sessionId);
+    const savedId = React.useMemo(() => currentSavedFileId(props.url), [props.url]);
 
     return (
         <View style={[style.imageBlock, props.first && style.first, props.last && style.last]}>
@@ -301,7 +313,11 @@ function RenderImageBlock(props: { url: string, alt: string, sessionId?: string,
                 {image.status === 'failed' && <Pressable accessibilityRole="button" onPress={image.retry} style={{ padding: 12 }}>
                     <Text style={style.imageCaption}>{t('common.retry')}</Text>
                 </Pressable>}
-                {image.status === 'unsupported' && <Text style={[style.imageCaption, { padding: 16 }]}>{t('lmc.resources.unsupported')}</Text>}
+                {image.status === 'unsupported' && (savedId
+                    ? <Pressable accessibilityRole="button" onPress={() => openSavedFile(savedId)} style={{ padding: 16 }}>
+                        <Text style={[style.imageCaption, style.link]}>此文件不是图片，点击查看已保存文件</Text>
+                    </Pressable>
+                    : <Text style={[style.imageCaption, { padding: 16 }]}>{t('lmc.resources.unsupported')}</Text>)}
             </View>
             {props.alt ? (
                 <Text style={style.imageCaption}>{props.alt}</Text>
@@ -357,8 +373,9 @@ function RenderSpans(props: RenderSpanProps) {
         {props.spans.map((span, index) => {
             if (span.url) {
                 // A file path is as pressable as a URL; only where it opens differs.
+                const imageSource = parseMarkdownImageSource(span.url);
                 const followable = isHttpMarkdownLink(span.url) || parseFileReference(span.url) !== null
-                    || parseMarkdownImageSource(span.url)?.kind === 'file';
+                    || imageSource?.kind === 'file' || imageSource?.kind === 'saved-file';
                 return (
                     <Text
                         key={index}
@@ -442,8 +459,11 @@ function RenderTableBlock(props: {
         return widths.map(len => Math.min(TABLE_MAX_COL_WIDTH, Math.max(TABLE_MIN_COL_WIDTH, len * TABLE_CHAR_WIDTH + TABLE_CELL_H_PADDING)));
     }, [props.headers, props.rows, columnCount]);
 
+    const actions = useTableActions(props.headers, props.rows);
+
     return (
-        <View style={[style.tableContainer, props.first && style.first, props.last && style.last]}>
+        <View ref={actions.ref} style={[style.tableWrap, props.first && style.first, props.last && style.last]} {...actions.wrapProps}>
+        <View style={style.tableContainer}>
             {/* flexGrow:0 stops iOS from stretching the horizontal ScrollView
                 vertically to fill the parent — the cause of the table's frame
                 extending down past the last row into empty space. */}
@@ -483,7 +503,111 @@ function RenderTableBlock(props: {
                 </View>
             </HorizontalScrollView>
         </View>
+        {actions.shown && (
+            <View style={[style.tableActions, actions.touch && style.tableActionsTouch]}>
+                {actions.items.map((item, index) => (
+                    <React.Fragment key={item.key}>
+                        {index > 0 && <View style={style.tableActionDivider} />}
+                        <Pressable accessibilityRole="button" onPress={item.run} style={[style.tableAction, actions.touch && style.tableActionTouch, item.state === 'done' && style.tableActionDone]}>
+                            <Text selectable={false} style={[style.tableActionText, actions.touch && style.tableActionTextTouch, item.state === 'done' && style.tableActionTextDone, item.state === 'failed' && style.tableActionTextFailed]}>{item.label}</Text>
+                        </Pressable>
+                    </React.Fragment>
+                ))}
+            </View>
+        )}
+        </View>
     );
+}
+
+type TableActionKey = 'table' | 'image';
+
+/**
+ * The two ways out for a table: as a table, and as a picture. Web only — the
+ * clipboard and the canvas are the browser's.
+ *
+ * A mouse shows the buttons by pointing at the table. A finger has no hover,
+ * so one tap on the table shows them and a tap anywhere else puts them away;
+ * dragging the table sideways is a scroll, which browsers do not report as a
+ * click, so it does neither.
+ */
+function useTableActions(headers: MarkdownSpan[][], rows: MarkdownSpan[][][]) {
+    const web = Platform.OS === 'web' && typeof document !== 'undefined';
+    const touch = React.useMemo(() => web && !!window.matchMedia?.('(hover: none)').matches, [web]);
+    const imageToClipboard = React.useMemo(() => web && canCopyImage(), [web]);
+    const ref = React.useRef<View>(null);
+    const [shown, setShown] = React.useState(false);
+    const [result, setResult] = React.useState<{ key: TableActionKey; state: 'done' | 'failed' } | null>(null);
+    const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    React.useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+
+    React.useEffect(() => {
+        if (!shown || !touch) return;
+        const close = (event: Event) => {
+            const node = ref.current as unknown as HTMLElement | null;
+            if (node && !node.contains(event.target as Node)) setShown(false);
+        };
+        document.addEventListener('pointerdown', close, true);
+        return () => document.removeEventListener('pointerdown', close, true);
+    }, [shown, touch]);
+
+    const report = React.useCallback((key: TableActionKey, ok: boolean, message: string) => {
+        if (touch) {
+            // The buttons go away with the tap, so the outcome has to be said somewhere else.
+            showToast(ok ? message : t('markdown.copyFailed'), ok ? 'info' : 'error');
+            setShown(false);
+            return;
+        }
+        setResult({ key, state: ok ? 'done' : 'failed' });
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => setResult(null), 1500);
+    }, [touch]);
+
+    const image = React.useCallback(() => {
+        const node = ref.current as unknown as HTMLElement;
+        // The font names in the stylesheet are variables; the canvas needs what they resolve to.
+        const resolve = (family: string) => {
+            const probe = document.createElement('span');
+            probe.style.fontFamily = family;
+            node.appendChild(probe);
+            const resolved = getComputedStyle(probe).fontFamily;
+            probe.remove();
+            return resolved || 'sans-serif';
+        };
+        const family = (variant?: 'italic' | 'semiBold') => resolve(Typography.default(variant).fontFamily as string);
+        return renderTableImage(headers, rows, { regular: family(), semiBold: family('semiBold'), italic: family('italic'), mono: resolve(Typography.mono().fontFamily as string) });
+    }, [headers, rows]);
+
+    const items = [
+        {
+            key: 'table' as const,
+            label: t('markdown.copyTable'),
+            run: () => { copyTable(headers, rows).then(() => report('table', true, t('markdown.tableCopied')), () => report('table', false, '')); },
+        },
+        imageToClipboard ? {
+            key: 'image' as const,
+            label: t('markdown.copyTableImage'),
+            run: () => { copyTableImage(image()).then(() => report('image', true, t('markdown.tableImageCopied')), () => report('image', false, '')); },
+        } : {
+            key: 'image' as const,
+            label: t('markdown.saveTableImage'),
+            // The share sheet or the download is its own confirmation.
+            run: () => { saveTableImage(image()).then(() => { if (touch) setShown(false); }, () => report('image', false, '')); },
+        },
+    ].map((item) => {
+        const state = result?.key === item.key ? result.state : null;
+        return { ...item, state, label: state === 'done' ? t('markdown.copiedMark') : state === 'failed' ? t('markdown.copyFailed') : item.label };
+    });
+
+    const wrapProps = !web ? {} : touch
+        ? { onClick: (event: { target: unknown }) => {
+            // A tap on one of the buttons is that button's, not a request to hide them.
+            const node = ref.current as unknown as HTMLElement | null;
+            const table = node?.firstElementChild;
+            if (table && table.contains(event.target as Node)) setShown((value) => !value);
+        } }
+        : { onMouseEnter: () => setShown(true), onMouseLeave: () => setShown(false) };
+
+    return { ref, shown: web && shown, touch, items, wrapProps: wrapProps as object };
 }
 
 
@@ -787,14 +911,74 @@ const style = StyleSheet.create((theme) => ({
     // Table
     //
 
-    tableContainer: {
+    tableWrap: {
         marginVertical: 8,
+        maxWidth: '100%',
+        alignSelf: 'flex-start',
+    },
+    // Sits astride the table's top edge: above the header text, clear of the
+    // paragraph before it.
+    tableActions: {
+        position: 'absolute',
+        right: 8,
+        bottom: '100%',
+        marginBottom: -6,
+        zIndex: 10,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 2,
+        padding: 2,
+        borderRadius: 6,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+        backgroundColor: theme.colors.surface,
+        boxShadow: '0 2px 6px rgba(0, 0, 0, 0.08)',
+    },
+    tableActionsTouch: {
+        padding: 3,
+        borderRadius: 8,
+    },
+    tableAction: {
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 4,
+        cursor: 'pointer',
+    },
+    tableActionTouch: {
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 5,
+    },
+    tableActionDone: {
+        backgroundColor: theme.colors.surfaceHighest,
+    },
+    tableActionDivider: {
+        width: 1,
+        height: 14,
+        backgroundColor: theme.colors.divider,
+    },
+    tableActionText: {
+        ...Typography.default('semiBold'),
+        color: theme.colors.text,
+        fontSize: 12,
+        lineHeight: 18,
+    },
+    tableActionTextTouch: {
+        fontSize: 13,
+        lineHeight: 20,
+    },
+    tableActionTextDone: {
+        color: theme.colors.success,
+    },
+    tableActionTextFailed: {
+        color: theme.colors.textDestructive,
+    },
+    tableContainer: {
         borderWidth: 1,
         borderColor: theme.colors.divider,
         borderRadius: 8,
         overflow: 'hidden',
         maxWidth: '100%',
-        alignSelf: 'flex-start',
     },
     tableRow: {
         flexDirection: 'row',

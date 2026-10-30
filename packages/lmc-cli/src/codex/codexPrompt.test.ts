@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { CHANGE_TITLE_INSTRUCTION } from '@/gemini/constants';
+import { FILE_DELIVERY_INSTRUCTIONS } from '@/modules/common/fileDelivery';
 import {
     buildCodexTurnPrompt,
     hashCodexEnhancedMode,
@@ -22,6 +23,7 @@ describe('buildCodexTurnPrompt', () => {
 
         expect(prompt).toBe(
             `${wrapped(APPEND)}\n\n` +
+            `${wrapped(FILE_DELIVERY_INSTRUCTIONS)}\n\n` +
             'pick an option\n\n' +
             wrapped(CHANGE_TITLE_INSTRUCTION),
         );
@@ -35,7 +37,7 @@ describe('buildCodexTurnPrompt', () => {
             includeTitleInstruction: true,
         });
 
-        expect(prompt).toBe(`hello\n\n${wrapped(CHANGE_TITLE_INSTRUCTION)}`);
+        expect(prompt).toBe(`${wrapped(FILE_DELIVERY_INSTRUCTIONS)}\n\nhello\n\n${wrapped(CHANGE_TITLE_INSTRUCTION)}`);
     });
 
     it('does not inject Happy preamble on normal follow-up turns', () => {
@@ -49,6 +51,12 @@ describe('buildCodexTurnPrompt', () => {
         expect(prompt).toBe('continue');
     });
 
+    it('adds delivery instructions to a resumed thread without depending on browser options or a title change', () => {
+        const prompt = buildCodexTurnPrompt({ message: 'deliver the report', mode: {}, includeAppendSystemPrompt: false, includeTitleInstruction: false, includeFileDeliveryInstructions: true });
+        expect(prompt).toBe(`${wrapped(FILE_DELIVERY_INSTRUCTIONS)}\n\ndeliver the report`);
+        expect(stripLmcSystemBlocks(prompt)).toBe('deliver the report');
+    });
+
     it('can re-inject Happy append prompt without title instruction after a thread reset', () => {
         const prompt = buildCodexTurnPrompt({
             message: 'start fresh',
@@ -57,7 +65,7 @@ describe('buildCodexTurnPrompt', () => {
             includeTitleInstruction: false,
         });
 
-        expect(prompt).toBe(`${wrapped(APPEND)}\n\nstart fresh`);
+        expect(prompt).toBe(`${wrapped(APPEND)}\n\n${wrapped(FILE_DELIVERY_INSTRUCTIONS)}\n\nstart fresh`);
     });
 });
 

@@ -1,3 +1,4 @@
+import { isSessionStartRpc, SESSION_START_ACK_TIMEOUT_MS } from 'lmc-wire';
 import { io, Socket } from 'socket.io-client';
 import { AppState, Platform } from 'react-native';
 import Constants from 'expo-constants';
@@ -49,8 +50,8 @@ export interface SyncSocketState {
 
 export type SyncSocketListener = (state: SyncSocketState) => void;
 
-// Comfortably past the server's worst honest case: a 15s wait for a
-// reconnecting daemon to rejoin the room, then a 30s call.
+// Ordinary calls allow reconnect plus a 30s operation. Session creation uses
+// its own longer, shared budget below so cold startup is not reported as failure.
 const RPC_ACK_TIMEOUT_MS = 50_000;
 
 //
@@ -154,9 +155,8 @@ class ApiSocket {
      * The server answers every rpc-call it hears, but an emit made while the
      * socket is down is buffered by socket.io and its ack never arrives, so a
      * bare emitWithAck waits for the rest of the app's life. The server's own
-     * budget is a 15s grace window for a reconnecting daemon plus a 30s call,
-     * so past that the call is not slow — it is gone, and the caller deserves
-     * to hear so.
+     * budget includes reconnect plus execution. Session creation has a larger
+     * bounded budget than ordinary RPCs because engine startup may be slow.
      */
     private async rpcCall(method: string, params: unknown): Promise<any> {
         // disconnect() nulls the socket, so this is a state a caller can really
@@ -167,7 +167,7 @@ class ApiSocket {
             throw new Error('Not connected to the server');
         }
         return await socket
-            .timeout(RPC_ACK_TIMEOUT_MS)
+            .timeout(isSessionStartRpc(method) ? SESSION_START_ACK_TIMEOUT_MS : RPC_ACK_TIMEOUT_MS)
             .emitWithAck('rpc-call', { method, params })
             .catch(() => {
                 throw new Error('The computer did not respond');
@@ -178,9 +178,22 @@ class ApiSocket {
      * RPC call for sessions - uses session-specific encryption
      */
     async sessionRPC<R, A>(sessionId: string, method: string, params: A): Promise<R> {
+        const sharedSession = storage.getState().sessions[sessionId];
         const sessionEncryption = this.encryption!.getSessionEncryption(sessionId);
         if (!sessionEncryption) {
             throw new Error(`Session encryption not found for ${sessionId}`);
+        }
+
+        if (sharedSession?.shared) {
+            const action = method === 'abort' ? 'stop' : ['permission', 'communication'].includes(method) ? 'approve' : null;
+            if (!action || !sharedSession.accessActions?.includes(action)) throw new Error('此共享操作未获授权');
+            const response = await this.request(`/v1/lmc/sessions/${encodeURIComponent(sessionId)}/action`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(40000),
+                body: JSON.stringify({ method, params: await sessionEncryption.encryptRaw(params) }),
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || '共享操作未完成');
+            return await sessionEncryption.decryptRaw(data.result) as R;
         }
 
         const result = await this.rpcCall(
@@ -227,11 +240,13 @@ class ApiSocket {
         return true;
     }
 
-    async emitWithAck<T = any>(event: string, data: any): Promise<T> {
+    async emitWithAck<T = any>(event: string, data: any, timeoutMs?: number): Promise<T> {
         if (!this.socket) {
             throw new Error('Socket not connected');
         }
-        return await this.socket.emitWithAck(event, data);
+        return timeoutMs === undefined
+            ? await this.socket.emitWithAck(event, data)
+            : await this.socket.timeout(timeoutMs).emitWithAck(event, data);
     }
 
     //

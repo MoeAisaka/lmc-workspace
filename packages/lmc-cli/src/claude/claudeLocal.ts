@@ -1,3 +1,4 @@
+import { sanitizeSessionEnvironment } from '@/daemon/sessionEnvironment';
 import { spawn as crossSpawn } from "cross-spawn";
 import { resolve, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -257,10 +258,10 @@ export async function claudeLocal(opts: {
             // Prepare environment variables
             // Note: Local mode uses global Claude installation with --session-id flag
             // Launcher only intercepts fetch for thinking state tracking
-            const env = {
+            const env = sanitizeSessionEnvironment({
                 ...process.env,
                 ...opts.claudeEnvVars
-            }
+            })
 
             if (opts.mcpServers && Object.keys(opts.mcpServers).length > 0) {
                 ensureLocalProxyBypass(env);

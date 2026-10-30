@@ -25,6 +25,8 @@ export type AutoUpgradeDeps = {
     start(engine: Engine): Promise<unknown>;
     /** Where the versions already tried are remembered, across daemon restarts. */
     stateFile: string;
+    /** A lookup or an upgrade that did not go through; without it a broken registry path stays invisible. */
+    failed?(engine: Engine, stage: 'lookup' | 'start', error: unknown): void;
 };
 type Attempts = Partial<Record<Engine, string>>;
 
@@ -63,10 +65,10 @@ export async function checkEngineUpgrades(deps: AutoUpgradeDeps): Promise<Engine
         const current = selection[engine];
         if (!current) continue;
         let latest: string;
-        try { latest = await deps.latest(engine); } catch { continue; }
+        try { latest = await deps.latest(engine); } catch (error) { deps.failed?.(engine, 'lookup', error); continue; }
         if (!isNewerVersion(latest, current.version) || attempts[engine] === latest) continue;
         await writeAttempts(deps.stateFile, { ...attempts, [engine]: latest });
-        try { await deps.start(engine); } catch { continue; }
+        try { await deps.start(engine); } catch (error) { deps.failed?.(engine, 'start', error); continue; }
         return engine;
     }
     return null;

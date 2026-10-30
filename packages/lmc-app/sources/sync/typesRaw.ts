@@ -42,14 +42,14 @@ const agentEventSchema = z.discriminatedUnion('type', [z.object({
     type: z.literal('engine-handoff'),
     from: z.string(),
     /** The engine key, for deciding how to render what came before this point. */
-    fromFlavor: z.enum(['claude', 'codex']).optional(),
+    fromFlavor: z.enum(['claude', 'codex', 'agy']).optional(),
     source: z.enum(['engine', 'compiled']),
     briefing: z.string(),
 }), z.object({
     // A queued switch was called off before the relaunch. The switch card
     // reads it; nothing is drawn for it on its own.
     type: z.literal('engine-switch-cancelled'),
-    target: z.enum(['claude', 'codex']),
+    target: z.enum(['claude', 'codex', 'agy']),
 })]);
 export type AgentEvent = z.infer<typeof agentEventSchema>;
 
@@ -83,6 +83,8 @@ const sessionFileEventSchema = z.object({
     ref: z.string(),
     name: z.string(),
     size: z.number(),
+    mimeType: z.string().optional(),
+    assetId: z.string().uuid().optional(),
     parts: z.array(z.string()).optional(),
     image: z.object({
         width: z.number(),
@@ -765,6 +767,8 @@ function normalizeSessionEnvelopeContent(
                         ref: envelope.ev.ref,
                         name: envelope.ev.name,
                         size: envelope.ev.size,
+                        mimeType: envelope.ev.mimeType,
+                        assetId: envelope.ev.assetId,
                         ...maybeImageMetadata
                     },
                     description: envelope.ev.image

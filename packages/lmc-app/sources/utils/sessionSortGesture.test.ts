@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { holdReleaseIntent, touchSortIntent } from './sessionSortGesture';
+import { holdReleaseIntent, MOUSE_SORT_SLOP_PX, sortSlopForPointer, TOUCH_SORT_SLOP_PX, touchSortIntent } from './sessionSortGesture';
 
 describe('touch sort intent', () => {
     it('keeps early movement as scrolling even after the hold deadline', () => {
@@ -12,6 +12,14 @@ describe('touch sort intent', () => {
     it('opens the menu only for a stationary armed release', () => {
         expect(touchSortIntent(true, 3, true)).toBe('menu');
         expect(touchSortIntent(false, 3, true)).toBe('tap');
+    });
+    it('gives touch/pen wider jitter tolerance so finger roll does not cancel long-press menu', () => {
+        expect(sortSlopForPointer('mouse')).toBe(MOUSE_SORT_SLOP_PX);
+        expect(sortSlopForPointer('touch')).toBe(TOUCH_SORT_SLOP_PX);
+        expect(sortSlopForPointer('pen')).toBe(TOUCH_SORT_SLOP_PX);
+        expect(touchSortIntent(true, 10, false, sortSlopForPointer('touch'))).toBe('hold');
+        expect(touchSortIntent(true, 10, true, sortSlopForPointer('touch'))).toBe('menu');
+        expect(touchSortIntent(true, 14, false, sortSlopForPointer('touch'))).toBe('drag');
     });
 });
 

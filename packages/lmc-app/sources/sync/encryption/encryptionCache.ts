@@ -5,6 +5,7 @@ interface CacheEntry<T> {
     data: T;
     accessTime: number;
     estimatedBytes?: number;
+    sessionId?: string;
 }
 
 type EncryptionCacheOptions = {
@@ -121,7 +122,7 @@ export class EncryptionCache {
     /**
      * Cache decrypted message
      */
-    setCachedMessage(messageId: string, data: DecryptedMessage): void {
+    setCachedMessage(messageId: string, data: DecryptedMessage, sessionId?: string): void {
         const estimatedBytes = estimateValueBytes(data);
         const existing = this.messageCache.get(messageId);
         if (existing) {
@@ -137,6 +138,7 @@ export class EncryptionCache {
             data,
             accessTime: ++this.accessCounter,
             estimatedBytes,
+            sessionId,
         });
         this.messageCacheBytes += estimatedBytes;
 
@@ -245,7 +247,12 @@ export class EncryptionCache {
             }
         }
         
-        // Note: We don't clear messages as they're immutable and session-agnostic
+        for (const [id, entry] of this.messageCache) {
+            if (entry.sessionId === sessionId) {
+                this.messageCacheBytes -= entry.estimatedBytes ?? 0;
+                this.messageCache.delete(id);
+            }
+        }
     }
 
     /**

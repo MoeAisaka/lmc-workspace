@@ -1,3 +1,4 @@
+import { openMachineDetails } from '@/components/lmc/MachineDialog';
 import { conversationRowPadding } from '@/constants/PersonalizationStyles';
 import { usePersonalizationMotion } from '@/hooks/usePersonalizationMotion';
 import { motionDuration } from '@/sync/personalization';
@@ -19,6 +20,7 @@ import { SortableSessionRows } from '@/components/SortableSessionRows';
 import { SortableHubGroups } from './SortableHubGroups';
 import { buildDeviceEngineGroups, collectArchivedSessions, engineKeyForSession, flattenDeviceSessions, machineDisplayName, type LmcDeviceGroup, type LmcEngineGroup } from '@/utils/lmc/deviceEngineGroups';
 import { splitHubGroups, type LmcHubGroup } from '@/utils/lmc/hubGroups';
+import { listArchiveRule } from '@/sync/sessionArchive';
 import { bindWorker, unbindWorker } from '@/sync/orchestration';
 import { sessionUpdateMetadata } from '@/sync/ops';
 import { applyDutyPrefix, parseDutyPrefix } from './collaborationDuty';
@@ -269,7 +271,7 @@ type RowMeta = {
     /** Device name, drawn with a laptop mark; omitted when the row sits under its device already. */
     device?: string | null;
     /** The engine mark, from ProviderIcon. */
-    engine?: 'claude' | 'codex' | null;
+    engine?: 'claude' | 'codex' | 'agy' | null;
     /** Anything else worth a word on the second line: a model name, a task count. */
     extras?: string[];
     /** A collapsible list under the row, with its open state; a chevron alone when there is no label. */
@@ -287,7 +289,7 @@ const SessionRow = React.memo(({ session, selected, now, onNavigate, engineBadge
     const { theme } = useUnistyles();
     const colors = lmcColors(theme);
     const navigate = useNavigateToSession();
-    const { anchor, closeMenu, menuProps } = useSessionRowMenu(session.id);
+    const { anchor, closeMenu, contextHitOverlay, menuProps, outerMenuProps } = useSessionRowMenu(session.id);
     const line = describeLmcSessionStatus(session, now);
     const unread = useSessionUnread(session.id);
     // The one status mark the whole list uses: working / done-unread / attention.
@@ -301,9 +303,16 @@ const SessionRow = React.memo(({ session, selected, now, onNavigate, engineBadge
     // The status mark is the row's only trailing element now, so it stays put
     // instead of stepping aside for a hover button.
     const showRing = tone === 'working' || tone === 'attention' || tone === 'done';
-    const hoverProps = Platform.OS === 'web' ? ({ onMouseEnter: () => setHovered(true), onMouseLeave: () => setHovered(false) } as any) : {};
+    const hoverProps = Platform.OS === 'web'
+        ? ({
+            onMouseEnter: () => setHovered(true),
+            onMouseLeave: () => setHovered(false),
+            ...outerMenuProps,
+        } as any)
+        : {};
     const title = getSessionName(session);
     const secondLine = meta && (meta.device || meta.engine || (meta.extras && meta.extras.length) || meta.toggle);
+    const hasNestedToggle = Platform.OS === 'web' && !!meta?.toggle;
     return (
         <View {...hoverProps} style={{ width: '100%', minWidth: 0 }}>
             <Pressable
@@ -313,18 +322,21 @@ const SessionRow = React.memo(({ session, selected, now, onNavigate, engineBadge
                 style={({ pressed }) => [styles.row, { marginLeft: indent }, background ? { backgroundColor: background } : hovered ? styles.rowPressed : null, pressed && !background && styles.rowPressed, SESSION_ROW_MENU_STYLE]}
                 {...menuProps}
             >
-                <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
-                    <View style={styles.rowLine}>
+                {contextHitOverlay}
+                <View pointerEvents={hasNestedToggle ? 'box-none' : undefined} style={[{ flex: 1, minWidth: 0, gap: 3 }, hasNestedToggle ? ({ zIndex: 2 } as any) : null]}>
+                    <View pointerEvents={hasNestedToggle ? 'none' : undefined} style={styles.rowLine}>
                         {engineBadge && !meta && <EngineBadge session={session} />}
                         <Text numberOfLines={1} style={[styles.title, { flexShrink: 1 }, bracketTrim(title), tone === 'attention' && styles.titleStrong, tone === 'offline' && { color: colors.placeholder }]}>{title}</Text>
                         <View style={{ flex: 1 }} />
                         {!!suffix && !meta && <Text numberOfLines={1} style={[styles.suffix, { color: colors.tertiary }]}>{suffix}</Text>}
                     </View>
                     {secondLine && (
-                        <View style={styles.rowLine}>
-                            {!!meta!.device && <><Ionicons name="laptop-outline" size={12} color={colors.tertiary} /><Text numberOfLines={1} style={[styles.metaText, { color: colors.tertiary, maxWidth: 96 }]}>{meta!.device}</Text></>}
-                            {!!meta!.engine && <ProviderIcon kind={meta!.engine} size={12} />}
-                            {(meta!.extras ?? []).map((extra, index) => <Text key={index} numberOfLines={1} style={[styles.metaText, { color: colors.tertiary, flexShrink: 1 }]}>{extra}</Text>)}
+                        <View pointerEvents={hasNestedToggle ? 'box-none' : undefined} style={styles.rowLine}>
+                            <View pointerEvents={hasNestedToggle ? 'none' : undefined} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1, minWidth: 0 }}>
+                                {!!meta!.device && <><Ionicons name="laptop-outline" size={12} color={colors.tertiary} /><Text numberOfLines={1} style={[styles.metaText, { color: colors.tertiary, maxWidth: 96 }]}>{meta!.device}</Text></>}
+                                {!!meta!.engine && <ProviderIcon kind={meta!.engine} size={12} />}
+                                {(meta!.extras ?? []).map((extra, index) => <Text key={index} numberOfLines={1} style={[styles.metaText, { color: colors.tertiary, flexShrink: 1 }]}>{extra}</Text>)}
+                            </View>
                             {meta!.toggle && (
                                 <Pressable accessibilityRole="button" accessibilityState={{ expanded: meta!.toggle.open }} onPress={(e) => { e.stopPropagation?.(); meta!.toggle!.onToggle(); }} hitSlop={6} style={({ pressed }) => [styles.toggle, pressed && { opacity: 0.6 }]}>
                                     {!!meta!.toggle.label && <Text style={[styles.metaText, { color: colors.tertiary }]}>{meta!.toggle.label}</Text>}
@@ -348,6 +360,7 @@ const SessionRow = React.memo(({ session, selected, now, onNavigate, engineBadge
 const ENGINE_ICONS: Record<string, number> = {
     claude: require('@/assets/images/icon-claude.png'),
     codex: require('@/assets/images/icon-gpt.png'),
+    agy: require('@/assets/images/icon-agy.png'),
 };
 
 /** The engine, when there is no engine header above the row to say it. */
@@ -420,18 +433,18 @@ const DeviceSection = React.memo(({ group, selectedSessionId, now, onNavigate, o
         : { height: bodyHeight ? progress.value * bodyHeight : undefined, opacity: progress.value }));
     const chevronStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${-90 + progress.value * 90}deg` }] }));
 
-    const meta = [group.agentVersion ? `Agent ${group.agentVersion}` : null, group.online ? null : t('lmc.list.offline')].filter(Boolean).join(' · ');
+    const meta = group.shared ? '按会话授权' : [group.sharedDevice ? '共享设备' : null, group.agentVersion ? `Agent ${group.agentVersion}` : null, group.online ? null : t('lmc.list.offline')].filter(Boolean).join(' · ');
     return (
         <View>
             <View style={styles.deviceHeader}>
                 <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={t('lmc.list.deviceDetail', { name: group.name })}
-                    disabled={!group.machineId}
-                    onPress={() => { onNavigate?.(); router.push(`/machine/${group.machineId}`); }}
+                    accessibilityLabel={group.shared ? '共享会话 · 按会话授权' : group.sharedDevice ? `${group.name} · 共享设备` : t('lmc.list.deviceDetail', { name: group.name })}
+                    disabled={!group.machineId || group.shared || group.sharedDevice}
+                    onPress={() => { onNavigate?.(); group.machineId && openMachineDetails(group.machineId); }}
                     style={({ pressed }) => ({ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8, opacity: pressed ? 0.6 : 1 })}
                 >
-                    <Ionicons name="laptop-outline" size={18} color={group.online ? theme.colors.text : colors.placeholder} />
+                    <Ionicons name={group.shared ? "people-outline" : "laptop-outline"} size={18} color={group.online ? theme.colors.text : colors.placeholder} />
                     <Text style={[styles.deviceName, !group.online && { color: colors.placeholder }]}>{group.name}</Text>
                     <Text numberOfLines={1} style={styles.deviceMeta}>{meta}</Text>
                 </Pressable>
@@ -519,11 +532,17 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
     const target = `hub:${group.hub.id}`;
     const hovered = useDragTarget((state) => state.target) === target;
     // The same right-click / long-press menu every ordinary row gets.
-    const { anchor: headerAnchor, closeMenu: closeHeaderMenu, menuProps: headerMenuProps } = useSessionRowMenu(group.hub.id);
+    const { anchor: headerAnchor, closeMenu: closeHeaderMenu, contextHitOverlay: headerHitOverlay, menuProps: headerMenuProps, outerMenuProps: headerOuterMenuProps } = useSessionRowMenu(group.hub.id);
     const [headerHovered, setHeaderHovered] = React.useState(false);
-    const headerHoverProps = Platform.OS === 'web' ? ({ onMouseEnter: () => setHeaderHovered(true), onMouseLeave: () => setHeaderHovered(false) } as any) : {};
+    const headerHoverProps = Platform.OS === 'web'
+        ? ({
+            onMouseEnter: () => setHeaderHovered(true),
+            onMouseLeave: () => setHeaderHovered(false),
+            ...headerOuterMenuProps,
+        } as any)
+        : {};
     const deviceOf = (session: Session) => machineDisplayName(machines.find((m) => m.id === session.metadata?.machineId), session.metadata?.host ?? '');
-    const engineOf = (session: Session): 'claude' | 'codex' | null => { const k = engineKeyForSession(session); return k === 'other' ? null : k; };
+    const engineOf = (session: Session): 'claude' | 'codex' | 'agy' | null => { const k = engineKeyForSession(session); return k === 'other' ? null : k; };
     const hubSelected = group.hub.id === selectedSessionId;
     const agentDefaultOverrides = useSetting('agentDefaultOverrides');
     const { modelName: hubModel, effortName: hubEffort } = resolveSessionModelDisplay(group.hub, agentDefaultOverrides, t as any, machines.find(machine => machine.id === group.hub.metadata?.machineId)?.metadata);
@@ -614,11 +633,13 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
                     {...headerMenuProps}
                     {...dragHandleProps}
                 >
-                    <View style={styles.rowLine}>
-                        <Ionicons name="disc-outline" size={18} color={colors.brand} />
-                        <Text numberOfLines={1} style={[styles.hubName, { flexShrink: 1 }, bracketTrim(getSessionName(group.hub))]}>{getSessionName(group.hub)}</Text>
-                        <View style={{ flex: 1 }} />
-                        <View style={styles.dots}>
+                    {headerHitOverlay}
+                    <View pointerEvents={Platform.OS === 'web' ? 'box-none' : undefined} style={[styles.rowLine, Platform.OS === 'web' ? ({ zIndex: 2 } as any) : null]}>
+                        <View pointerEvents={Platform.OS === 'web' ? 'none' : undefined} style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Ionicons name="disc-outline" size={18} color={colors.brand} />
+                            <Text numberOfLines={1} style={[styles.hubName, { flexShrink: 1 }, bracketTrim(getSessionName(group.hub))]}>{getSessionName(group.hub)}</Text>
+                        </View>
+                        <View pointerEvents={Platform.OS === 'web' ? (showHubChevron ? 'box-none' : 'none') : undefined} style={styles.dots}>
                             {!showHubChevron && hubRingTone && <SessionStatusRing tone={hubRingTone} size={14} />}
                             {showHubChevron && (
                                 <Pressable
@@ -668,6 +689,8 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
                     renderRow={(session) => {
                         const tasks = tasksOf(session.id);
                         const open = isOpen(session.id);
+                        const { modelName, effortName } = resolveSessionModelDisplay(session, agentDefaultOverrides, t as any, machines.find(machine => machine.id === session.metadata?.machineId)?.metadata);
+                        const modelSummary = [modelName, effortName].filter(Boolean).join(' · ');
                         return (
                             <View key={session.id}>
                                 <SessionRow
@@ -677,7 +700,7 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
                                     onNavigate={onNavigate}
                                     indent={28}
                                     alert={needsPerson(tasks)}
-                                    meta={{ device: deviceOf(session), engine: engineOf(session), toggle: tasks.length ? { open, onToggle: () => toggle(session.id) } : null }}
+                                    meta={{ device: deviceOf(session), engine: engineOf(session), extras: modelSummary ? [modelSummary] : [], toggle: tasks.length ? { open, onToggle: () => toggle(session.id) } : null }}
                                 />
                                 {open && renderTaskRows(tasks, 48)}
                                 {pendingDuty.has(session.id) && (
@@ -800,14 +823,15 @@ export const DeviceEngineSessionList = React.memo(({ onNavigate, accountMenuPane
     const hubOrder = useSetting('sessionProjectOrder')['lmc:hubs'];
     const [archivedOpen, setArchivedOpen] = React.useState(false);
     const { hubs, groups, archived } = React.useMemo(() => {
+        const isArchived = listArchiveRule(machines);
         const q = query.trim().toLowerCase();
         const visible = q ? sessions.filter((s) => getSessionName(s).toLowerCase().includes(q) || (s.metadata?.path ?? '').toLowerCase().includes(q)) : sessions;
         // Hubs and their workers come first, as their own groups; what is left
         // is grouped by device. Archived sessions never mix into either; they
         // sit in one collapsed section at the bottom so the live list stays short.
-        const { hubs, rest } = splitHubGroups(visible, hubOrder);
-        const built = buildDeviceEngineGroups(rest, machines, { includeArchived: false });
-        return { hubs, groups: q ? built.filter((g) => g.engines.length > 0) : built, archived: collectArchivedSessions(visible) };
+        const { hubs, rest } = splitHubGroups(visible, hubOrder, isArchived);
+        const built = buildDeviceEngineGroups(rest, machines, { includeArchived: false, isArchived });
+        return { hubs, groups: q ? built.filter((g) => g.engines.length > 0) : built, archived: collectArchivedSessions(visible, isArchived) };
     }, [sessions, machines, query, hubOrder]);
 
     // Workers just bound by a drag, with no duty of their own yet: each row

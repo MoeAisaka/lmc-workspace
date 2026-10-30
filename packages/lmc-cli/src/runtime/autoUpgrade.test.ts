@@ -60,4 +60,17 @@ describe('checkEngineUpgrades', () => {
         const d = await deps({ latest: async (e) => { if (e === 'codex') throw new Error('offline'); return '0.3.281'; } });
         expect(await checkEngineUpgrades(d)).toBe('claude');
     });
+
+    it('reports a lookup or an upgrade that did not go through', async () => {
+        const failed = vi.fn();
+        const offline = new Error('offline');
+        const refused = new Error('refused');
+        const d = await deps({
+            failed,
+            latest: async (e) => { if (e === 'codex') throw offline; return '0.3.281'; },
+            start: vi.fn(async () => { throw refused; }),
+        });
+        expect(await checkEngineUpgrades(d)).toBeNull();
+        expect(failed.mock.calls).toEqual([['codex', 'lookup', offline], ['claude', 'start', refused]]);
+    });
 });

@@ -28,6 +28,16 @@ function port(initial: Metadata, extra: Partial<OrchestrationPort> = {}): Orches
 }
 
 describe('orchestration tools', () => {
+    it('preserves Antigravity settings for local and remote workers', async () => {
+        const request = {duty:'评审',agent:'agy' as const,model:'claude-opus-5-5',effort:'medium',permission_mode:'yolo'};
+        const local = port({} as Metadata);
+        expect((await spawnWorker(local,request)).isError).toBe(false);
+        expect(local.spawnLocal).toHaveBeenCalledWith(expect.objectContaining({agent:'agy',modelMode:request.model,effortLevel:'medium',permissionMode:'yolo'}));
+        const remote = port({} as Metadata);
+        expect((await spawnWorker(remote,{...request,machine:'MacBook'})).isError).toBe(false);
+        const o=remote.metadataNow().orchestration;
+        expect(o?.role==='hub'&&o.spawnRequests?.[0]).toMatchObject({agent:'agy',model:request.model,effort:'medium',permissionMode:'yolo'});
+    });
     const contract = { model: 'claude-sonnet-5', effort: 'medium', scope: 'src/task.ts', budget_minutes: 10 };
     const taskArgs = { ...contract, sessionId: 'W', id: 'bounded', goal: 'fix', acceptance: 'test passes' };
     const hub = () => ({ orchestration: { role: 'hub', workers: [{ sessionId: 'W', by: 'auto', boundAt: 1 }, { sessionId: 'W2', by: 'auto', boundAt: 1 }] } } as Metadata);
@@ -487,5 +497,53 @@ describe('standing team', () => {
         expect(p.spawnLocal).not.toHaveBeenCalled();
         expect((await spawnWorker(p, { duty: '评审', model: 'claude-sonnet-5', effort: 'medium' })).isError).toBe(false);
         expect((await spawnWorker(p, { duty: '编码', force: true, model: 'claude-sonnet-5', effort: 'medium' })).isError).toBe(false);
+    });
+});
+
+describe('await_report and queued report cleanup', () => {
+    it('wakes as soon as pollMail delivers the worker report and marks its queued mail consumed', async () => {
+        const { awaitReport } = await import('./tools');
+        const consumed: [string, number, string | undefined][] = [];
+        let polls = 0;
+        const reportText = [
+            '[from your worker · MacMini · Codex · 【编码】repo]',
+            'This is your worker session (W1) reporting.',
+            '',
+            '[report t1 · attempt 1 · blocked]',
+            'dispatch  disp-1',
+            'summary   CUA pipe failed',
+        ].join('\n');
+        const p = port(
+            { orchestration: { role: 'hub', workers: [{ sessionId: 'W1', boundAt: 1, by: 'auto' }], board: [{ id: 't1', title: 'x', state: 'dispatched', attempt: 1, dispatchId: 'disp-1', counterpart: 'W1', firstAt: 1, updatedAt: 2 }] } } as unknown as Metadata,
+            {
+                sleep: async () => {},
+                consumeQueuedReport: (id, attempt, dispatchId) => consumed.push([id, attempt, dispatchId]),
+                transcript: async () => ({ entries: [{ seq: 9, body: { role: 'user', content: { type: 'text', text: reportText } } }] }),
+                pollMail: async () => {
+                    polls += 1;
+                    if (polls >= 2) {
+                        await p.updateMetadata(boardUpdate(formatReportEnvelope({ id: 't1', attempt: 1, status: 'blocked', fields: { dispatch: 'disp-1', summary: 'CUA pipe failed', blocked: 'pipe' } }), 'W1')!);
+                    }
+                },
+            },
+        );
+        const res = await awaitReport(p, { id: 't1', timeout_seconds: 10 });
+        expect(res.isError).toBe(false);
+        expect(polls).toBe(2);
+        expect(res.text).toContain('Report arrived for t1 (attempt 1, blocked)');
+        expect(res.text).toContain('CUA pipe failed');
+        expect(consumed).toEqual([['t1', 1, 'disp-1']]);
+    });
+
+    it('consumes any lingering queued worker report when review_report runs mid-turn', async () => {
+        const { reviewReport } = await import('./tools');
+        const consumed: [string, number, string | undefined][] = [];
+        const p = port(
+            { orchestration: { role: 'hub', workers: [{ sessionId: 'W1', boundAt: 1, by: 'auto' }], board: [{ id: 't1', stage: 'deploy', title: 'x', state: 'blocked', attempt: 1, dispatchId: 'disp-9', counterpart: 'W1', firstAt: 1, updatedAt: 2 }] } } as unknown as Metadata,
+            { consumeQueuedReport: (id, attempt, dispatchId) => consumed.push([id, attempt, dispatchId]) },
+        );
+        const res = await reviewReport(p, { id: 't1', verdict: 'rejected', reasons: 'taking over direct' });
+        expect(res.isError).toBe(false);
+        expect(consumed).toEqual([['t1', 1, 'disp-9']]);
     });
 });

@@ -1,3 +1,4 @@
+import { quotaHistoryHandler, quotaHistoryRoutes } from './quotaHistory';
 import { z } from 'zod';
 import { UsageRecordSchema, usageTotal, type UsageRecord } from 'lmc-wire';
 import { db } from '@/storage/db';
@@ -18,6 +19,7 @@ export function mergeUsage(previous: UsageRecord, incoming: UsageRecord): UsageR
 }
 
 export function usageAnalyticsHandler(userId: string, connection: ClientConnection) {
+    quotaHistoryHandler(userId, connection);
     connection.socket.on('usage-report-v2', async (body: unknown, callback?: (r: { success: boolean }) => void) => {
         const parsed = UsageRecordSchema.safeParse(body);
         if (!parsed.success || connection.connectionType !== 'session-scoped'
@@ -47,6 +49,7 @@ export function usageAnalyticsHandler(userId: string, connection: ClientConnecti
 }
 
 export function usageAnalyticsRoutes(app: Fastify) {
+    quotaHistoryRoutes(app);
     app.post('/v2/usage/query', { preHandler: app.authenticate, schema: { body: z.object({
         start: z.number().int().positive(), end: z.number().int().positive(),
         updatedSince: z.number().int().nonnegative().optional(),

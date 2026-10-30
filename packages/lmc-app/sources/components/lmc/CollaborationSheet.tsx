@@ -27,8 +27,8 @@ async function restoreRole(sessionId: string, snapshot: RoleSnapshot): Promise<v
     }
 }
 
-function engineLabel(key: 'claude' | 'codex' | 'other'): string {
-    return key === 'claude' ? 'Claude' : key === 'codex' ? 'Codex' : t('lmc.common.otherEngine');
+function engineLabel(key: 'claude' | 'codex' | 'agy' | 'other'): string {
+    return key === 'claude' ? 'Claude' : key === 'codex' ? 'Codex' : key === 'agy' ? 'Antigravity' : t('lmc.common.otherEngine');
 }
 
 export function fail(error: unknown) {

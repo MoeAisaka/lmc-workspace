@@ -7,6 +7,7 @@ import { Decryptor, Encryptor } from './encryptor';
 
 export class SessionEncryption {
     private sessionId: string;
+    private disposed = false;
     private encryptor: Encryptor & Decryptor;
     private cache: EncryptionCache;
 
@@ -20,10 +21,17 @@ export class SessionEncryption {
         this.cache = cache;
     }
 
+    /** Prevent in-flight decryptions from repopulating a revoked session. */
+    dispose(): void {
+        this.disposed = true;
+        this.cache.clearSessionCache(this.sessionId);
+    }
+
     /**
      * Batch-first API for decrypting messages
      */
     async decryptMessages(messages: ApiMessage[]): Promise<(DecryptedMessage | null)[]> {
+        if (this.disposed) return messages.map(() => null);
         // Check cache for all messages first
         const results: (DecryptedMessage | null)[] = new Array(messages.length);
         const toDecrypt: { index: number; message: ApiMessage }[] = [];
@@ -50,7 +58,7 @@ export class SessionEncryption {
                     content: null,
                     createdAt: message.createdAt,
                 };
-                this.cache.setCachedMessage(message.id, results[i]!);
+                this.cache.setCachedMessage(message.id, results[i]!, this.sessionId);
             }
         }
 
@@ -61,6 +69,7 @@ export class SessionEncryption {
             );
             
             const decrypted = await this.encryptor.decrypt(encrypted);
+            if (this.disposed) return messages.map(() => null);
 
             for (let i = 0; i < toDecrypt.length; i++) {
                 const decryptedData = decrypted[i];
@@ -74,7 +83,7 @@ export class SessionEncryption {
                         content: decryptedData,
                         createdAt: message.createdAt,
                     };
-                    this.cache.setCachedMessage(message.id, result);
+                    this.cache.setCachedMessage(message.id, result, this.sessionId);
                     results[index] = result;
                 } else {
                     const result: DecryptedMessage = {
@@ -84,7 +93,7 @@ export class SessionEncryption {
                         content: null,
                         createdAt: message.createdAt,
                     };
-                    this.cache.setCachedMessage(message.id, result);
+                    this.cache.setCachedMessage(message.id, result, this.sessionId);
                     results[index] = result;
                 }
             }
@@ -124,10 +133,11 @@ export class SessionEncryption {
      * Decrypt raw data using session-specific encryption
      */
     async decryptRaw(encrypted: string): Promise<any | null> {
+        if (this.disposed) return null;
         try {
             const encryptedData = decodeBase64(encrypted, 'base64');
             const decrypted = await this.encryptor.decrypt([encryptedData]);
-            return decrypted[0] || null;
+            return this.disposed ? null : decrypted[0] || null;
         } catch (error) {
             return null;
         }
@@ -145,6 +155,7 @@ export class SessionEncryption {
      * Decrypt metadata using session-specific encryption
      */
     async decryptMetadata(version: number, encrypted: string): Promise<Metadata | null> {
+        if (this.disposed) return null;
         // Check cache first
         const cached = this.cache.getCachedMetadata(this.sessionId, version);
         if (cached) {
@@ -154,7 +165,7 @@ export class SessionEncryption {
         // Decrypt if not cached
         const encryptedData = decodeBase64(encrypted, 'base64');
         const decrypted = await this.encryptor.decrypt([encryptedData]);
-        if (!decrypted[0]) {
+        if (this.disposed || !decrypted[0]) {
             return null;
         }
         const parsed = MetadataSchema.safeParse(decrypted[0]);
@@ -183,6 +194,7 @@ export class SessionEncryption {
             return {};
         }
 
+        if (this.disposed) return {};
         // Check cache first
         const cached = this.cache.getCachedAgentState(this.sessionId, version);
         if (cached) {
@@ -192,7 +204,7 @@ export class SessionEncryption {
         // Decrypt if not cached
         const encryptedData = decodeBase64(encrypted, 'base64');
         const decrypted = await this.encryptor.decrypt([encryptedData]);
-        if (!decrypted[0]) {
+        if (this.disposed || !decrypted[0]) {
             return {};
         }
         const parsed = AgentStateSchema.safeParse(decrypted[0]);

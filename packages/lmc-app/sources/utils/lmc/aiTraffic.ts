@@ -1,14 +1,21 @@
 import { z } from 'zod';
 import type { Machine } from '@/sync/storageTypes';
 import type { UsagePeriod } from '@/sync/usageAnalytics';
+export type TrafficPeriod = Exclude<UsagePeriod, '5hours' | 'month'>;
 
 /** Mirrors AiTrafficSchema in lmc-cli (daemonState.aiTraffic): bytes per provider per local day. */
 const BytesSchema = z.object({ up: z.number(), down: z.number() });
-const DaySchema = z.object({ claude: BytesSchema, openai: BytesSchema });
+const DaySchema = z.object({
+    claude: BytesSchema,
+    openai: BytesSchema,
+    antigravity: BytesSchema.optional().default(() => ({ up: 0, down: 0 })),
+});
 export const AiTrafficSchema = z.object({ updatedAt: z.number(), days: z.record(z.string(), DaySchema) });
 export type AiTraffic = z.infer<typeof AiTrafficSchema>;
 export type TrafficBytes = { up: number; down: number };
-export type ProviderTraffic = { claude: TrafficBytes; openai: TrafficBytes };
+export const AI_TRAFFIC_PROVIDERS = ['claude', 'openai', 'antigravity'] as const;
+export type AiTrafficProvider = (typeof AI_TRAFFIC_PROVIDERS)[number];
+export type ProviderTraffic = Record<AiTrafficProvider, TrafficBytes>;
 
 /** A ledger is history: it is read from a machine that is offline now as well. */
 export function aiTrafficOf(machine: Machine | undefined | null): AiTraffic | null {
@@ -19,15 +26,15 @@ export function aiTrafficOf(machine: Machine | undefined | null): AiTraffic | nu
 const dayKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
 /** The local days a dashboard period covers, oldest first, today last. */
-export function trafficDays(period: UsagePeriod, now: number): string[] {
+export function trafficDays(period: TrafficPeriod, now: number): string[] {
     const count = period === 'today' ? 1 : period === '7days' ? 7 : 30;
     return Array.from({ length: count }, (_, index) => { const d = new Date(now); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() - (count - 1 - index)); return dayKey(d); });
 }
 
-const zero = (): ProviderTraffic => ({ claude: { up: 0, down: 0 }, openai: { up: 0, down: 0 } });
-const addInto = (into: ProviderTraffic, day: ProviderTraffic) => { for (const p of ['claude', 'openai'] as const) { into[p].up += day[p].up; into[p].down += day[p].down; } };
+const zero = (): ProviderTraffic => ({ claude: { up: 0, down: 0 }, openai: { up: 0, down: 0 }, antigravity: { up: 0, down: 0 } });
+const addInto = (into: ProviderTraffic, day: ProviderTraffic) => { for (const p of AI_TRAFFIC_PROVIDERS) { into[p].up += day[p].up; into[p].down += day[p].down; } };
 export const trafficSum = (t: TrafficBytes) => t.up + t.down;
-export const providerSum = (t: ProviderTraffic) => trafficSum(t.claude) + trafficSum(t.openai);
+export const providerSum = (t: ProviderTraffic) => trafficSum(t.claude) + trafficSum(t.openai) + trafficSum(t.antigravity);
 
 export interface AiTrafficSummary {
     total: ProviderTraffic;
@@ -46,7 +53,7 @@ export interface AiTrafficSummary {
  * machine is averaged over its own whole days from the last seven, and the
  * machines are added.
  */
-export function summarizeAiTraffic(machines: Array<{ id: string; name: string; traffic: AiTraffic | null }>, period: UsagePeriod, now: number, machineId = ''): AiTrafficSummary {
+export function summarizeAiTraffic(machines: Array<{ id: string; name: string; traffic: AiTraffic | null }>, period: TrafficPeriod, now: number, machineId = ''): AiTrafficSummary {
     const days = trafficDays(period, now), today = trafficDays('today', now)[0], week = trafficDays('7days', now).slice(0, -1);
     const total = zero(), rows: AiTrafficSummary['machines'] = [];
     let dailyBytes = 0, fewest = Infinity, reporting = false;

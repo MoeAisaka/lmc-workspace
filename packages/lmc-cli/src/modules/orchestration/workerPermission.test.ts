@@ -8,7 +8,7 @@ describe('runner-owned worker permission default', () => {
         expect(readFileSync(new URL('../../../../lmc-app/sources/sync/workerPermission.ts', import.meta.url), 'utf8'))
             .toBe(readFileSync(new URL('./workerPermission.ts', import.meta.url), 'utf8'));
     });
-    it.each([['claude', 'bypassPermissions'], ['codex', 'yolo']] as const)('applies %s full allow only after binding confirmation and restores the baseline on unbind', (flavor, full) => {
+    it.each([['claude', 'bypassPermissions'], ['codex', 'yolo'], ['agy', 'yolo']] as const)('applies %s full allow only after binding confirmation and restores the baseline on unbind', (flavor, full) => {
         const events = new EventEmitter();
         const initial = { flavor, permissionMode: 'default', permissionModeSource: 'ambient', orchestration: { role: 'worker', hub: { sessionId: 'H', boundAt: 1, by: 'auto' } } };
         const modes: unknown[] = [];

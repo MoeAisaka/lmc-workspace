@@ -29,9 +29,10 @@ describe('resolveAgyBin', () => {
     expect(resolveAgyBin()).toBe(process.execPath);
   });
 
-  it('ignores HAPPY_AGY_PATH when the target does not exist', () => {
+  it('rejects an explicit path when the target does not exist', () => {
     process.env.HAPPY_AGY_PATH = '/nonexistent/path/to/agy-should-not-resolve';
-    expect(resolveAgyBin()).not.toBe('/nonexistent/path/to/agy-should-not-resolve');
+    expect(findAgyBin()).toBeUndefined();
+    expect(() => resolveAgyBin()).toThrow(/configured Antigravity executable/);
   });
 
   it('hides the PATH probe so detached Windows daemons do not flash a console', () => {
@@ -41,7 +42,7 @@ describe('resolveAgyBin', () => {
 
     expect(mockedExecSync).toHaveBeenCalledWith(
       expect.stringMatching(/^(where|command -v) agy$/),
-      { stdio: 'ignore', windowsHide: true },
+      { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, encoding: 'utf8' },
     );
   });
 });

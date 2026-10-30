@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createId } from '@paralleldrive/cuid2';
 import { normalizeRawMessage } from './typesRaw';
+import { savedFileEnvelope } from 'lmc-wire';
 
 /**
  * WOLOG Content Normalization Tests
@@ -1942,6 +1943,15 @@ describe('Zod Transform - WOLOG Content Normalization', () => {
                     description: 'Attached image: photo.png (800x600)'
                 });
             }
+        });
+
+        it('preserves a saved file identity so the card opens the independent file page', () => {
+            const assetId = '11111111-1111-4111-8111-111111111111';
+            const message = normalizeRawMessage('saved-file-message', null, 1, {
+                ...base, content: { type: 'session', data: savedFileEnvelope({ id: assetId, name: 'report.pdf', size: 1234, mimeType: 'application/pdf' }, 'saved-file-envelope') },
+            });
+            expect(message?.role).toBe('agent');
+            if (message?.role === 'agent') expect(message.content[0]).toMatchObject({ type: 'tool-call', name: 'file', input: { assetId, mimeType: 'application/pdf' } });
         });
 
         it('rejects file events without required size', () => {

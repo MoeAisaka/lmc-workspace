@@ -6,6 +6,9 @@ import * as Updates from 'expo-updates';
 import { clearPersistence } from '@/sync/persistence';
 import { Platform } from 'react-native';
 import { trackLogout } from '@/track';
+import { apiSocket } from '@/sync/apiSocket';
+import { broadcastAccountChange, watchAccountChanges } from './accountBroadcast';
+import { currentInvitation } from './invitation';
 
 interface AuthContextType {
     isAuthenticated: boolean;
@@ -19,6 +22,11 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children, initialCredentials }: { children: ReactNode; initialCredentials: AuthCredentials | null }) {
     const [isAuthenticated, setIsAuthenticated] = useState(!!initialCredentials);
     const [credentials, setCredentials] = useState<AuthCredentials | null>(initialCredentials);
+    useEffect(() => watchAccountChanges(() => {
+        apiSocket.disconnect();
+        setCredentials(null); setIsAuthenticated(false); setCurrentAuth(null);
+        window.location.replace('/');
+    }), []);
 
     // Update global auth state when local state changes
     useEffect(() => {
@@ -29,6 +37,7 @@ export function AuthProvider({ children, initialCredentials }: { children: React
         const newCredentials: AuthCredentials = { token, secret };
         const success = await TokenStorage.setCredentials(newCredentials);
         if (success) {
+            broadcastAccountChange();
             await syncCreate(newCredentials);
             setCredentials(newCredentials);
             setIsAuthenticated(true);
@@ -39,6 +48,8 @@ export function AuthProvider({ children, initialCredentials }: { children: React
 
     const logout = async () => {
         if (Platform.OS === 'web') await lmcLogout();
+        apiSocket.disconnect();
+        broadcastAccountChange();
         trackLogout();
         clearPersistence();
         await TokenStorage.removeCredentials();
@@ -48,7 +59,8 @@ export function AuthProvider({ children, initialCredentials }: { children: React
         setIsAuthenticated(false);
         
         if (Platform.OS === 'web') {
-            window.location.replace('/');
+            const invite = currentInvitation();
+            window.location.replace(invite ? '/#lmc-invite=' + invite : '/');
         } else {
             try {
                 await Updates.reloadAsync();

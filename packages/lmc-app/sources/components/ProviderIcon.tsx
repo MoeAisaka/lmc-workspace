@@ -7,12 +7,13 @@ import { getProviderIconKind } from '@/sync/rig';
 const providerImages = {
     codex: require('@/assets/images/icon-gpt.png'),
     claude: require('@/assets/images/icon-claude.png'),
+    agy: require('@/assets/images/icon-agy.png'),
 } as const;
 
 export function ProviderIcon({ kind, size = 14 }: { kind?: string | null; size?: number }) {
     const { theme } = useUnistyles();
     const mapped = getProviderIconKind(kind);
-    if (mapped === 'codex' || mapped === 'claude') {
+    if (mapped === 'codex' || mapped === 'claude' || mapped === 'agy') {
         return (
             <Image
                 source={providerImages[mapped]}

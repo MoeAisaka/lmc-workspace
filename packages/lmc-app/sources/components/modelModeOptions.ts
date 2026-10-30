@@ -4,6 +4,7 @@ import { hackModes } from '@/sync/modeHacks';
 import { sortPermissionModes } from '@/utils/permissionModeLabels';
 import { compareVersionsWithPrerelease, isWellFormedVersion } from '@/utils/versionUtils';
 import { CLI_VERSION_WITH_AUTO, getCodeAgentDefaults } from '@/sync/agentDefaults';
+import { supportsAntigravityProtocol, ANTIGRAVITY_UPGRADE_MESSAGE } from '@/sync/antigravityCompatibility';
 export { CLI_VERSION_WITH_AUTO } from '@/sync/agentDefaults';
 import {
     getRigCurrentModel,
@@ -16,6 +17,8 @@ import {
 export type ModeOption = {
     key: string;
     name: string;
+    /** Native IDs represented by this option, supplied by the engine catalog. */
+    aliases?: string[];
     description?: string | null;
     semanticKind?: string | null;
     disabled?: boolean;
@@ -143,6 +146,7 @@ export function getClaudeModelModes(): ModelMode[] {
         { key: 'claude-opus-5-5', name: 'Opus 5.5', description: null },
         { key: 'claude-fable-5-1', name: 'Fable 5.1', description: null },
         { key: 'claude-sonnet-5-5', name: 'Sonnet 5.5', description: null },
+        { key: 'claude-haiku-5-5', name: 'Haiku 5.5', description: null },
         { key: 'claude-fable-5', name: 'Fable 5', description: null },
         { key: 'claude-opus-5', name: 'Opus 5', description: null },
         { key: 'claude-opus-5[1m]', name: 'Opus 5 [1M]', description: '1M context' },
@@ -202,14 +206,14 @@ export function includeConfiguredModel(
     translate?: Translate,
 ): ModelMode[] {
     if (
-        flavor !== 'codex'
+        (flavor !== 'codex' && flavor !== 'agy')
         || !configuredModelKey
         || configuredModelKey === 'default'
-        || models.some((model) => model.key === configuredModelKey)
+        || models.some((model) => model.key === configuredModelKey || model.aliases?.includes(configuredModelKey))
         // A key the other engine owns is residue from a switch, not a model this
         // session can run. Promoting it to a "custom model" row renders the old
         // engine's name as though the picker had chosen it.
-        || isForeignModelKey(configuredModelKey, flavor)
+        || (flavor === 'codex' && isForeignModelKey(configuredModelKey, flavor))
     ) {
         return models;
     }
@@ -237,10 +241,9 @@ export function getOpenClawPermissionModes(translate: Translate): PermissionMode
     ];
 }
 
-// agy --print only distinguishes --sandbox (default) from --dangerously-skip-permissions,
-// so only these two modes are offered. Default gets its own wording because agy
-// --print is one-shot and cannot prompt: it never asks, it just runs under agy's
-// own sandbox settings.
+// The picker exposes native default and explicit bypass. Other native execution
+// modes are understood by the new adapter, but interactive approval has no LMC
+// bridge yet, so do not advertise that capability here.
 //
 // The one place the shared ranking is deliberately ignored. Default sorts last
 // everywhere else because it means "ask me about everything", the choice you
@@ -343,20 +346,11 @@ export function getOpenClawModelModes(): ModelMode[] {
     ];
 }
 
-// Keys are the exact display names `agy --model` accepts (as printed by `agy models`).
+// Without a signed-in catalog, preserve the CLI's own choice. Do not advertise
+// retired or plan-specific models as available to this account.
 export function getAgyModelModes(): ModelMode[] {
     return [
-        { key: 'Gemini 3.6 Flash (High)', name: 'Gemini 3.6 Flash (High)', description: null },
-        { key: 'Gemini 3.6 Flash (Medium)', name: 'Gemini 3.6 Flash (Medium)', description: null },
-        { key: 'Gemini 3.6 Flash (Low)', name: 'Gemini 3.6 Flash (Low)', description: null },
-        { key: 'Gemini 3.1 Pro (High)', name: 'Gemini 3.1 Pro (High)', description: null },
-        { key: 'Gemini 3.1 Pro (Low)', name: 'Gemini 3.1 Pro (Low)', description: null },
-        { key: 'Gemini 3.5 Flash (High)', name: 'Gemini 3.5 Flash (High)', description: null },
-        { key: 'Gemini 3.5 Flash (Medium)', name: 'Gemini 3.5 Flash (Medium)', description: null },
-        { key: 'Gemini 3.5 Flash (Low)', name: 'Gemini 3.5 Flash (Low)', description: null },
-        { key: 'Claude Opus 4.6 (Thinking)', name: 'Claude Opus 4.6 (Thinking)', description: null },
-        { key: 'Claude Sonnet 4.6 (Thinking)', name: 'Claude Sonnet 4.6 (Thinking)', description: null },
-        { key: 'GPT-OSS 120B (Medium)', name: 'GPT-OSS 120B (Medium)', description: null },
+        { key: 'default', name: 'Antigravity Default', description: 'Uses the model selected in Antigravity. Available models require Google sign-in.' },
     ];
 }
 
@@ -393,6 +387,14 @@ export function getAvailableModels(
     translate: Translate,
     selectedKey?: string | null,
 ): ModelMode[] {
+    if (flavor === 'agy') {
+        const catalog = metadata?.modelCatalogs?.agy;
+        const advertised = catalog && !catalog.stale
+            ? catalog.models.map(m => ({ key: m.id, name: m.name, aliases: m.aliases, description: null }))
+            : mapMetadataOptions(metadata?.models);
+        const models = includeConfiguredModel(flavor, advertised.length ? advertised : getAgyModelModes(), selectedKey);
+        return supportsAntigravityProtocol(metadata?.version) ? models : models.map(model => ({ ...model, disabled: true, description: ANTIGRAVITY_UPGRADE_MESSAGE }));
+    }
     if (isRigMetadataV1(metadata)) {
         const models: ModelMode[] = getRigModels(metadata).map((model) => ({
             key: model.key,
@@ -515,7 +517,9 @@ export function findOptionByKey<T extends ModeOption>(options: T[], key: string 
     if (!key) {
         return null;
     }
-    return options.find((option) => option.key === key) ?? null;
+    return options.find((option) => option.key === key)
+        ?? options.find((option) => option.aliases?.includes(key))
+        ?? null;
 }
 
 export function resolveCurrentOption<T extends ModeOption>(
@@ -663,9 +667,15 @@ export function getEffortLevelsForModel(
             name: effortDisplayName(level),
         }));
     }
-    if (flavor === 'claude' || flavor === 'codex') {
+    if (flavor === 'claude' || flavor === 'codex' || flavor === 'agy') {
         const model = findCatalogModel(metadata?.modelCatalogs?.[flavor], modelKey);
-        if (model?.efforts !== undefined) return effortLevels(model.efforts);
+        if (model?.efforts !== undefined) {
+            const order = ['low', 'medium', 'high', 'xhigh', 'max'];
+            const levels = flavor === 'agy'
+                ? [...model.efforts].sort((a, b) => order.indexOf(a) - order.indexOf(b))
+                : model.efforts;
+            return effortLevels(levels);
+        }
     }
     // Claude's effort scale is a property of the SDK rather than of the model:
     // one union for every model, and a level the chosen model cannot reach is
@@ -697,9 +707,30 @@ export function getSupportsWorktree(flavor: AgentFlavor): boolean {
     return true;
 }
 
+export function isGemini4ModelKey(key: string | null | undefined): boolean {
+    return typeof key === 'string' && /^gemini-4(?:-|$|\.)/i.test(key);
+}
+
+export function resolveAgyCatalogDefaultEffort(
+    model: { id: string; efforts?: readonly string[]; defaultEffort?: string } | undefined,
+): string | undefined {
+    if (!model) return undefined;
+    if (isGemini4ModelKey(model.id) && model.efforts?.includes('high')) return 'high';
+    return model.defaultEffort && (!model.efforts || model.efforts.includes(model.defaultEffort))
+        ? model.defaultEffort
+        : model.efforts?.[0];
+}
+
 export function getCatalogDefaultEffort(flavor: AgentFlavor, modelKey: string | null | undefined, metadata: Pick<Metadata, 'modelCatalogs'> | null | undefined, preferred: string | null | undefined): string | null | undefined {
-    const model = flavor === 'claude' || flavor === 'codex' ? findCatalogModel(metadata?.modelCatalogs?.[flavor], modelKey) : undefined;
+    const model = flavor === 'claude' || flavor === 'codex' || flavor === 'agy' ? findCatalogModel(metadata?.modelCatalogs?.[flavor], modelKey) : undefined;
+    // A worker's exact native selection outranks account/catalog defaults.
+    // Explicit effort picks are still applied by callers ahead of this fallback.
+    if (flavor === 'agy') {
+        const nativeEffort = Object.entries(model?.effortModels ?? {}).find(([, id]) => id === modelKey)?.[0];
+        if (nativeEffort) return nativeEffort;
+    }
     if (model?.efforts === undefined) return preferred;
     if (preferred && model.efforts.includes(preferred)) return preferred;
-    return model.defaultEffort && model.efforts.includes(model.defaultEffort) ? model.defaultEffort : model.efforts[0] ?? null;
+    const modelDefault = flavor === 'agy' ? resolveAgyCatalogDefaultEffort(model) : model.defaultEffort;
+    return modelDefault && model.efforts.includes(modelDefault) ? modelDefault : model.efforts[0] ?? null;
 }

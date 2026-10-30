@@ -3,6 +3,18 @@ import { describe, expect, it } from 'vitest';
 import { buildAgyArgs } from './cliArgs';
 
 describe('buildAgyArgs', () => {
+  it('lets the native CLI choose its available default instead of sending a model named default', () => {
+    expect(buildAgyArgs({ prompt: 'p', permissionMode: 'default', model: 'default' })).not.toContain('--model');
+  });
+
+  it('preserves reviewed edit and plan modes instead of bypassing all permissions', () => {
+    for (const [mode, native] of [['acceptEdits', 'accept-edits'], ['safe-yolo', 'accept-edits'], ['plan', 'plan'], ['read-only', 'plan'], ['auto', 'auto']] as const) {
+      const args = buildAgyArgs({ prompt: 'p', permissionMode: mode });
+      expect(args).not.toContain('--dangerously-skip-permissions');
+      expect(args).toContain('--sandbox');
+      expect(args[args.indexOf('--mode') + 1]).toBe(native);
+    }
+  });
   it('uses --sandbox for non-skip permission modes and puts the prompt last', () => {
     const args = buildAgyArgs({ prompt: 'hello world', permissionMode: 'default' });
 
@@ -12,7 +24,7 @@ describe('buildAgyArgs', () => {
   });
 
   it('uses --dangerously-skip-permissions for yolo-style modes', () => {
-    for (const mode of ['yolo', 'safe-yolo', 'bypassPermissions', 'acceptEdits'] as const) {
+    for (const mode of ['yolo', 'bypassPermissions'] as const) {
       const args = buildAgyArgs({ prompt: 'p', permissionMode: mode });
       expect(args).toContain('--dangerously-skip-permissions');
       expect(args).not.toContain('--sandbox');

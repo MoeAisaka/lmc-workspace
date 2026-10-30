@@ -13,6 +13,7 @@ import * as z from 'zod';
 import { encodeBase64, decodeBase64 } from '@/api/encryption';
 import type { Metadata } from '@/api/types';
 import { logger } from '@/ui/logger';
+import { sharedRuntimeCredentials } from '@/daemon/sharedRuntime';
 
 export const SandboxConfigSchema = z.object({
   enabled: z.boolean().default(false),
@@ -233,6 +234,8 @@ export type Credentials = {
 }
 
 export async function readCredentials(): Promise<Credentials | null> {
+  const scoped = sharedRuntimeCredentials();
+  if (scoped) return scoped;
   if (!existsSync(configuration.privateKeyFile)) {
     return null
   }

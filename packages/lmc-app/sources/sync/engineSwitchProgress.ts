@@ -105,7 +105,8 @@ export interface SwitchProgressInput {
 export function engineSwitchProgress(input: SwitchProgressInput): EngineSwitchProgress | null {
     const to = switchRequestTarget(input.request.text);
     if (!to) return null;
-    const from: SwitchableEngine = to === 'claude' ? 'codex' : 'claude';
+    const source = /\[source engine: (claude|codex|agy)\]/.exec(input.request.text)?.[1] as SwitchableEngine | undefined;
+    const from: SwitchableEngine = source ?? (to === 'claude' ? 'codex' : 'claude');
     const identity = { from, to };
 
     const later = input.messages.filter((message) => message.createdAt > input.request.createdAt && message.id !== input.request.id);
@@ -124,7 +125,7 @@ export function engineSwitchProgress(input: SwitchProgressInput): EngineSwitchPr
     const state = meta?.sessionConfigState;
     const pending = meta?.pendingHandoff;
     const arrived = meta?.flavor === to;
-    const stillOn: SwitchableEngine | null = meta?.flavor === 'claude' || meta?.flavor === 'codex' ? meta.flavor : null;
+    const stillOn: SwitchableEngine | null = meta?.flavor === 'claude' || meta?.flavor === 'codex' || meta?.flavor === 'agy' ? meta.flavor : null;
     const elapsedMs = Math.max(0, input.now - input.request.createdAt);
     const sinceUpdate = meta?.sessionConfigUpdatedAt ? input.now - meta.sessionConfigUpdatedAt : 0;
 

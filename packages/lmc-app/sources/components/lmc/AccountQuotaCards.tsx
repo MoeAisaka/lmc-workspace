@@ -15,7 +15,7 @@ const styles = StyleSheet.create(theme => ({
     heading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     card: { backgroundColor: theme.dark ? 'rgba(255,255,255,0.045)' : '#F8F8F8', borderRadius: 14, borderWidth: 1, borderColor: theme.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)', padding: 10 },
     provider: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: 10 },
-    plan: { color: theme.colors.textSecondary, fontSize: 10, lineHeight: 14, paddingHorizontal: 4, paddingVertical: 1, borderRadius: 4, backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.045)', maxWidth: 56, ...Typography.default() },
+    plan: { color: theme.colors.textSecondary, fontSize: 10, lineHeight: 14, paddingHorizontal: 4, paddingVertical: 1, borderRadius: 4, backgroundColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.045)', maxWidth: 110, ...Typography.default() },
     supplemental: { fontSize: 10, lineHeight: 16, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: theme.dark ? 'rgba(61,190,139,0.12)' : 'rgba(33,160,107,0.08)', ...Typography.default('semiBold') },
     sampled: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1, marginLeft: 'auto' },
     name: { color: theme.colors.text, fontSize: 15, ...Typography.default('semiBold') },
@@ -66,7 +66,7 @@ export function AccountQuotaCards({ snapshot, loading, failed, available, now, o
                 {pace && <View accessibilityLabel={t('localFeatures.quotaPaceMarker', { floor: n(pace.floor) })} style={{ position: 'absolute', width: 2, height: 11, top: -3, left: `${pace.floor}%`, backgroundColor: diff !== null && diff < 0 ? warn : theme.colors.textSecondary }} />}
             </View>
             <Text style={[styles.note, blocked && { color: quotaToneColor('low', theme.dark) }]}>{blocked ? blocked : w?.pending ? t('localFeatures.quotaPending') : expired ? t('localFeatures.quotaAwaitReset') : w?.resetsAt
-                ? (weekly ? t('localFeatures.quotaResetOn', { date: weeklyResetLabel(w.resetsAt, chinese) }) : t('localFeatures.quotaResetIn', resetCountdown(w.resetsAt, now)))
+                ? (w.id === 'seven_day' ? t('localFeatures.quotaResetOn', { date: weeklyResetLabel(w.resetsAt, chinese) }) : t('localFeatures.quotaResetIn', resetCountdown(w.resetsAt, now)))
                 : t('localFeatures.quotaUnknown')}</Text>
         </View>;
     };
@@ -77,8 +77,8 @@ export function AccountQuotaCards({ snapshot, loading, failed, available, now, o
                 {loading ? <ActivityIndicator size="small" color={colors.brand} /> : <Ionicons name="refresh-outline" size={16} color={available ? theme.colors.textSecondary : colors.placeholder} />}
             </Pressable>
         </View>
-        {(['codex', 'claude'] as const).map(engine => {
-            const p = snapshot?.providers.find(p => p.engine === engine);
+        {(snapshot?.providers ?? []).map(p => {
+            const engine = p.engine;
             const weekly = p?.windows.find(w => w.id === 'seven_day');
             const fable = p?.windows.find(w => w.id === 'fable_week');
             // A reset invalidates the comparison; keep the last read visible with its age.
@@ -92,7 +92,7 @@ export function AccountQuotaCards({ snapshot, loading, failed, available, now, o
             const credits = usageCreditLabel(p, now);
             return <View key={engine} style={styles.card} testID={`quota-${engine}`}>
                 <View style={styles.provider}>
-                    <ProviderIcon kind={engine} size={18} /><Text style={styles.name}>{engine === 'codex' ? 'Codex' : 'Claude'}</Text>
+                    <ProviderIcon kind={engine} size={18} /><Text style={styles.name}>{engine === 'codex' ? 'Codex' : engine === 'agy' ? 'Antigravity' : 'Claude'}</Text>
                     {p?.plan && <Text numberOfLines={1} style={styles.plan}>{p.plan.toUpperCase()}</Text>}
                     {engine === 'codex' && <Text testID="quota-supplemental" style={[styles.supplemental, { color: credits === '—' ? theme.colors.textSecondary : quotaToneColor(p?.usageCredits?.balance === 0 ? 'low' : 'good', theme.dark) }]}
                         accessibilityLabel={`${t('localFeatures.quotaUsageCredits', { value: credits })} · ${p?.usageCredits?.capturedAt ? t('localFeatures.quotaSampled', { date: date(p.usageCredits.capturedAt, now) }) : t('localFeatures.quotaUnknown')}`}>
@@ -107,10 +107,22 @@ export function AccountQuotaCards({ snapshot, loading, failed, available, now, o
                         </Text>
                     </View>
                 </View>
+                {engine === 'agy' ? <View style={{ gap: 12 }}>
+                    {p.status && p.status !== 'ready' && <Text testID="quota-agy-status" style={styles.note}>{t(`localFeatures.quotaStatus_${p.status}`)}</Text>}
+                    {p.status === 'ready' && p.groups?.map(group => <View key={group.id} testID={`quota-agy-${group.id}`} style={{ gap: 6 }}>
+                        <Text style={styles.label}>{group.id === 'gemini' ? 'Gemini' : 'Claude / GPT'}</Text>
+                        <View style={styles.columns}>
+                            {group.windows.map((window, index) => <React.Fragment key={window.id}>
+                                {renderWindow(window, t(window.id === 'five_hour' ? 'localFeatures.quotaFiveHour' : 'localFeatures.quotaWeekly'), index > 0)}
+                            </React.Fragment>)}
+                        </View>
+                    </View>)}
+                </View> : <>
                 <View style={styles.columns}>
                     {renderWindow(p?.windows.find(w => w.id === 'five_hour'), t('localFeatures.quotaFiveHour'), false, undefined, exhausted === 'seven_day' ? t('localFeatures.quotaBlockedByWeekly') : undefined)}
                     {renderWindow(weekly, t('localFeatures.quotaWeekly'), true, share ? [{ left: 0, width: share.covered, color: purple }, { left: weekly!.remaining!, width: share.overflow, color: warn }] : undefined, exhausted === 'five_hour' ? t('localFeatures.quotaBlockedByFiveHour') : undefined)}
                 </View>
+                </>}
                 {(today !== null || engine === 'claude' || p?.resetCredits) && <View style={styles.details}>
                 {today !== null && <View style={styles.detailRow}>
                     <Text style={styles.note}>{t(today < 0 ? 'localFeatures.quotaOverLabel' : 'localFeatures.quotaTodayLabel')}</Text>

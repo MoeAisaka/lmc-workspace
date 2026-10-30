@@ -4,6 +4,7 @@ import { GitHubProfile } from "@/app/api/types";
 import { AccountProfile } from "@/types";
 import { getPublicUrl } from "@/storage/files";
 import type { SessionMessageContent } from "lmc-wire";
+import { notifySharedSession } from '@/lmc/access/sessionNotifications';
 
 /**
  * Cross-replica presence lookups must stay well inside the CLI's 15s push
@@ -270,6 +271,9 @@ class EventRouter {
         recipientFilter?: RecipientFilter;
         skipSenderConnection?: ClientConnection;
     }): void {
+        const body = params.payload.body;
+        const sharedId = body.t === 'new-message' ? body.sid : ['new-session', 'update-session'].includes(body.t) ? body.id : null;
+        if (typeof sharedId === 'string') void notifySharedSession(params.userId, sharedId).catch(() => log({ module: 'sharing' }, 'Shared session notification failed'));
         this.emit({
             userId: params.userId,
             eventName: 'update',
@@ -285,6 +289,9 @@ class EventRouter {
         recipientFilter?: RecipientFilter;
         skipSenderConnection?: ClientConnection;
     }): void {
+        if (params.payload.type === 'activity' && typeof params.payload.id === 'string') {
+            void notifySharedSession(params.userId, params.payload.id).catch(() => log({ module: 'sharing' }, 'Shared activity notification failed'));
+        }
         this.emit({
             userId: params.userId,
             eventName: 'ephemeral',

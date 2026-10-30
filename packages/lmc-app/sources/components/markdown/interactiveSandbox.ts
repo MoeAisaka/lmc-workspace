@@ -20,9 +20,12 @@ export const SANDBOX_FLAGS = 'allow-scripts allow-forms allow-modals';
  * Height is the content's own, never the frame's: a root's scrollHeight is at
  * least the frame height, so echoing it back would grow the block for ever.
  * Wheel the page cannot use is handed to the app: left to the browser it
- * chains into the inverted chat list, which scrolls it the wrong way.
+ * chains into the inverted chat list, which scrolls it the wrong way. Inline
+ * pages contain native scroll chaining with CSS, not preventDefault: cancelling
+ * the wheel breaks a continuous Chromium gesture as the frame moves out from
+ * under the pointer. Full screen keeps its own scrolling/boundary handling.
  */
-const SHIM = `<script>(function(){var send=function(m){try{parent.postMessage(Object.assign({channel:${JSON.stringify(SANDBOX_CHANNEL)}},m),'*')}catch(e){}};
+const shim = (scrolls: boolean) => `<script>(function(){var send=function(m){try{parent.postMessage(Object.assign({channel:${JSON.stringify(SANDBOX_CHANNEL)}},m),'*')}catch(e){}};
 var last=-1,report=function(){var d=document.documentElement,b=document.body,s=document.scrollingElement||d;if(!d)return;var h=s.scrollHeight>s.clientHeight+1?s.scrollHeight:Math.max(d.offsetHeight,b?b.offsetHeight:0);if(h!==last){last=h;send({type:'size',height:h})}};
 window.addEventListener('error',function(e){send({type:'error',message:String(e&&e.message||'error')})});
 window.addEventListener('unhandledrejection',function(e){send({type:'error',message:String(e&&e.reason&&e.reason.message||e.reason||'rejection')})});
@@ -31,7 +34,7 @@ try{var ofetch=window.fetch;if(ofetch)window.fetch=function(){seen();return ofet
 if(window.PerformanceObserver){new PerformanceObserver(function(l){if(l.getEntries().length)seen()}).observe({entryTypes:['resource']})}}catch(e){}
 window.addEventListener('wheel',function(e){if(e.ctrlKey)return;var k=e.deltaMode===1?16:e.deltaMode===2?innerHeight:1,dx=e.deltaX*k,dy=e.deltaY*k,v=Math.abs(dy)>=Math.abs(dx),d=v?dy:dx;
 for(var n=e.target;n&&n.nodeType===1;n=n.parentElement){var o=getComputedStyle(n)[v?'overflowY':'overflowX'];if(o==='visible'&&n===document.scrollingElement)o='auto';if(o!=='auto'&&o!=='scroll')continue;var at=v?n.scrollTop:n.scrollLeft,max=v?n.scrollHeight-n.clientHeight:n.scrollWidth-n.clientWidth;if(max>1&&(d<0?at>0:at<max-1))return}
-e.preventDefault();send({type:'wheel',deltaX:dx,deltaY:dy})},{passive:false});
+${scrolls ? 'e.preventDefault();' : ''}send({type:'wheel',deltaX:dx,deltaY:dy})},{passive:false});
 window.addEventListener('load',function(){report();send({type:'ready'})});document.addEventListener('DOMContentLoaded',report);
 if(window.ResizeObserver){new ResizeObserver(report).observe(document.documentElement)}setInterval(report,1000);
 })()</script>`;
@@ -47,7 +50,7 @@ const BASE = `<style>:root{color-scheme:light dark}html,body{margin:0}body{font-
 const FIXED = `<style>html{overflow:hidden!important;overscroll-behavior:none}</style>`;
 
 export function wrapForSandbox(html: string, scrolls = false): string {
-    const head = SHIM + BASE + (scrolls ? '' : FIXED);
+    const head = shim(scrolls) + BASE + (scrolls ? '' : FIXED);
     const at = html.search(/<head[^>]*>/i);
     if (at >= 0) { const end = html.indexOf('>', at) + 1; return html.slice(0, end) + head + html.slice(end); }
     const htmlTag = html.search(/<html[^>]*>/i);

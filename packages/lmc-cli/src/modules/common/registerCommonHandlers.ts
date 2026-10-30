@@ -119,6 +119,8 @@ interface DifftasticResponse {
 */
 
 export interface SpawnSessionOptions {
+    /** Internal daemon-only context; never accepted from ordinary spawn RPC. */
+    sharedRuntimeFile?: string;
     machineId?: string;
     directory: string;
     sessionId?: string;

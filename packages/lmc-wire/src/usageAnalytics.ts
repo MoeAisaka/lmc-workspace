@@ -7,7 +7,8 @@ export type UsageTokens = z.infer<typeof UsageTokensSchema>;
 export const UsageRecordSchema = z.object({
     key: z.string().min(1).max(200).startsWith('u2:'),
     sessionId: z.string().min(1).max(200),
-    engine: z.enum(['claude', 'codex']),
+    engine: z.enum(['claude', 'codex', 'agy']),
+    startedAt: z.number().int().positive().optional(),
     model: z.string().max(200).nullable(),
     machineId: z.string().min(1).max(200),
     occurredAt: z.number().int().positive(),

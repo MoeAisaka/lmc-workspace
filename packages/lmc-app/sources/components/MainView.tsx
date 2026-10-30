@@ -8,6 +8,7 @@ import { NativeSettingsMenu, type NativeSettingsMenuGroup } from './NativeSettin
 import { useVisibleSessionListViewData } from '@/hooks/useVisibleSessionListViewData';
 import { useIsTablet } from '@/utils/responsive';
 import { useRouter } from 'expo-router';
+import { openLmcSettings } from '@/components/lmc/settings/LmcSettingsDialog';
 import { EmptySessionsTablet } from './EmptySessionsTablet';
 import { SessionsList } from './SessionsList';
 import { TabBar, TabType } from './TabBar';
@@ -260,7 +261,7 @@ const HeaderRight = React.memo(({ activeTab }: { activeTab: ActiveTabType }) => 
                         systemImage: 'paintpalette',
                     }],
                     selectedKey: null,
-                    onSelect: () => router.push('/settings/appearance'),
+                    onSelect: () => openLmcSettings('general'),
                 },
             ];
             return (
@@ -276,7 +277,7 @@ const HeaderRight = React.memo(({ activeTab }: { activeTab: ActiveTabType }) => 
                     </NativeSettingsMenu>
                     <View style={styles.headerActionDivider} />
                     <Pressable
-                        onPress={() => router.push('/settings')}
+                        onPress={() => openLmcSettings()}
                         accessibilityLabel={t('settings.title')}
                         accessibilityRole="button"
                         style={styles.headerActionButton}

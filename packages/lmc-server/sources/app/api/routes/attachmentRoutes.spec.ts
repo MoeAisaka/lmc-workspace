@@ -36,7 +36,15 @@ const {
         ) ?? null;
     });
 
-    const dbMock = { session: { findFirst: sessionFindFirst } };
+    const sessionFindUnique = vi.fn(async (args: any) => {
+        const s = state.sessions.find((row) => row.id === args?.where?.id);
+        return s ? { ...s, dataEncryptionKey: null, projectId: null } : null;
+    });
+
+    const dbMock = {
+        session: { findFirst: sessionFindFirst, findUnique: sessionFindUnique },
+        lmcResourcePolicy: { findMany: vi.fn(async () => []) },
+    };
 
     const filesMock = {
         s3client: {
@@ -120,7 +128,7 @@ describe('attachmentRoutes — connected origin compatibility', () => {
     let app: Fastify;
     beforeEach(() => {
         resetState();
-        vi.stubEnv('PUBLIC_URL', 'https://lmc.example.test:11455');
+        vi.stubEnv('PUBLIC_URL', 'https://lmc.example.test:8443');
         seedSession('s1', 'u1');
     });
     afterEach(async () => {
@@ -129,8 +137,8 @@ describe('attachmentRoutes — connected origin compatibility', () => {
     });
 
     it.each([
-        'https://lmc.example.test:11455',
-        'https://lmc-preview.example.test:11455',
+        'https://lmc.example.test:8443',
+        'https://lmc-preview.example.test:8443',
         'http://192.0.2.10:4193',
     ])('keeps legacy Agent upload/download authentication on %s', async origin => {
         app = await createApp(['127.0.0.1']);

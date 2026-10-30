@@ -1,7 +1,7 @@
 /**
- * Agy conversation store
+ * Legacy Agy workspace cache reader (not a session-resume source).
  *
- * agy `--print` does not echo the conversation id, but it records the most recent
+ * Older agy `--print` did not echo the conversation id, but recorded the most recent
  * conversation per workspace in its cache file (keyed by cwd). Reading it back lets
  * us resume a specific conversation via `--conversation` instead of relying on the
  * cwd-scoped `--continue`.

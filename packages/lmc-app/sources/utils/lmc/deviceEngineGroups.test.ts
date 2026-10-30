@@ -4,6 +4,7 @@ import { vi, describe, expect, it } from 'vitest';
 vi.mock('@/sync/persistence', () => ({ loadSettings: () => ({ settings: {} }) }));
 import { buildDeviceEngineGroups, collectArchivedSessions, flattenDeviceSessions, projectGroupIdForSession } from './deviceEngineGroups';
 import type { Machine, Session } from '@/sync/storageTypes';
+import { listArchiveRule } from '@/sync/sessionArchive';
 
 const machine = (id: string, extra: Partial<Machine> = {}): Machine => ({
     id, seq: 1, createdAt: 1, updatedAt: 1, active: true, activeAt: 1, metadataVersion: 1, daemonStateVersion: 1,
@@ -17,6 +18,34 @@ const session = (id: string, machineId: string | null, flavor: string, extra: Pa
 });
 
 describe('buildDeviceEngineGroups', () => {
+    it('classifies native Antigravity and its alias without absorbing unknown providers', () => {
+        const [g] = buildDeviceEngineGroups([
+            session('a', 'm', 'agy'), session('b', 'm', 'antigravity'),
+            session('c', 'm', 'codex'), session('d', 'm', 'claude'), session('e', 'm', 'future'),
+        ], [machine('m')]);
+        expect(g.engines.map(e => [e.key, e.label])).toEqual([
+            ['claude', 'Claude'], ['codex', 'Codex'], ['agy', 'Antigravity'], ['other', 'Other'],
+        ]);
+        expect(g.engines.find(e => e.key === 'agy')?.sessions.map(s => s.id)).toEqual(['a', 'b']);
+    });
+    it('labels a privately owned run on a shared device without exposing device management', () => {
+        const run = session('run', 'host', 'codex', { metadata: { machineId: 'host', flavor: 'codex', host: 'Shared Mac', sharedDevice: true } as any });
+        const [group] = buildDeviceEngineGroups([run], []);
+        expect(group).toMatchObject({ name: 'Shared Mac', shared: false, sharedDevice: true, online: true, agentVersion: null });
+        expect(buildDeviceEngineGroups([{ ...run, presence: 100 }], [])[0].online).toBe(false);
+    });
+    it('places a read-only grant outside private device groups and does not ask its reader for approvals', () => {
+        const shared = session('shared', 'private-host', 'codex', { shared: true, agentState: { requests: { r: { tool: 'Bash', arguments: {} } } } as any });
+        const groups = buildDeviceEngineGroups([shared, session('owned', 'private-host', 'codex')], [machine('private-host')]);
+        expect(groups).toHaveLength(2);
+        const group = groups.find(g => g.shared)!;
+        expect(group.name).toBe('共享会话');
+        expect(group.attentionCount).toBe(0);
+        expect(group.agentVersion).toBeNull();
+        expect(group.engines[0].sessions.map(s => s.id)).toEqual(['shared']);
+        expect(groups.find(g => !g.shared)!.engines[0].sessions.map(s => s.id)).toEqual(['owned']);
+    });
+
     it('groups device → engine → session, Claude before Codex, oldest first', () => {
         // Ordered by creation, never by activity: the list is the user's to
         // arrange, so a session that starts working must not jump the queue.
@@ -50,11 +79,20 @@ describe('buildDeviceEngineGroups', () => {
         expect(groups[0].engines).toEqual([]);
     });
 
-    it('treats a dead plain-CLI session as archived and lists it separately', () => {
+    it('keeps a disconnected legacy CLI session in its device group', () => {
         const dead = session('dead', 'm1', 'claude', { active: false });
         const groups = buildDeviceEngineGroups([dead, session('live', 'm1', 'claude')], [machine('m1')]);
-        expect(groups[0].engines[0].sessions.map((s) => s.id)).toEqual(['live']);
-        expect(collectArchivedSessions([dead, session('live', 'm1', 'claude')]).map((s) => s.id)).toEqual(['dead']);
+        expect(groups[0].engines[0].sessions.map((s) => s.id)).toEqual(['dead', 'live']);
+        expect(collectArchivedSessions([dead, session('live', 'm1', 'claude')])).toEqual([]);
+    });
+
+    it('files what the list counts as archived under archived, not under its device', () => {
+        const gone = session('gone', 'm1', 'claude', { active: false, metadata: { machineId: 'm1', flavor: 'claude', path: '/p', lifecycleState: 'running', lastMeaningfulMessageAt: 100 } as any });
+        const live = session('live', 'm1', 'claude');
+        const isArchived = (s: Session) => s.id === 'gone';
+        expect(buildDeviceEngineGroups([gone, live], [machine('m1')])[0].engines[0].sessions.map((s) => s.id)).toEqual(['gone', 'live']);
+        expect(buildDeviceEngineGroups([gone, live], [machine('m1')], { isArchived })[0].engines[0].sessions.map((s) => s.id)).toEqual(['live']);
+        expect(collectArchivedSessions([gone, live], isArchived).map((s) => s.id)).toEqual(['gone']);
     });
 
     it('keeps disconnected Claude and Codex sessions on their offline device until explicitly archived', () => {
@@ -70,6 +108,21 @@ describe('buildDeviceEngineGroups', () => {
         const archived = rows.map(s => ({ ...s, metadata: { ...s.metadata!, lifecycleState: 'archived' } }));
         expect(buildDeviceEngineGroups(archived, [machine('m1', { active: false })])).toEqual([]);
         expect(collectArchivedSessions(archived)).toHaveLength(2);
+    });
+
+    it.each(['claude', 'codex'])('keeps long-disconnected %s sessions, except on removed devices', (flavor) => {
+        const gone = session('gone', 'm1', flavor, { active: false, activeAt: 1, presence: 1,
+            metadata: { machineId: 'm1', flavor, lifecycleState: 'running' } as any });
+        for (const machines of [[machine('m1')], [machine('m1', { active: false })], []]) {
+            const isArchived = listArchiveRule(machines);
+            const groups = buildDeviceEngineGroups([gone], machines, { isArchived });
+            expect(groups.flatMap(flattenDeviceSessions).map(s => s.id)).toEqual(['gone']);
+            expect(collectArchivedSessions([gone], isArchived)).toEqual([]);
+        }
+        const machines = [machine('other')];
+        const isArchived = listArchiveRule(machines);
+        expect(buildDeviceEngineGroups([gone], machines, { isArchived }).flatMap(flattenDeviceSessions)).toEqual([]);
+        expect(collectArchivedSessions([gone], isArchived).map(s => s.id)).toEqual(['gone']);
     });
 
     it('drops an offline device that has no sessions left', () => {
@@ -106,9 +159,9 @@ describe('buildDeviceEngineGroups', () => {
 
     it('does not use device-local send times to order archived sessions', () => {
         const rows = [
-            session('older', 'm1', 'claude', { active: false, createdAt: 10, lastMessageSentAt: 1000, metadata: {} as any }),
-            session('newer', 'm1', 'codex', { active: false, createdAt: 20, metadata: {} as any }),
-            session('latest-activity', 'm1', 'claude', { active: false, createdAt: 5, metadata: { lastMeaningfulMessageAt: 50 } as any }),
+            session('older', 'm1', 'claude', { active: false, createdAt: 10, lastMessageSentAt: 1000, metadata: { lifecycleState: 'archived' } as any }),
+            session('newer', 'm1', 'codex', { active: false, createdAt: 20, metadata: { lifecycleState: 'archived' } as any }),
+            session('latest-activity', 'm1', 'claude', { active: false, createdAt: 5, metadata: { lifecycleState: 'archived', lastMeaningfulMessageAt: 50 } as any }),
         ];
         const expected = ['latest-activity', 'newer', 'older'];
         expect(collectArchivedSessions(rows).map(s => s.id)).toEqual(expected);

@@ -304,3 +304,18 @@ describe('buildResumeLaunch across an engine switch', () => {
         )).toThrow(/Codex thread ID/);
     });
 });
+
+it('launches all six engine handoffs fresh without reusing a departed engine thread', () => {
+    for (const from of ['claude', 'codex', 'agy']) for (const target of ['claude', 'codex', 'agy']) {
+        if (from === target) continue;
+        const launch = buildResumeLaunch({ id: 'same', active: true, metadata: { path: '/work', flavor: target,
+            claudeSessionId: 'old-claude', codexThreadId: 'old-codex', agyConversationId: 'old-agy' } } as any,
+            { startFresh: true, startedBy: 'daemon' });
+        expect(launch.args[0]).toBe(target); expect(launch.args).not.toContain('--resume');
+        expect(launch.cwd).toBe('/work');
+    }
+});
+it('resumes Antigravity by its explicit native conversation', () => {
+    const launch = buildResumeLaunch({ id: 'same', active: true, metadata: { path: '/work', flavor: 'agy', agyConversationId: 'original', codexThreadId: 'old' } } as any);
+    expect(launch.args).toEqual(['agy', '--resume', 'original']);
+});

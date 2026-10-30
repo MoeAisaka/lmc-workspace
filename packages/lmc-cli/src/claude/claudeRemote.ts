@@ -223,6 +223,8 @@ export async function claudeRemote(opts: {
     const USAGE_REFRESH_INTERVAL_MS = 30_000;
     const flushUsageLimits = async () => {
         if (!opts.onUsageLimits) return;
+        // Poe points are read by the device balance connector, not the old official account.
+        if (process.env.ANTHROPIC_BASE_URL === 'https://api.poe.com') return;
         let seededThisFlush = false;
         if (Date.now() - lastUsagePull >= 30_000) {
             lastUsagePull = Date.now();

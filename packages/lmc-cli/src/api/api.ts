@@ -9,6 +9,7 @@ import { configuration } from '@/configuration';
 import chalk from 'chalk';
 import { Credentials } from '@/persistence';
 import { connectionState, isNetworkError } from '@/utils/serverConnectionErrors';
+import { getSharedRuntime } from '@/daemon/sharedRuntime';
 
 export class ApiClient {
 
@@ -32,6 +33,20 @@ export class ApiClient {
     metadata: Metadata,
     state: AgentState | null
   }): Promise<Session | null> {
+
+    const runtime = getSharedRuntime();
+    if (runtime) {
+      if (opts.metadata.flavor !== runtime.engine) throw new Error('共享设备会话的引擎不匹配');
+      const key = decodeBase64(runtime.key);
+      const metadata = { ...(runtime.metadata as Metadata), ...opts.metadata, machineId: runtime.machineId, sharedDevice: true };
+      try {
+        const response = await axios.post(`${configuration.serverUrl}/v1/lmc/runtime/${runtime.sessionId}/start`, {
+          metadata: encodeBase64(encrypt(key, 'dataKey', metadata)), agentState: opts.state ? encodeBase64(encrypt(key, 'dataKey', opts.state)) : null,
+        }, { headers: { Authorization: `Bearer ${runtime.token}` }, timeout: 30_000 });
+        const row = response.data.session;
+        return { id: runtime.sessionId, seq: row.seq, metadata, metadataVersion: row.metadataVersion, agentState: opts.state, agentStateVersion: row.agentStateVersion, encryptionKey: key, encryptionVariant: 'dataKey' };
+      } catch { key.fill(0); throw new Error('共享会话授权未能完成，未切换到设备拥有者的 LMC 账号'); }
+    }
 
     // Resolve encryption key
     let dataEncryptionKey: Uint8Array | null = null;
@@ -146,6 +161,9 @@ export class ApiClient {
     metadata: MachineMetadata,
     daemonState?: DaemonState,
   }): Promise<Machine> {
+
+    const runtime = getSharedRuntime();
+    if (runtime) return { id: runtime.machineId, encryptionKey: new Uint8Array(32), encryptionVariant: 'dataKey', metadata: opts.metadata, metadataVersion: 0, daemonState: null, daemonStateVersion: 0 };
 
     // Resolve encryption key
     let dataEncryptionKey: Uint8Array | null = null;
@@ -276,7 +294,13 @@ export class ApiClient {
   }
 
   sessionSyncClient(session: Session): ApiSessionClient {
-    return new ApiSessionClient(this.credential.token, session);
+    return new ApiSessionClient(this.credential.token, session, async (key) => {
+      if (this.credential.encryption.type === 'dataKey') {
+        const wrapped = libsodiumEncryptForPublicKey(key, this.credential.encryption.publicKey);
+        return { keyMode: 'sealed', ownerKey: encodeBase64(new Uint8Array([0, ...wrapped])) };
+      }
+      return { keyMode: 'legacy', ownerKey: encodeBase64(encrypt(this.credential.encryption.secret, 'legacy', encodeBase64(key))) };
+    });
   }
 
   machineSyncClient(machine: Machine): ApiMachineClient {

@@ -5,7 +5,23 @@ import { Purchases, purchasesDefaults, purchasesParse } from './purchases';
 import { Profile, profileDefaults, profileParse } from './profile';
 import type { PermissionModeKey } from '@/components/PermissionModeSelector';
 
-const mmkv = new MMKV();
+// Never preload another person's cached profile/settings before authentication.
+let mmkv = new MMKV({ id: 'lmc-signed-out' });
+export function selectAccountPersistence(server: string, accountId: string) {
+    mmkv = new MMKV({ id: 'lmc-account:' + encodeURIComponent(server) + ':' + encodeURIComponent(accountId) });
+    if (mmkv.getBoolean('__account_initialized')) return;
+    const legacy = new MMKV();
+    let legacyId: string | null = null;
+    try { legacyId = JSON.parse(legacy.getString('profile') ?? 'null')?.id ?? null; } catch { /* No attributable legacy cache. */ }
+    if (legacyId === accountId) {
+        // Migrate only this known account's caches; unrelated MMKV users stay intact.
+        for (const key of ['settings', 'pending-settings', 'local-settings', 'purchases', 'profile', 'session-drafts', 'new-session-draft-v1', 'session-last-message-sent-at']) {
+            const value = legacy.getString(key);
+            if (value !== undefined) { mmkv.set(key, value); legacy.delete(key); }
+        }
+    }
+    mmkv.set('__account_initialized', true);
+}
 const NEW_SESSION_DRAFT_KEY = 'new-session-draft-v1';
 const REGISTERED_PUSH_TOKEN_KEY = 'registered-push-token-v1';
 const VOICE_SOFT_PAYWALL_SHOWN_KEY = 'voice-soft-paywall-shown';

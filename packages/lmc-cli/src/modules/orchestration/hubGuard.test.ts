@@ -60,7 +60,7 @@ it.each([
         // startHappyServer always supplies the transcript callback.
         server = createMcpServer(async () => ({ success: true }), mail, handoff,
             async () => ({ entries: [], hasMore: false }), () => null, null,
-            dependencies.orchestration ? {} as any : null);
+            dependencies.orchestration ? {} as any : null, null, async () => ({ state: 'ready' }), async () => ({ shares: [] }));
         running = await startHappyServer({ sessionId: 'test' } as any, mail, handoff,
             dependencies.orchestration ? { cwd: '/tmp', machineId: 'test' } : null);
         const registered = register.mock.calls.map(call => call[0] as string).sort();

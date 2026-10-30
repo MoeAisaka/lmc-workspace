@@ -1,4 +1,5 @@
 import { compareDisplayMessages } from './messageDisplayOrder';
+import { normalizePermissionModeForEngine } from 'lmc-wire';
 import { isSessionArchived } from './sessionArchive';
 import { resolveWorkerPermissionMode } from './workerPermission';
 import { create } from "zustand";
@@ -292,7 +293,7 @@ interface StorageState {
     deleteMachine: (machineId: string) => void;
     applyLoaded: () => void;
     applyReady: () => void;
-    applyMessages: (sessionId: string, messages: NormalizedMessage[], options?: { edge?: MessageWindowEdge }) => { changed: string[], hasReadyEvent: boolean, enteredPlanMode: boolean, windowRebuilt: boolean };
+    applyMessages: (sessionId: string, messages: NormalizedMessage[], options?: { edge?: MessageWindowEdge }) => { changed: string[], hasReadyEvent: boolean, enteredPlanMode: boolean, windowRebuilt: boolean, windowStartSeq?: number };
     applyMessagesLoaded: (sessionId: string) => void;
     // Frees a background session's message window (web memory bound). No-op
     // for the session currently on screen. The next visit does a clean
@@ -460,8 +461,6 @@ export const storage = create<StorageState>()((set, get) => {
     let localSettings = loadLocalSettings();
     let purchases = loadPurchases();
     let profile = loadProfile();
-    let sessionDrafts = loadSessionDrafts();
-    let sessionLastMessageSentAt = loadSessionLastMessageSentAt();
     return {
         settings,
         settingsVersion: version,
@@ -519,8 +518,8 @@ export const storage = create<StorageState>()((set, get) => {
         applySessions: (sessions: (Omit<Session, 'presence'> & { presence?: "online" | number })[]) => set((state) => {
             // Load drafts if sessions are empty (initial load)
             const isInitialLoad = Object.keys(state.sessions).length === 0;
-            const savedDrafts = isInitialLoad ? sessionDrafts : {};
-            const savedLastMessageSentAt = isInitialLoad ? sessionLastMessageSentAt : {};
+            const savedDrafts = isInitialLoad ? loadSessionDrafts() : {};
+            const savedLastMessageSentAt = isInitialLoad ? loadSessionLastMessageSentAt() : {};
 
             // Merge new sessions with existing ones
             const mergedSessions: Record<string, Session> = indexSessionsById(Object.values(state.sessions));
@@ -597,7 +596,8 @@ export const storage = create<StorageState>()((set, get) => {
                     presence,
                     customName: state.settings.sessionNameOverrides?.[session.id] ?? null,
                     draft: existingDraft || savedDraft || session.draft || null,
-                    permissionMode: resolvedPermissionMode,
+                    permissionMode: isRigMetadata(session.metadata) ? resolvedPermissionMode
+                        : normalizePermissionModeForEngine(session.metadata?.flavor, resolvedPermissionMode),
                     modelMode: resolvedModelMode,
                     effortLevel: resolvedEffortLevel,
                     lastMessageSentAt: resolvedLastMessageSentAt,
@@ -772,6 +772,7 @@ export const storage = create<StorageState>()((set, get) => {
             let changed = new Set<string>();
             let hasReadyEvent = false;
             let windowRebuilt = false;
+            let windowStartSeq: number | undefined;
 
             // Track plan mode transitions through the batch in order.
             // Set true on EnterPlanMode, false on ExitPlanMode. The final value
@@ -879,6 +880,7 @@ export const storage = create<StorageState>()((set, get) => {
                     });
                 }
                 windowRebuilt = shouldRebuild;
+                windowStartSeq = windowResult?.windowStartSeq;
                 if (shouldRebuild) {
                     if (requestedEdge !== 'older') {
                         for (const id of rebuildChangedIds) changed.add(id);
@@ -933,7 +935,7 @@ export const storage = create<StorageState>()((set, get) => {
                 };
             });
 
-            return { changed: Array.from(changed), hasReadyEvent, enteredPlanMode: shouldEnterPlanMode, windowRebuilt };
+            return { changed: Array.from(changed), hasReadyEvent, enteredPlanMode: shouldEnterPlanMode, windowRebuilt, windowStartSeq };
         },
         releaseSessionMessages: (sessionId: string) => set((state) => {
             if (state.currentViewingSessionId === sessionId) return state;
@@ -1885,6 +1887,13 @@ export function useIsDataReady(): boolean {
 
 export function useProfile() {
     return storage(useShallow((state) => state.profile));
+}
+
+/** Called before sync/subscriptions start, after the server identifies the account. */
+export function reloadAccountPersistence() {
+    const { settings, version } = loadSettings();
+    storage.setState({ ...storage.getInitialState(), settings, settingsVersion: version,
+        localSettings: loadLocalSettings(), purchases: loadPurchases(), profile: loadProfile() }, true);
 }
 
 export function useFriends() {

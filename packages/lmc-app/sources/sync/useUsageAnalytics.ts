@@ -2,11 +2,11 @@ import * as React from 'react';
 import { AppState, Platform } from 'react-native';
 import { UsageRecordSchema, type UsageRecord } from 'lmc-wire';
 import { apiSocket } from './apiSocket';
-import { usageRange, type UsagePeriod } from './usageAnalytics';
+import { usageQueryRange, type UsagePeriod } from './usageAnalytics';
 
 export type UsageAnalyticsState = { records: UsageRecord[]; loading: boolean; error: string | null;
     collectedSince: number | null; updatedAt: number | null; now: number };
-export function useUsageAnalytics(period: UsagePeriod) {
+export function useUsageAnalytics(period: UsagePeriod, monthOffset = 0) {
     const [state, setState] = React.useState<UsageAnalyticsState>({ records: [], loading: true, error: null, collectedSince: null, updatedAt: null, now: Date.now() });
     const refreshRef = React.useRef(() => {});
     React.useEffect(() => {
@@ -18,7 +18,7 @@ export function useUsageAnalytics(period: UsagePeriod) {
             if (busy || (Platform.OS === 'web' && document.hidden)) return;
             busy = true;
             setState(s => ({ ...s, loading: true }));
-            const now = Date.now(), range = usageRange(period, now);
+            const now = Date.now(), range = usageQueryRange(period, now, monthOffset);
             if (range.start !== rangeStart) { since = 0; rangeStart = range.start; records.clear(); }
             try {
                 let cursor: string | undefined, snapshotAt: number | undefined, collectedSince: number | null = null;
@@ -46,6 +46,7 @@ export function useUsageAnalytics(period: UsagePeriod) {
                 } while (cursor && !disposed);
                 if (disposed) return;
                 for (const [key, record] of changes) records.set(key, record);
+                for (const [key, record] of records) if (record.occurredAt < range.start || record.occurredAt >= range.end) records.delete(key);
                 // Overlap covers client/server clock skew and records produced
                 // between this request's end time and the server snapshot.
                 since = Math.max(0, Math.min(snapshotAt!, range.end) - 300_000);
@@ -62,6 +63,6 @@ export function useUsageAnalytics(period: UsagePeriod) {
         const sub = AppState.addEventListener('change', state => { if (state === 'active') void refresh(); });
         if (Platform.OS === 'web') document.addEventListener('visibilitychange', visible);
         return () => { disposed = true; abort.abort(); clearInterval(timer); sub.remove(); if (Platform.OS === 'web') document.removeEventListener('visibilitychange', visible); };
-    }, [period]);
+    }, [period, monthOffset]);
     return { ...state, refresh: () => refreshRef.current() };
 }

@@ -1,4 +1,11 @@
 export const localFeatureEnglish = {
+    "poePoints": "Points remaining",
+    "poeShared": "Plan and add-on points; shared across Poe and API usage",
+    "poeRefresh": "Refresh Poe balance",
+    "poeSetup": "Run lmc poe configure on a connected computer to connect Poe",
+    "poeAuth": "Poe key is invalid or lacks access. Configure it again on the source computer.",
+    "poeUpgrade": "Update the device Agent to connect Poe",
+
     "nativeOpen": "Native mode · Open controls",
     "nativeTitle": "Native Claude computer",
     "nativeHint": "Claude runs natively by default on supported Macs. Keep sending messages in chat; this window is only for native prompts. Closing it leaves Claude running.",
@@ -29,6 +36,10 @@ export const localFeatureEnglish = {
     "quotaTitle": "Account usage",
     "quotaRefresh": "Refresh usage",
     "quotaUnknown": "No data",
+    "quotaStatus_region_restricted": "Region restricted · quota unavailable",
+    "quotaStatus_sign_in_required": "Sign in required",
+    "quotaStatus_unavailable": "Quota temporarily unavailable",
+    "quotaStatus_not_installed": "Antigravity is not installed",
     "quotaPending": "Starts on first use",
     "quotaAwaitReset": "Awaiting a fresh window",
     "quotaFiveHour": "5-hour left",
@@ -211,6 +222,13 @@ export const localFeatureEnglish = {
 };
 
 export const localFeatureZhHans = {
+    "poePoints": "剩余积分",
+    "poeShared": "包含订阅与加购积分，与 Poe 网页及 API 共用",
+    "poeRefresh": "刷新 Poe 余额",
+    "poeSetup": "在已连接的电脑运行 lmc poe configure 接入 Poe",
+    "poeAuth": "Poe 密钥无效或无权限，请在来源电脑重新配置",
+    "poeUpgrade": "升级设备 Agent 后可接入 Poe",
+
     "nativeOpen": "原生模式中 · 打开控制窗口",
     "nativeTitle": "Claude 原生电脑",
     "nativeHint": "支持的 Mac 会话默认使用原生 Claude，直接在聊天中发送消息即可。这里仅用于处理原生提示，关闭窗口不会停止会话。",
@@ -241,6 +259,10 @@ export const localFeatureZhHans = {
     "quotaTitle": "账户额度",
     "quotaRefresh": "刷新额度",
     "quotaUnknown": "暂无数据",
+    "quotaStatus_region_restricted": "地区受限 · 暂无法读取额度",
+    "quotaStatus_sign_in_required": "需要登录",
+    "quotaStatus_unavailable": "额度暂时不可用",
+    "quotaStatus_not_installed": "尚未安装反重力",
     "quotaPending": "首次使用后起算",
     "quotaAwaitReset": "等待新窗口读数",
     "quotaFiveHour": "5 小时剩余",
@@ -423,6 +445,13 @@ export const localFeatureZhHans = {
 };
 
 export const localFeatureZhHant = {
+    "poePoints": "剩餘點數",
+    "poeShared": "包含訂閱與加購點數，與 Poe 網頁及 API 共用",
+    "poeRefresh": "重新整理 Poe 餘額",
+    "poeSetup": "在已連線的電腦執行 lmc poe configure 接入 Poe",
+    "poeAuth": "Poe 金鑰無效或無權限，請在來源電腦重新設定",
+    "poeUpgrade": "升級裝置 Agent 後可接入 Poe",
+
     "nativeOpen": "原生模式中 · 開啟控制視窗",
     "nativeTitle": "Claude 原生電腦",
     "nativeHint": "支援的 Mac 會話預設使用原生 Claude，直接在聊天中傳送訊息即可。這裡僅用於處理原生提示，關閉視窗不會停止會話。",
@@ -452,6 +481,10 @@ export const localFeatureZhHant = {
     "quotaTitle": "账户额度",
     "quotaRefresh": "刷新额度",
     "quotaUnknown": "暂无数据",
+    "quotaStatus_region_restricted": "地区受限 · 暂无法读取额度",
+    "quotaStatus_sign_in_required": "需要登录",
+    "quotaStatus_unavailable": "额度暂时不可用",
+    "quotaStatus_not_installed": "尚未安装反重力",
     "quotaPending": "首次使用后起算",
     "quotaAwaitReset": "等待新窗口读数",
     "quotaFiveHour": "5 小时剩余",

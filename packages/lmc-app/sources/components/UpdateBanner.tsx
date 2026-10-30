@@ -1,3 +1,4 @@
+import { openChangelog } from '@/components/lmc/ChangelogDialog';
 import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Item } from './Item';
@@ -66,7 +67,7 @@ export const UpdateBanner = React.memo(({
                     icon={<Ionicons name="sparkles-outline" size={28} color={theme.colors.text} />}
                     showChevron={true}
                     onPress={() => {
-                        router.push('/changelog');
+                        openChangelog();
                         setTimeout(() => {
                             markAsRead();
                         }, 1000);

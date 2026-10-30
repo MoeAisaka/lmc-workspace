@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AccountQuotaProvider } from 'lmc-wire';
-import { weeklyRemaining, exhaustedWindow, quotaTone, resetCountdown, weeklyResetLabel } from './quotaDisplay';
+import { antigravityPoolRemaining, weeklyRemaining, exhaustedWindow, quotaTone, resetCountdown, weeklyResetLabel } from './quotaDisplay';
 
 const now = Date.UTC(2026, 8, 28, 4, 0);
 const provider = (five: number | null, week: number | null, extra: Partial<AccountQuotaProvider> = {}): AccountQuotaProvider => ({
@@ -70,5 +70,22 @@ describe('credit amount label', () => {
         p.usageCredits.unlimited = true; expect(usageCreditLabel(p, now)).toBe('∞');
         expect(usageCreditLabel(p, now + 6 * 60000)).toBe('—');
         expect(usageCreditLabel({ supplemental: { remaining: 100 } } as any, now)).toBe('—');
+    });
+});
+
+
+describe('Antigravity independent weekly pools', () => {
+    it('shows separate pools, preserves zero, and hides expired/stale samples', () => {
+        const p = provider(null, null, { engine: 'agy', status: 'ready', groups: [
+            { id: 'gemini', windows: [{ id: 'seven_day', remaining: 0, resetsAt: now + 60000, durationMins: 10080, pending: false }] },
+            { id: 'claude_gpt', windows: [{ id: 'seven_day', remaining: 100, resetsAt: now + 60000, durationMins: 10080, pending: false }] },
+        ] });
+        expect(antigravityPoolRemaining(p, 'gemini', now)).toBe(0);
+        expect(antigravityPoolRemaining(p, 'claude_gpt', now)).toBe(100);
+        expect(weeklyRemaining(p, now)).toBeNull();
+        expect(antigravityPoolRemaining(p, 'gemini', now + 60001)).toBeNull();
+        expect(antigravityPoolRemaining({ ...p, stale: true }, 'claude_gpt', now)).toBeNull();
+        expect(antigravityPoolRemaining({ ...p, status: 'sign_in_required' }, 'claude_gpt', now)).toBeNull();
+        expect(antigravityPoolRemaining({ ...p, groups: [] }, 'gemini', now)).toBeNull();
     });
 });

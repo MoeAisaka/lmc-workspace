@@ -84,7 +84,7 @@ export class StartupSessionRecovery {
                     }
                     const engine = metadata.flavor;
                     if (metadata.machineId !== this.ports.machineId || metadata.lifecycleState !== 'running'
-                        || !((engine === 'codex' && metadata.codexThreadId) || (engine === 'claude' && metadata.claudeSessionId))) {
+                        || !((engine === 'codex' && metadata.codexThreadId) || (engine === 'claude' && metadata.claudeSessionId) || (engine === 'agy' && metadata.agyConversationId))) {
                         this.pending.delete(id);
                         throw new Error('Session ownership or original provider identity unavailable');
                     }

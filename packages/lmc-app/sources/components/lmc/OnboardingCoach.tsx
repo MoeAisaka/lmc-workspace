@@ -1,3 +1,4 @@
+import { openLmcSettings } from '@/components/lmc/settings/LmcSettingsDialog';
 import * as React from 'react';
 import { Platform, Pressable, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -104,7 +105,7 @@ export const OnboardingCoach = React.memo(({ bottomInset = 0 }: { bottomInset?: 
                     <Pressable
                         accessibilityRole="button"
                         onPress={() => {
-                            if (isDevice) router.push('/settings/account');
+                            if (isDevice) openLmcSettings('account');
                             else { setStep(null); router.push('/new'); }
                         }}
                         style={({ pressed }) => [styles.action, { backgroundColor: colors.brand, opacity: pressed ? 0.85 : 1 }]}

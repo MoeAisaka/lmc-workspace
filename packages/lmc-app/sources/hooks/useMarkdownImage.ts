@@ -1,10 +1,15 @@
 import * as React from 'react';
 import { useSession } from '@/sync/storage';
-import { loadMarkdownImage, parseMarkdownImageSource } from '@/utils/markdownImage';
+import {
+    UnsupportedSavedImageError,
+    loadMarkdownImage,
+    loadSavedFileImage,
+    parseMarkdownImageSource,
+} from '@/utils/markdownImage';
 
 type ImageState = { key: string; uri: string | null; status: 'loading' | 'ready' | 'failed' | 'unsupported' };
 
-/** Read local previews through their owning session; ignore late results after navigation. */
+/** Read local previews through their owning session or decrypt saved LMC assets; ignore late results after navigation. */
 export function useMarkdownImage(url: string, sessionId?: string) {
     const source = React.useMemo(() => parseMarkdownImageSource(url), [url]);
     const session = useSession(sessionId || '');
@@ -18,7 +23,16 @@ export function useMarkdownImage(url: string, sessionId?: string) {
         setState({ key, uri: null, status: 'loading' });
         if (!source) setState({ key, uri: null, status: 'failed' });
         else if (source.kind === 'uri') setState({ key, uri: source.uri, status: 'ready' });
-        else if (!sessionId || !supported) setState({ key, uri: null, status: 'unsupported' });
+        else if (source.kind === 'saved-file') {
+            void loadSavedFileImage(source.id).then(
+                uri => { if (active) setState({ key, uri, status: 'ready' }); },
+                error => {
+                    if (active) {
+                        setState({ key, uri: null, status: error instanceof UnsupportedSavedImageError ? 'unsupported' : 'failed' });
+                    }
+                },
+            );
+        } else if (!sessionId || !supported) setState({ key, uri: null, status: 'unsupported' });
         else void loadMarkdownImage(sessionId, source.path, source.mime).then(
             uri => { if (active) setState({ key, uri, status: 'ready' }); },
             () => { if (active) setState({ key, uri: null, status: 'failed' }); },

@@ -550,6 +550,7 @@ export async function runAcp(opts: {
   let thinking = false;
   let acpSessionId: string | null = null;
   let shouldExit = false;
+  let archiveRequested = false;
   let abortController = new AbortController();
   let pendingTurn: PendingTurn | null = null;
 
@@ -872,6 +873,7 @@ export async function runAcp(opts: {
 
   session.rpcHandlerManager.registerHandler('abort', handleAbort);
   registerKillSessionHandler(session.rpcHandlerManager, async () => {
+    archiveRequested = true;
     shouldExit = true;
     messageQueue.close();
     clearPendingTurn(new Error('Session terminated'));
@@ -956,13 +958,16 @@ export async function runAcp(opts: {
     }
 
     try {
-      session.updateMetadata((currentMetadata) => ({
-        ...currentMetadata,
-        lifecycleState: 'archived',
-        lifecycleStateSince: Date.now(),
-        archivedBy: 'cli',
-        archiveReason: 'Session ended',
-      }));
+      // Backend failure or normal shutdown must not archive a session.
+      if (archiveRequested) {
+        session.updateMetadata((currentMetadata) => ({
+          ...currentMetadata,
+          lifecycleState: 'archived',
+          lifecycleStateSince: Date.now(),
+          archivedBy: 'cli',
+          archiveReason: 'User terminated',
+        }));
+      }
       session.sendSessionDeath();
       await session.flush();
       await session.close();

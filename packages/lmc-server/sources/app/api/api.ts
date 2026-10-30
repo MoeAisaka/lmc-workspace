@@ -1,3 +1,4 @@
+import { canonicalPageRedirect } from '@/lmc/canonicalPageOrigin';
 import fastify from "fastify";
 import { trustedProxies } from "@/lmc/trustedProxies";
 import { isProduction, log, logger } from "@/utils/log";
@@ -23,6 +24,8 @@ import { feedRoutes } from "./routes/feedRoutes";
 import { kvRoutes } from "./routes/kvRoutes";
 import { v3SessionRoutes } from "./routes/v3SessionRoutes";
 import { attachmentRoutes } from "./routes/attachmentRoutes";
+import { fileAssetRoutes } from "./routes/fileAssetRoutes";
+import { fileShareRoutes } from "./routes/fileShareRoutes";
 import { projectRoutes } from "./routes/projectRoutes";
 import { isLocalStorage, getLocalFilesDir, readLocalFile } from "@/storage/files";
 import * as path from "path";
@@ -102,6 +105,12 @@ export async function startApi(opts: StartApiOptions = {}) {
                 reply.code(403).send('Forbidden');
                 return;
             }
+            // Saved files and session attachments require their authenticated
+            // routes. The legacy static endpoint must not bypass revocation.
+            const relative = path.relative(baseDir, fullPath);
+            if (['assets', 'sessions'].some(namespace => relative === namespace || relative.startsWith(namespace + path.sep))) {
+                return reply.code(404).send('Not found');
+            }
             try {
                 return reply.send(await readLocalFile(filePath));
             } catch (error) {
@@ -127,6 +136,8 @@ export async function startApi(opts: StartApiOptions = {}) {
     kvRoutes(typed);
     v3SessionRoutes(typed);
     attachmentRoutes(typed);
+    fileAssetRoutes(typed);
+    fileShareRoutes(typed);
     projectRoutes(typed);
 
     // Static webapp (self-host mode)
@@ -143,7 +154,9 @@ export async function startApi(opts: StartApiOptions = {}) {
             wildcard: true,
             index: false,
         });
-        const sendIndex = async (_request: unknown, reply: any) => {
+        const sendIndex = async (request: any, reply: any) => {
+            const canonical = canonicalPageRedirect(request.headers.host, request.raw.url || '/', process.env.LMC_PUBLIC_ORIGIN);
+            if (canonical) return reply.redirect(canonical, 307);
             const indexPath = path.join(opts.staticDir!, 'index.html');
             let source: string;
             try { source = await fs.promises.readFile(indexPath, 'utf8'); } catch (error) {

@@ -22,6 +22,12 @@ datasource db {
 
 model Account {
   id              String      @id @default(cuid())
+  role            LmcAccountRole @default(member)
+  enabled         Boolean     @default(true)
+  accessVersion   Int         @default(0)
+  resourcePolicies LmcResourcePolicy[]
+  resourceGrants  LmcResourceGrant[]
+  invitations    LmcInvitation[]
   publicKey       String      @unique
   lmcPasswordHash String?     @db.Text
   lmcSecret       String?     @db.Text
@@ -56,10 +62,127 @@ model Account {
   RelationshipsFrom   UserRelationship[]    @relation("RelationshipsFrom")
   RelationshipsTo     UserRelationship[]    @relation("RelationshipsTo")
   Artifact            Artifact[]
+  FileAsset           FileAsset[]
+  FileDelivery        FileDelivery[]
+  FileShare           FileShare[]
   AccessKey           AccessKey[]
   UserFeedItem        UserFeedItem[]
   UserKVStore         UserKVStore[]
   VoiceConversation   VoiceConversation[]
+}
+
+enum LmcAccountRole {
+  admin
+  member
+}
+
+model LmcAccessLock {
+  id Int @id
+}
+
+enum LmcResourceKind {
+  session
+  machine
+  project
+  file
+  provider
+  tool
+  memory
+}
+
+// No public registration. Invitations contain only a hash, never the bearer secret.
+model LmcInvitation {
+  id          String   @id @default(cuid())
+  tokenHash   String   @unique @db.Char(64)
+  createdById String
+  createdBy   Account  @relation(fields: [createdById], references: [id])
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([createdById, createdAt])
+}
+
+// The resource adapter validates the real resource and its owner on every access.
+// An ACL entry alone never creates a resource or authorizes a different owner.
+model LmcResourcePolicy {
+  id             String          @id @default(cuid())
+  kind           LmcResourceKind
+  resourceId     String
+  ownerAccountId String
+  owner          Account         @relation(fields: [ownerAccountId], references: [id])
+  version        Int             @default(0)
+  adminManaged   Boolean         @default(false)
+  grants         LmcResourceGrant[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@unique([kind, resourceId])
+  @@index([ownerAccountId, kind])
+}
+
+model LmcResourceGrant {
+  policyId    String
+  policy      LmcResourcePolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  accountId   String
+  account     Account          @relation(fields: [accountId], references: [id])
+  actions     Json
+  keyEnvelope Bytes?           @db.Blob
+  createdAt   DateTime         @default(now())
+
+  @@id([policyId, accountId])
+  @@index([accountId, policyId])
+}
+
+// Deliberately excludes encrypted material, credentials and content.
+model LmcAccessAudit {
+  id         String   @id @default(cuid())
+  actorId    String
+  action     String
+  targetId   String
+  kind       String
+  before     Json?
+  after      Json?
+  createdAt  DateTime @default(now())
+
+  @@index([targetId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+// A shared prompt is admitted once, then re-authorized when the Agent takes it
+// from its queue. No prompt text or provider credentials are stored here.
+model LmcSharedCommand {
+  id            String   @id
+  sessionId     String
+  actorId       String
+  requestId     String
+  policyVersion Int
+  state         String   @default("queued")
+  createdAt     DateTime @default(now())
+  claimedAt     DateTime?
+
+  @@unique([sessionId, actorId, requestId])
+  @@index([sessionId, state])
+}
+
+// Device-bound execution is separate from LMC session ownership. Tokens handed
+// to the host are scoped to this one session, never to the creator's account.
+model LmcDeviceRun {
+  sessionId     String @id
+  accountId     String
+  machineId     String
+  hostOwnerId   String
+  engine        String
+  requestId     String
+  launchId      String
+  policyVersion Int
+  state         String @default("pending")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([accountId, requestId])
+  @@index([machineId, state])
 }
 
 model TerminalAuthRequest {
@@ -304,6 +427,66 @@ model UploadedFile {
 
   @@unique([accountId, path])
   @@index([accountId])
+}
+
+model FileAsset {
+  runtimeSessionId String?
+  id        String @id
+  accountId String
+  account Account @relation(fields: [accountId], references: [id])
+  size BigInt
+  partCount Int
+  keyMode String
+  ownerKey Bytes @db.Blob
+  manifest Bytes? @db.MediumBlob
+  state String @default("uploading")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  parts FileAssetPart[]
+  deliveries FileDelivery[]
+  shares FileShare[]
+  @@index([accountId, state, createdAt])
+}
+
+model FileShare {
+  id String @id
+  accountId String
+  account Account @relation(fields: [accountId], references: [id])
+  assetId String
+  asset FileAsset @relation(fields: [assetId], references: [id])
+  tokenHash String @db.Char(64)
+  keyEnvelope Bytes @db.Blob
+  ttlHours Int
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([accountId, assetId, createdAt])
+  @@index([accountId, expiresAt])
+}
+
+model FileAssetPart {
+  assetId String
+  asset FileAsset @relation(fields: [assetId], references: [id])
+  index Int
+  size Int
+  sha256 String @db.Char(64)
+  @@id([assetId, index])
+}
+
+model FileDelivery {
+  id String @id
+  accountId String
+  account Account @relation(fields: [accountId], references: [id])
+  assetId String
+  asset FileAsset @relation(fields: [assetId], references: [id])
+  sessionId String
+  ciphertext Bytes @db.Blob
+  state String @default("pending")
+  receipt Bytes? @db.Blob
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([accountId, sessionId, state, createdAt])
+  @@index([accountId, assetId, createdAt])
 }
 
 model ServiceAccountToken {

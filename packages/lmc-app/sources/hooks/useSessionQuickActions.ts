@@ -1,3 +1,4 @@
+import { openSessionInfo } from '@/components/lmc/SessionInfoDialog';
 import { openClaudeNative } from '@/components/ClaudeNativeDialog';
 import { sessionCapabilities } from '@/sync/sessionCapabilities';
 import { checkSessionAuthentication } from '@/sync/engineAuthentication';
@@ -9,7 +10,7 @@ import * as React from 'react';
 import { useLmcAction } from '@/hooks/useLmcAction';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
 import { Modal } from '@/modal';
-import { machineResumeSession, sessionArchive, sessionKill, sessionSetAgentModes, forkAndSpawn, type ForkSource } from '@/sync/ops';
+import { machineResumeSession, sessionArchive, sessionSetAgentModes, forkAndSpawn, type ForkSource } from '@/sync/ops';
 import { maybeCleanupWorktree } from '@/hooks/useWorktreeCleanup';
 import { storage, useLocalSetting, useMachine, useSetting } from '@/sync/storage';
 import { Machine, Session } from '@/sync/storageTypes';
@@ -65,6 +66,11 @@ function getResumeAvailability(session: Session, machine: Machine | null | undef
             subtitle: '',
             message: '',
         };
+    }
+
+    if (session.metadata?.sharedDevice || session.shared) {
+        const allowed = !session.shared || !!session.accessActions?.includes('send');
+        return { canResume: allowed, canShowResume: allowed, subtitle: '在原共享设备恢复，会重新核对设备使用权限', message: '没有恢复此共享会话的权限' };
     }
 
     const machineId = session.metadata?.machineId;
@@ -162,6 +168,7 @@ export function useSessionQuickActions(
     ]);
     const canFork = Boolean(
         continuationExperimentsEnabled
+        && !session.shared
         && !isRigMetadata(session.metadata)
         && forkSource
         && machine
@@ -169,8 +176,8 @@ export function useSessionQuickActions(
     );
 
     const openDetails = React.useCallback(() => {
-        router.push(`/session/${session.id}/info`);
-    }, [router, session.id]);
+        openSessionInfo(session.id);
+    }, [session.id]);
 
     const renameSession = React.useCallback(() => {
         void promptSessionRename(session);
@@ -208,7 +215,7 @@ export function useSessionQuickActions(
 
         let modeMeta: ReturnType<typeof resolveMessageModeMeta>;
         try {
-            modeMeta = resolveMessageModeMeta(session, storage.getState().settings, storage.getState().machines[session.metadata?.machineId ?? '']?.metadata);
+            modeMeta = session.metadata?.sharedDevice || session.shared ? {} : resolveMessageModeMeta(session, storage.getState().settings, storage.getState().machines[session.metadata?.machineId ?? '']?.metadata);
         } catch (error) {
             if (error instanceof UnsupportedPermissionModeError || error instanceof UnsupportedCodexEffortError) {
                 // Refuse loudly instead of substituting a mode: swapping in a
@@ -230,7 +237,7 @@ export function useSessionQuickActions(
                 // Refresh to pick up the updated session state.
                 await sync.refreshSessions();
 
-                if (session.permissionMode) {
+                if (session.permissionMode && !session.shared) {
                     sessionSetAgentModes(result.sessionId, { permissionMode: session.permissionMode });
                 }
                 // Model / effort picks survive resume on their own — they live
@@ -249,11 +256,8 @@ export function useSessionQuickActions(
     const [archivingSession, performArchive] = useLmcAction(async () => {
         await maybeCleanupWorktree(session.id, session.metadata?.path, session.metadata?.machineId);
 
-        // Try to kill the CLI process; if it's already dead, force-archive via server
-        const killResult = await sessionKill(session.id);
-        if (!killResult.success) {
-            await sessionArchive(session.id);
-        }
+        const archived = await sessionArchive(session.id);
+        if (!archived.success) throw new LmcError(archived.message || t('sessionInfo.failedToArchiveSession'), false);
         onAfterArchive?.();
     });
 
@@ -316,6 +320,7 @@ export function useSessionQuickActions(
             { id: 'details', icon: 'information-circle-outline', label: t('profile.details'), onPress: openDetails },
         ];
 
+        if (session.shared) return items;
         const capabilities = sessionCapabilities(session.metadata);
         if (session.metadata?.flavor === 'claude' && session.metadata.sessionCapabilities?.nativeComputer) items.push({ id: 'native-computer', icon: 'desktop-outline', label: t('localFeatures.nativeTitle'), onPress: () => openClaudeNative(session.id), disabled: !session.active });
         if (capabilities.authentication) items.push({ id: 'check-auth', icon: 'key-outline', label: t('localFeatures.engineAuthCheck'), onPress: checkAuthentication, disabled: !session.active });
@@ -339,13 +344,13 @@ export function useSessionQuickActions(
             items.push({ id: 'copy-metadata-and-logs', icon: 'document-text-outline', label: t('sessionInfo.copyMetadata') + ' · ' + t('localFeatures.clientLogs'), onPress: copySessionMetadataAndLogs });
         }
 
-        items.push({ id: 'archive', icon: 'archive-outline', label: t('localFeatures.archive'), onPress: archiveSession, destructive: true });
+        items.push({ id: 'archive', icon: 'archive-outline', label: t('localFeatures.archive') + (archivingSession ? '…' : ''), onPress: archiveSession, destructive: true, disabled: archivingSession });
 
         return items;
     }, [
-        refreshConfiguration, checkAuthentication, session.metadata, session.active,
+        refreshConfiguration, checkAuthentication, session.metadata, session.active, session.shared,
         renameSession, resetSessionName, session.customName,
-        archiveSession,
+        archiveSession, archivingSession,
         canCopySessionMetadata,
         canFork,
         copySessionMetadata,
@@ -373,10 +378,10 @@ export function useSessionQuickActions(
         showActionAlert,
         archiveSession,
         archivingSession,
-        canArchive: true,
+        canArchive: !session.shared,
         canCopySessionMetadata,
-        canResume: resumeAvailability.canResume,
-        canShowResume: resumeAvailability.canShowResume,
+        canResume: !session.shared && resumeAvailability.canResume,
+        canShowResume: !session.shared && resumeAvailability.canShowResume,
         canFork,
         copySessionMetadata,
         copySessionMetadataAndLogs,

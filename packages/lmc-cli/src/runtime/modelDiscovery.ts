@@ -1,11 +1,27 @@
+import { discoverAgyModels } from '@/agy/modelDiscovery';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { DiscoveredModelSchema, type DiscoveredModel, type ModelCatalogs } from 'lmc-wire';
 import { CodexAppServerClient } from '@/codex/codexAppServerClient';
-import { codexExecutable, readRuntimeSelection, runtimeRelease, runtimeVersion, sdkRequire, type Engine } from './managedRuntime';
+import { codexExecutable, runtimeRelease, runtimeVersion, sdkRequire, type Engine } from './managedRuntime';
 import { modelCatalogPath, readModelCatalogs } from './modelCatalogCache';
+import { fetchPoeJson, readPoeSettings } from './poe';
+
+/** Poe lists community bots too; only Anthropic models advertising Messages are eligible. */
+export function normalizePoeModels(raw: unknown): DiscoveredModel[] {
+    const data = (raw as { data?: unknown } | null)?.data;
+    if (!Array.isArray(data)) throw new Error('Invalid Poe model catalog');
+    return data.flatMap(row => {
+        if (row?.owned_by !== 'Anthropic' || !Array.isArray(row.supported_endpoints) || !row.supported_endpoints.includes('/v1/messages')) return [];
+        const effort = Array.isArray(row.parameters) ? row.parameters.find((p: any) => p?.name === 'effort' || p?.name === 'output_effort') : undefined;
+        const levels = Array.isArray(effort?.schema?.enum) ? effort.schema.enum.filter((s: string) => ['low', 'medium', 'high', 'xhigh', 'max'].includes(s)) : undefined;
+        const parsed = DiscoveredModelSchema.safeParse({ id: row.id, name: row.metadata?.display_name ?? row.id,
+            efforts: levels, defaultEffort: levels?.includes(effort?.default_value) ? effort.default_value : undefined });
+        return parsed.success ? [parsed.data] : [];
+    }).slice(0, 256);
+}
 
 export function normalizeModels(engine: Engine, rows: unknown[]): DiscoveredModel[] {
     const models = new Map<string, DiscoveredModel>();
@@ -33,6 +49,10 @@ export function normalizeModels(engine: Engine, rows: unknown[]): DiscoveredMode
 
 /** Metadata requests only: no user prompt, model inference, resume or tools. */
 export async function discoverModels(engine: Engine): Promise<DiscoveredModel[]> {
+    if (engine === 'claude') {
+        const poe = readPoeSettings();
+        if (poe?.enabled) return normalizePoeModels(await fetchPoeJson('/v1/models', poe.apiKey));
+    }
     if (engine === 'codex') {
         const client = new CodexAppServerClient(undefined, undefined, undefined, codexExecutable(runtimeRelease('codex', true) ?? null));
         try { await client.connect(); return normalizeModels(engine, await client.listModels()); }
@@ -58,12 +78,18 @@ export async function discoverModels(engine: Engine): Promise<DiscoveredModel[]>
     } finally { clearTimeout(timeout); abortController.abort(); query.close(); }
 }
 
-export function startModelDiscovery(publish: (catalogs: ModelCatalogs) => Promise<void>) {
+export function startModelDiscovery(
+    publish: (catalogs: ModelCatalogs) => Promise<void>,
+    activeClaudeSessions: () => readonly string[] = () => [],
+) {
     let catalogs = readModelCatalogs();
     let stopped = false;
     let running = false;
-    let lastAttempt = 0;
-    let selection = '';
+    let lastCodexAttempt = 0;
+    let lastAgyAttempt = 0;
+    let codexSelection = '';
+    let knownClaudeSessions = new Set<string>();
+    let lastPoeEnabled = false;
     // Serialize initial cache publication with fresh results: a retried stale
     // metadata write must never land after the fresh catalog.
     const cachedPublication = publish(catalogs).catch(() => {});
@@ -71,22 +97,47 @@ export function startModelDiscovery(publish: (catalogs: ModelCatalogs) => Promis
         if (stopped || running) return;
         running = true;
         try {
-            const nextSelection = JSON.stringify(readRuntimeSelection());
-            if (nextSelection === selection && Date.now() - lastAttempt < 15 * 60_000) return;
-            selection = nextSelection;
-            lastAttempt = Date.now();
-            const results = await Promise.allSettled((['claude', 'codex'] as const).map(async engine => {
+            // Only live session generations create Claude demand. Historical
+            // sessions, an installed runtime, and an open but unchanged session
+            // must never keep launching the SDK on the background timer.
+            const claudeSessions = new Set(activeClaudeSessions());
+            const engines: (Engine | 'agy')[] = [];
+            if (Date.now() - lastAgyAttempt >= 15 * 60_000) {
+                engines.push('agy'); lastAgyAttempt = Date.now();
+            }
+            let poeEnabled = false, poeInvalid = false;
+            try { poeEnabled = !!readPoeSettings()?.enabled; } catch { poeInvalid = true; }
+            if (!poeInvalid && ([...claudeSessions].some(id => !knownClaudeSessions.has(id)) || (poeEnabled && !lastPoeEnabled))) engines.push('claude');
+            if ((poeInvalid || (catalogs.claude?.source === 'poe') !== poeEnabled) && catalogs.claude) {
+                catalogs = { ...catalogs, claude: undefined };
+                await cachedPublication;
+                await publish(catalogs);
+            }
+            lastPoeEnabled = poeEnabled;
+            knownClaudeSessions = claudeSessions;
+            const nextCodexSelection = JSON.stringify(runtimeRelease('codex', true));
+            if (nextCodexSelection !== codexSelection || Date.now() - lastCodexAttempt >= 15 * 60_000) {
+                engines.push('codex');
+                codexSelection = nextCodexSelection;
+                lastCodexAttempt = Date.now();
+            }
+            if (!engines.length) return;
+            const results = await Promise.allSettled(engines.map(async engine => {
+                if (engine === 'agy') return { engine, catalog: await discoverAgyModels() };
                 const selected = JSON.stringify(runtimeRelease(engine, true));
                 const runtime = await runtimeVersion(engine, true);
                 const models = await discoverModels(engine);
                 if (selected !== JSON.stringify(runtimeRelease(engine, true))) throw new Error('Runtime changed during discovery');
+                if (engine === 'claude' && poeEnabled !== !!readPoeSettings()?.enabled) throw new Error('Provider changed during discovery');
                 if (!models.length) throw new Error('Empty model catalog');
-                return { engine, catalog: { models, capturedAt: Date.now(), runtimeVersion: runtime.packageVersion ?? runtime.version, stale: false } };
+                return { engine, catalog: { models, capturedAt: Date.now(), runtimeVersion: runtime.packageVersion ?? runtime.version, stale: false,
+                    source: engine === 'claude' && poeEnabled ? 'poe' as const : 'native' as const } };
             }));
             for (let i = 0; i < results.length; i++) {
                 const result = results[i];
-                const engine = (['claude', 'codex'] as const)[i];
+                const engine = engines[i];
                 if (result.status === 'fulfilled') catalogs = { ...catalogs, [engine]: result.value.catalog };
+                else if (engine === 'agy') catalogs = { ...catalogs, agy: undefined };
                 else if (catalogs[engine]) catalogs = { ...catalogs, [engine]: { ...catalogs[engine]!, stale: true } };
             }
             if (stopped) return;

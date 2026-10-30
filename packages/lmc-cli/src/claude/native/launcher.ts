@@ -321,6 +321,7 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
             }
         }
         if (!head) return;
+        if (!(await session.queue.authorizeItem(head.key)) || session.queue.queue[0] !== head || phase !== 'idle') { schedule(); return; }
         phase = 'sending';
         const batch = [head];
         // Never turn an adjacent chat message into part of a shell command (or

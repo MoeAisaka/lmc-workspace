@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { homedir } from 'node:os';
+import { resolveNodeExecutable } from '@/utils/nodeExecutable';
 import type { FullDiskAccessDiagnostic, SystemPromptDiagnostic, ToolProcessObservation } from 'lmc-wire';
 
 export type ProbeResult = { status: 'completed'; stdout: string } | { status: 'timeout' | 'failed' };
@@ -82,7 +83,7 @@ export async function checkFullDiskAccess(options: Options & { home?: string } =
     const base = { checkedAt, method: 'tcc-file-open' as const };
     if ((options.platform ?? process.platform) !== 'darwin') return { ...base, status: 'unsupported' };
     try {
-        const result = await (options.run ?? runDiagnosticProbe)({ executable: process.execPath,
+        const result = await (options.run ?? runDiagnosticProbe)({ executable: resolveNodeExecutable(),
             args: ['-e', FULL_DISK_ACCESS_SCRIPT, `${options.home ?? homedir()}/Library/Application Support/com.apple.TCC/TCC.db`], timeoutMs: options.timeoutMs ?? TIMEOUT_MS });
         if (result.status !== 'completed') return { ...base, status: 'unknown', reason: result.status };
         const value = JSON.parse(result.stdout);

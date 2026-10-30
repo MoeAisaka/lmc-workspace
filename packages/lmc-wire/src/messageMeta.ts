@@ -1,6 +1,8 @@
 import * as z from 'zod';
 
 export const MessageMetaSchema = z.object({
+    actor: z.object({ id: z.string(), name: z.string() }).optional(),
+    sharedCommandId: z.string().optional(),
   sentFrom: z.string().optional(),
   // Native clients may publish their own mode codes (for example Rig's
   // auto/workspace_write/read_only/full_access), so this stays open-ended.

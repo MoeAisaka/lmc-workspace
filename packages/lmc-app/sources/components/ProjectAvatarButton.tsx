@@ -8,6 +8,7 @@ import { t } from '@/text';
 import { prepareProjectAvatarImage, revokeAvatarBlobUrl } from '@/utils/projectAvatarImage';
 import { ProjectAvatarActions } from './ProjectAvatarActions';
 import { readEventPoint, isTouchInteraction } from '@/utils/pointerEvents';
+import { useWebSecondaryContextMenu } from '@/hooks/useSessionRowMenu';
 import { ProjectAvatarCropModal } from './ProjectAvatarCropModal';
 
 interface ProjectAvatarButtonProps {
@@ -144,12 +145,31 @@ export const ProjectAvatarButton = React.memo(({
         }
     }, [projectId, ordinary, mutationId]);
 
+    const closeAnchor = React.useCallback(() => setAnchor(null), []);
+    const {
+        closeMenu,
+        contextHitOverlay,
+        hoverMenuProps,
+        lastPointerTypeRef,
+        openMenuAt,
+    } = useWebSecondaryContextMenu({
+        disabled: busy || Platform.OS !== 'web',
+        isOpen: anchor !== null,
+        onClose: closeAnchor,
+        onOpenAt: setAnchor,
+    });
+
     return <>
         <Pressable
             accessibilityRole="button"
             accessibilityLabel={`${t('projectAvatar.actionsTitle')}: ${projectName}`}
             disabled={busy || Platform.OS !== 'web'}
-            onPressIn={event => { longPressed.current = false; point.current = readEventPoint(event); touch.current = isTouchInteraction(event); }}
+            onPressIn={event => {
+                longPressed.current = false;
+                point.current = readEventPoint(event);
+                touch.current = isTouchInteraction(event)
+                    || (lastPointerTypeRef.current !== null && lastPointerTypeRef.current !== 'mouse');
+            }}
             onLongPress={() => { if (touch.current) longPressed.current = true; }}
             onPressOut={() => {
                 if (!longPressed.current) return;
@@ -159,21 +179,21 @@ export const ProjectAvatarButton = React.memo(({
                 releaseCleanup.current = suppressTouchReleaseClick(document);
                 // Let the original long-press responder consume the release click
                 // before mounting a menu beneath that finger.
-                openTimer.current = setTimeout(() => setAnchor(position), 0);
+                openTimer.current = setTimeout(() => openMenuAt(position), 0);
             }}
             delayLongPress={450}
             {...(Platform.OS === 'web' ? {
-                onContextMenu: (event: any) => { event.preventDefault(); event.stopPropagation(); setAnchor(readEventPoint(event)); },
+                ...hoverMenuProps,
                 onKeyDown: (event: any) => {
                     if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
-                        event.preventDefault(); const box = event.currentTarget.getBoundingClientRect(); setAnchor({x:box.left,y:box.bottom});
+                        event.preventDefault(); const box = event.currentTarget.getBoundingClientRect(); openMenuAt({x:box.left,y:box.bottom});
                     }
                 },
             } : {})}
-            style={{flex:1, minWidth:0, flexDirection:'row', alignItems:'center', gap:8, ...(Platform.OS === 'web' ? {userSelect:'none', WebkitTouchCallout:'none'} as any : {})}}
-        >{children}</Pressable>
-        <ProjectAvatarActions anchor={anchor} onClose={() => setAnchor(null)} hasCustomAvatar={hasCustomAvatar}
-            onPick={() => { setAnchor(null); void pickImage(); }}
-            onRestore={() => { setAnchor(null); setTimeout(() => { void restoreDefault(); }, 0); }} />
+            style={{flex:1, minWidth:0, flexDirection:'row', alignItems:'center', gap:8, ...(Platform.OS === 'web' ? {position:'relative', userSelect:'none', WebkitUserSelect:'none', WebkitTouchCallout:'none'} as any : {})}}
+        >{contextHitOverlay}{children}</Pressable>
+        <ProjectAvatarActions anchor={anchor} onClose={closeMenu} hasCustomAvatar={hasCustomAvatar}
+            onPick={() => { closeMenu(); void pickImage(); }}
+            onRestore={() => { closeMenu(); setTimeout(() => { void restoreDefault(); }, 0); }} />
     </>;
 });

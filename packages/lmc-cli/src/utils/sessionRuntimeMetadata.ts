@@ -34,6 +34,7 @@ export function refreshSessionRuntimeMetadata(metadata: Metadata, launch: Metada
         ...(switched ? {
             claudeSessionId: undefined,
             codexThreadId: undefined,
+            agyConversationId: undefined,
             modelMode: launch.modelMode,
             effortLevel: launch.effortLevel,
         } : {}),

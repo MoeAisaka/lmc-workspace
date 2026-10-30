@@ -5,11 +5,15 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { NativeTerminalRelay, nativeComposerReady, type NativeScreen } from './terminalRelay';
+import { spawnHostedPty } from './ptyHost';
+import { resolveNodeExecutable } from '@/utils/nodeExecutable';
 
 const require = createRequire(import.meta.url);
 export function nativeTransportAvailable(): boolean {
-    if (process.platform !== 'darwin') return false;
-    try { require.resolve('@lydell/node-pty'); require.resolve('@xterm/headless'); return true; } catch { return false; }
+    if (process.platform !== 'darwin' && process.platform !== 'win32') return false;
+    // Resolving the JS package does not prove its platform-specific native
+    // binary can load. In particular, Windows needs the bundled ConPTY addon.
+    try { return typeof require('@lydell/node-pty').spawn === 'function' && typeof require('@xterm/headless').Terminal === 'function'; } catch { return false; }
 }
 
 export type NativeHook = { event: string; sessionId: string; toolName?: string; toolInput?: unknown; toolUseId?: string; requestId?: string };
@@ -19,7 +23,7 @@ export async function startNativeInteractiveProcess(options: {
     onHook: (hook: NativeHook, signal: AbortSignal) => void | object | Promise<void | object>; onScreen?: () => void;
     onOutput?: () => void;
 }) {
-    if (process.platform !== 'darwin') throw new Error('Native Claude requires macOS');
+    if (!nativeTransportAvailable()) throw new Error('原生 Claude 终端组件不可用，请升级设备 Agent');
     const pty = require('@lydell/node-pty');
     const { Terminal } = require('@xterm/headless');
     const terminal = new Terminal({ cols: 100, rows: 40, scrollback: 200, allowProposedApi: true });
@@ -45,10 +49,13 @@ export async function startNativeInteractiveProcess(options: {
     const port = (server.address() as { port: number }).port;
     const hookScript = join(directory, 'hook.cjs');
     await writeFile(hookScript, `const http=require('node:http');const {randomUUID}=require('node:crypto');let text='';process.stdin.on('data',c=>text+=c);process.stdin.on('end',()=>{const d=JSON.parse(text);const guarded=['PreToolUse','PermissionRequest'].includes(d.hook_event_name);const deny=()=>JSON.stringify(guarded?{hookSpecificOutput:d.hook_event_name==='PreToolUse'?{hookEventName:d.hook_event_name,permissionDecision:'deny',permissionDecisionReason:'LMC approval connection failed; wait for a new instruction.'}:{hookEventName:d.hook_event_name,decision:{behavior:'deny',message:'LMC approval connection failed; wait for a new instruction.'}}}:{});let ended=false;const finish=x=>{if(!ended){ended=true;process.stdout.write(x)}};const r=http.request({host:'127.0.0.1',port:${port},path:'/${nonce}',method:'POST',timeout:guarded?590000:4000},s=>{let body='';s.on('data',c=>body+=c);s.on('end',()=>finish(s.statusCode===200?body:deny()))});r.on('error',()=>finish(deny()));r.on('timeout',()=>r.destroy());r.end(JSON.stringify({event:d.hook_event_name,sessionId:d.session_id,...(guarded?{toolName:d.tool_name,toolInput:d.tool_input,toolUseId:d.tool_use_id,requestId:randomUUID()}:{})}))});`, { mode: 0o600 });
-    const quote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
-    const hook = [{ hooks: [{ type: 'command', command: `${quote(process.execPath)} ${quote(hookScript)}`, timeout: 5 }] }];
+    // Claude's documented exec-form hook avoids shell-specific quoting and
+    // works with node.exe and paths containing spaces on Windows as well.
+    // Keep the installed CLI untouched; only this process gets these hooks.
+    const command = { type: 'command', command: resolveNodeExecutable(), args: [hookScript] };
+    const hook = [{ hooks: [{ ...command, timeout: 5 }] }];
     const settings = join(directory, 'settings.json');
-    const permissionHook = [{ hooks: [{ type: 'command', command: `${quote(process.execPath)} ${quote(hookScript)}`, timeout: 600 }] }];
+    const permissionHook = [{ hooks: [{ ...command, timeout: 600, onFailure: 'block' }] }];
     await writeFile(settings, JSON.stringify({ hooks: {
         ...Object.fromEntries(['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop', 'StopFailure'].map(name => [name, hook])),
         PreToolUse: [{ ...permissionHook[0], matcher: '.*' }],
@@ -60,8 +67,12 @@ export async function startNativeInteractiveProcess(options: {
     const relay = new NativeTerminalRelay({ write: data => child.write(data), screen: () => screen });
     const cleanup = async () => { server.close(); terminal.dispose(); await rm(directory, { recursive: true, force: true }); };
     try {
-        child = pty.spawn(options.executable, [options.resume ? '--resume' : '--session-id', options.sessionId,
-            ...options.args ?? [], '--settings', settings, '--ax-screen-reader'], { cwd: options.cwd, env, cols: 100, rows: 40 });
+        const args = [options.resume ? '--resume' : '--session-id', options.sessionId,
+            ...options.args ?? [], '--settings', settings, '--ax-screen-reader'];
+        const spawnOptions = { cwd: options.cwd, env, cols: 100, rows: 40 };
+        child = process.platform === 'win32'
+            ? await spawnHostedPty(options.executable, args, spawnOptions)
+            : pty.spawn(options.executable, args, spawnOptions);
     } catch (error) { await cleanup(); throw error; }
     child.onData((data: string) => {
         options.onOutput?.();

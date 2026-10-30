@@ -7,8 +7,8 @@ export type ImageAttachmentSendPlan = {
     shouldSendText: boolean;
 };
 
-export function supportsImageAttachmentsForFlavor(flavor: ImageAttachmentFlavor): boolean {
-    return !flavor || flavor === 'claude' || flavor === 'codex';
+export function supportsImageAttachmentsForFlavor(flavor: ImageAttachmentFlavor, fileInbox = false): boolean {
+    return !flavor || flavor === 'claude' || flavor === 'codex' || (flavor === 'agy' && fileInbox);
 }
 
 export function getImageAttachmentSendPlan(opts: {

@@ -17,6 +17,18 @@ export function claudeUsageRecord(body: any, origin: Origin): UsageRecord | null
         tokens: { input: n(u.input_tokens), output: n(u.output_tokens), cacheRead: n(u.cache_read_input_tokens), cacheWrite: n(u.cache_creation_input_tokens) } };
 }
 
+/** Native agy step usage: input is uncached; output includes thinking.
+ * Native total excludes cache reads, while the LMC total includes all token work.
+ * Never feed the cumulative result.usage into this per-generation collector. */
+export function agyUsageRecord(raw: any, origin: Origin, turnId: string, model: string | null, startedAt: number): UsageRecord | null {
+    if (!raw || ![raw.input_tokens, raw.output_tokens, raw.total_tokens, raw.cache_read_tokens ?? 0]
+        .every(v => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0)) return null;
+    const input = raw.input_tokens, cacheRead = raw.cache_read_tokens ?? 0;
+    if (raw.total_tokens !== input + raw.output_tokens || !(raw.total_tokens + cacheRead)) return null;
+    return { ...origin, key: `u2:agy:${hash(turnId)}`, engine: 'agy', model, startedAt,
+        occurredAt: Date.now(), tokens: { input, output: raw.output_tokens, cacheRead, cacheWrite: 0 } };
+}
+
 function codexTokens(raw: any): UsageTokens | null {
     if (!raw || typeof raw !== 'object') return null;
     const input = raw.inputTokens ?? raw.input_tokens;

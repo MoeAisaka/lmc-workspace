@@ -72,6 +72,72 @@ describe('completed turn retention', () => {
         const long = Array.from({ length: 1000 }, (_, i) => agent('m' + i, i));
         expect(mergeAndSelectMessageWindow([], long, 'newest').messages).toEqual(long);
     });
+    it('retains pre-cutoff queued prompts and attachments consumed inside kept turns while keeping windowStartSeq on the contiguous slice', () => {
+        const queuedForA: NormalizedMessage = {
+            ...user('q-a-user', 1, 'queued for A'),
+            localId: 'q-a',
+            serverSeq: 1,
+            meta: { sentFrom: 'web', intent: 'queue', queueKey: 'q-a' },
+        };
+        const releaseA: NormalizedMessage = {
+            id: 'rel-a',
+            localId: null,
+            createdAt: 2,
+            serverSeq: 2,
+            role: 'event',
+            isSidechain: false,
+            content: { type: 'queue-released', keys: ['q-a'] },
+        };
+        const queuedAttachment: NormalizedMessage = {
+            id: 'q-file',
+            localId: 'local-q-file',
+            createdAt: 3,
+            serverSeq: 3,
+            isSidechain: false,
+            role: 'agent',
+            meta: { queueKey: 'q-c' },
+            content: [{ type: 'tool-call', id: 'q-file', name: 'file', input: {}, description: null, uuid: 'q-file', parentUUID: null }],
+        };
+        const queuedForC: NormalizedMessage = {
+            ...user('q-c-user', 4, 'queued during A for C'),
+            localId: 'q-c',
+            serverSeq: 4,
+            meta: { sentFrom: 'web', intent: 'queue', queueKey: 'q-c' },
+        };
+        const stillWaiting: NormalizedMessage = {
+            ...user('q-pending', 5, 'still waiting in queue'),
+            localId: 'q-pending',
+            serverSeq: 5,
+            meta: { sentFrom: 'web', intent: 'queue', queueKey: 'q-pending' },
+        };
+        const turnA = [queuedForA, releaseA, queuedAttachment, queuedForC, stillWaiting, agent('a-output', 6), ready('a-end', 7)];
+        const turnB = [agent('b-output', 8), ready('b-end', 9)];
+        const releaseC: NormalizedMessage = {
+            id: 'rel-c',
+            localId: null,
+            createdAt: 10,
+            serverSeq: 10,
+            role: 'event',
+            isSidechain: false,
+            content: { type: 'queue-released', keys: ['q-c'] },
+        };
+        const turnC = [releaseC, agent('c-output', 11)];
+        const endC = ready('c-end', 12);
+
+        const result = mergeAndSelectMessageWindow([...turnA, ...turnB, ...turnC], [endC], 'newest');
+        expect(result.messages.map(m => m.id)).toEqual([
+            'q-file',
+            'q-c-user',
+            'q-pending',
+            'b-output',
+            'b-end',
+            'rel-c',
+            'c-output',
+            'c-end',
+        ]);
+        expect(result.evictedIds).toEqual(['q-a-user', 'rel-a', 'a-output', 'a-end']);
+        expect(result.windowStartSeq).toBe(8);
+    });
 });
 
 describe('derivedMessagesEqual', () => {

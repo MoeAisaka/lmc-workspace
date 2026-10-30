@@ -13,6 +13,7 @@ import { resourceHighlightParts } from '@/sync/resourceSearch';
 import { useResourceSearch } from '@/hooks/useResourceSearch';
 import { SettingsMenuHost, SettingsSelect } from '@/components/lmc/SettingsSelect';
 import { t } from '@/text';
+import { openSavedFiles } from '@/components/SavedFilesDialog';
 
 type Change = { revision: number; path: string; destination?: string; kind: 'add' | 'update' | 'delete' | 'rename'; patch?: string };
 type Review = { cursor: number; paths: string[]; scopePaths?: string[]; entries: Change[]; olderCursor?: number };
@@ -153,6 +154,7 @@ export function SessionResourceWindow({ sessionId, onOpen, onBrowse, active = tr
                 {!!review?.entries.length && <Pressable onPress={() => { void apiSocket.sessionRPC(sessionId, 'resource-review', { viewed: review.cursor, scope }).then(() => readReview()).catch(e => setReviewError(e.message)); }}><Text style={{ padding: 12, color: linkColor }}>{t('lmc.resources.markSeen')}</Text></Pressable>}
             </>}
         </ScrollView>
+        <Pressable accessibilityRole="button" onPress={openSavedFiles} style={{ padding: 12, borderTopWidth: 1, borderColor: theme.colors.divider }}><Text style={{ color: linkColor, textAlign: 'center' }}>已保存文件</Text></Pressable>
         <Pressable accessibilityRole="button" onPress={onBrowse} style={{ padding: 12, borderTopWidth: 1, borderColor: theme.colors.divider }}><Text style={{ color: linkColor, textAlign: 'center' }}>{t('lmc.resources.browseProject')}</Text></Pressable>
     </View></SettingsMenuHost>;
 }

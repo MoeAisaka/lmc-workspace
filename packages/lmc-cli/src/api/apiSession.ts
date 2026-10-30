@@ -1,9 +1,13 @@
 import { writeAttachmentParts } from '@/modules/common/attachmentParts';
+import { FileAssetInbox, publishFileAsset, type FileAssetPort, type OwnerFileKey } from '@/modules/common/fileAssets';
+import { FilePublications } from '@/modules/common/filePublications';
+import { FileShares, type ShareFileInput } from '@/modules/common/fileShares';
 import type { PendingAttachment } from '@/utils/MessageQueue2';
 import { ResourceReview } from '@/modules/common/resourceReview';
 import { searchSessionResources } from '@/modules/common/resourceSearch';
 import { join as joinResourcePath } from 'node:path';
 import { logger } from '@/ui/logger'
+import { getSharedRuntime, authorizeSharedRuntimeRpc } from '@/daemon/sharedRuntime';
 import { EventEmitter } from 'node:events'
 import { io, Socket } from 'socket.io-client'
 import { AgentState, ClientToServerEvents, FileEventMessage, FileEventMessageSchema, Metadata, ServerToClientEvents, Session, Update, UserMessage, UserMessageSchema, Usage } from './types'
@@ -20,7 +24,7 @@ import { RpcHandlerManager } from './rpc/RpcHandlerManager';
 import { registerCommonHandlers } from '../modules/common/registerCommonHandlers';
 import { calculateCost } from '@/utils/pricing';
 import { shouldReconnect } from '@/utils/lidState';
-import { createEnvelope, type CreateEnvelopeOptions, type SessionEnvelope, type SessionTurnEndStatus } from 'lmc-wire';
+import { createEnvelope, savedFileEnvelope, type CreateEnvelopeOptions, type SessionEnvelope, type SessionTurnEndStatus } from 'lmc-wire';
 import {
     closeClaudeTurnWithStatus,
     mapClaudeLogMessageToSessionEnvelopes,
@@ -28,7 +32,7 @@ import {
 } from '@/claude/utils/sessionProtocolMapper';
 import { InvalidateSync } from '@/utils/sync';
 import axios from 'axios';
-import { UsageOutbox, claudeUsageRecord } from './usageAnalytics';
+import { UsageOutbox, claudeUsageRecord, agyUsageRecord } from './usageAnalytics';
 
 /**
  * ACP (Agent Communication Protocol) message data types.
@@ -215,6 +219,10 @@ export class ApiSessionClient extends EventEmitter {
     private pendingFileEvents: FileEventMessage[] = [];
     private pendingFileEventCallback: ((data: FileEventMessage) => void) | null = null;
     private blobKey: Uint8Array | null = null;
+    private fileAssetPort: FileAssetPort | null = null;
+    private fileAssetInbox: FileAssetInbox | null = null;
+    private filePublications: FilePublications | null = null;
+    private fileShares: FileShares | null = null;
     /**
      * In-flight attachment download promises that belong to the *current*
      * (not-yet-drained) batch. Each promise resolves to the decoded blob (or
@@ -259,6 +267,7 @@ export class ApiSessionClient extends EventEmitter {
      * fetch's after_seq looked straight past seq 1.
      */
     private lastReceivedSeq = 0;
+    private recoverSharedCommands = true;
     private incomingPaused = false;
     private pendingOutbox: Array<{ content: string; localId: string }> = [];
     private messagePersistence = new Map<string, { promise: Promise<void>; resolve: () => void; reject: (error: Error) => void }>();
@@ -266,16 +275,37 @@ export class ApiSessionClient extends EventEmitter {
     private readonly receiveSync: InvalidateSync;
     private readonly usageOutbox: UsageOutbox;
 
-    constructor(token: string, session: Session) {
+    constructor(token: string, session: Session, wrapFileKey?: (key: Uint8Array) => Promise<OwnerFileKey>) {
         super()
         this.token = token;
         this.sessionId = session.id;
+        const runtime = getSharedRuntime();
+        if (runtime?.resume && runtime.sessionId === session.id) this.lastReceivedSeq = runtime.seq;
         this.metadata = session.metadata;
         this.metadataVersion = session.metadataVersion;
         this.agentState = session.agentState;
         this.agentStateVersion = session.agentStateVersion;
         this.encryptionKey = session.encryptionKey;
         this.encryptionVariant = session.encryptionVariant;
+        if (wrapFileKey) {
+            const fileHttp = axios.create({ baseURL: configuration.serverUrl, timeout: 60_000, headers: this.authHeaders() });
+            this.fileShares = new FileShares(fileHttp, configuration.webappUrl);
+            this.fileAssetPort = {
+                http: fileHttp,
+                sessionId: this.sessionId,
+                root: () => { if (!this.metadata?.path) throw new Error('会话工作目录不可用'); return this.metadata.path; },
+                wrapOwnerKey: wrapFileKey,
+                rememberFileKey: (id, key) => this.fileShares!.remember(id, key),
+                decryptDelivery: value => decrypt(this.encryptionKey, this.encryptionVariant, decodeBase64(value)),
+                encryptReceipt: value => encodeBase64(encrypt(this.encryptionKey, this.encryptionVariant, value)),
+                record: async (file, identity) => {
+                    const envelope = savedFileEnvelope(file, identity);
+                    await this.enqueueMessage({ role: 'session', content: envelope, meta: { sentFrom: 'cli' } }, true, { localId: identity });
+                },
+            };
+            this.fileAssetInbox = new FileAssetInbox(this.fileAssetPort);
+            this.filePublications = new FilePublications((path, progress, signal) => publishFileAsset(this.fileAssetPort!, path, progress, signal));
+        }
         this.sendSync = new InvalidateSync(() => this.flushOutbox());
         this.receiveSync = new InvalidateSync(() => this.fetchMessages());
 
@@ -284,7 +314,16 @@ export class ApiSessionClient extends EventEmitter {
             scopePrefix: this.sessionId,
             encryptionKey: this.encryptionKey,
             encryptionVariant: this.encryptionVariant,
+            beforeRequest: runtime ? authorizeSharedRuntimeRpc : undefined,
             logger: (msg, data) => logger.debug(msg, data)
+        });
+        this.rpcHandlerManager.registerHandler('publish-file', async (input: { path: string; requestId?: string }) => {
+            try { return { success: true, job: this.startFilePublication(input?.path, input?.requestId) }; }
+            catch (error) { return { success: false, error: error instanceof Error ? error.message : '保存文件失败' }; }
+        });
+        this.rpcHandlerManager.registerHandler('file-publication', async (input: { id: string }) => {
+            try { return { success: true, job: await this.filePublicationStatus(input.id) }; }
+            catch (error) { return { success: false, error: error instanceof Error ? error.message : '保存状态不可用' }; }
         });
         registerCommonHandlers(this.rpcHandlerManager, this.metadata.path);
         this.resourceReview=new ResourceReview(joinResourcePath(configuration.lmcHomeDir,'resource-reviews',encodeURIComponent(this.sessionId)));
@@ -305,6 +344,7 @@ export class ApiSessionClient extends EventEmitter {
                 token: this.token,
                 clientType: 'session-scoped' as const,
                 sessionId: this.sessionId,
+                collaborationProtocol: ['claude', 'codex', 'agy'].includes(this.metadata?.flavor ?? '') ? 1 : 0,
                 lmcClient: `cli-coding-session/${configuration.currentCliVersion}`
             },
             path: '/v1/updates',
@@ -341,6 +381,7 @@ export class ApiSessionClient extends EventEmitter {
             this.rpcHandlerManager.onSocketConnect(this.socket);
             this.receiveSync.invalidate();
             void this.usageOutbox.flush();
+            void this.fileAssetInbox?.poll();
         })
 
         // Set up global RPC request handler
@@ -434,6 +475,7 @@ export class ApiSessionClient extends EventEmitter {
 
     onUserMessage(callback: (data: UserMessage) => void | Promise<void>) {
         this.pendingMessageCallback = (message) => {
+            if (getSharedRuntime()) message = { ...message, meta: { ...message.meta, intent: 'queue' } };
             const delivery = Promise.resolve(callback(message));
             this.incomingDeliveries.add(delivery);
             void delivery.finally(() => this.incomingDeliveries.delete(delivery)).catch(() => {
@@ -447,6 +489,24 @@ export class ApiSessionClient extends EventEmitter {
         while (this.pendingMessages.length > 0) {
             this.pendingMessageCallback(this.pendingMessages.shift()!);
         }
+    }
+
+    async claimSharedCommand(commandId: string): Promise<boolean> {
+        const runtime = getSharedRuntime();
+        if (runtime) {
+            try { await axios.post(`${configuration.serverUrl}/v1/lmc/runtime/${encodeURIComponent(this.sessionId)}/authorize`, {}, { headers: this.authHeaders(), timeout: 10000 }); }
+            catch {
+                this.sendSessionEvent({ type: 'message', message: '设备使用权限已变化或暂时无法核实，这条消息未执行。' });
+                return false;
+            }
+        }
+        if (!commandId.startsWith('lmc-shared:')) return true;
+        try {
+            const result = await axios.post(`${configuration.serverUrl}/v1/lmc/sessions/${encodeURIComponent(this.sessionId)}/commands/claim`, { commandId }, { headers: this.authHeaders(), timeout: 10000 });
+            if (result.data?.allowed === true) return true;
+        } catch { /* Unknown delivery or lost authority must never execute. */ }
+        this.sendSessionEvent({ type: 'message', message: '一条共享消息未执行：授权已撤销、已处理，或暂时无法核实权限。' });
+        return false;
     }
 
     onFileEvent(callback: (data: FileEventMessage) => void) {
@@ -467,6 +527,25 @@ export class ApiSessionClient extends EventEmitter {
             this.blobKey = await deriveKey(this.encryptionKey, 'Happy Blobs', path);
         }
         return this.blobKey;
+    }
+
+    startFilePublication(path: string, requestId?: string) {
+        if (!this.filePublications) throw new Error('请升级并重新连接 Agent 以支持持久文件');
+        if (typeof path !== 'string' || !path || path.length > 4096) throw new Error('无效的文件路径');
+        return this.filePublications.start(path, requestId);
+    }
+    async filePublicationStatus(id: string) {
+        if (!this.filePublications) throw new Error('持久文件不可用，请升级 Agent');
+        return this.filePublications.status(id, 20_000);
+    }
+    async publishFile(input: { path?: string; job_id?: string }) {
+        if (input.job_id && input.path) throw new Error('只能指定文件路径或保存记录之一');
+        const id = input.job_id || this.startFilePublication(input.path!).id;
+        return this.filePublicationStatus(id);
+    }
+    async shareFile(input: ShareFileInput) {
+        if (!this.fileShares) throw new Error('请升级并重新连接 Agent 以支持限时外链');
+        return this.fileShares.run(input);
     }
 
     private async requestAttachmentUpload(filename: string, size: number): Promise<AttachmentUploadResult> {
@@ -729,6 +808,20 @@ export class ApiSessionClient extends EventEmitter {
                 break;
             }
         }
+        if (this.recoverSharedCommands) {
+            try {
+                const response = await axios.get(`${configuration.serverUrl}/v1/lmc/sessions/${encodeURIComponent(this.sessionId)}/commands/pending`, { headers: this.authHeaders(), timeout: 15000 });
+                for (const message of response.data.messages ?? []) {
+                    if (message.content?.t !== 'encrypted') continue;
+                    this.routeIncomingMessage(decrypt(this.encryptionKey, this.encryptionVariant, decodeBase64(message.content.c)));
+                }
+                this.recoverSharedCommands = false;
+            } catch (error) {
+                // Older centers / disabled collaboration have no recovery API.
+                if (axios.isAxiosError(error) && [401, 403, 404].includes(error.response?.status ?? 0)) this.recoverSharedCommands = false;
+                else throw error;
+            }
+        }
     }
 
     /**
@@ -964,6 +1057,11 @@ export class ApiSessionClient extends EventEmitter {
         this.enqueueMessage(content);
     }
 
+    recordAgyUsage(usage: unknown, turnId: string, model: string | null, startedAt: number) {
+        const machineId = this.metadata?.machineId;
+        if (machineId) this.usageOutbox.enqueue(() => agyUsageRecord(usage, { sessionId: this.sessionId, machineId }, turnId, model, startedAt));
+    }
+
     recordCodexUsage(message: unknown, model: string | null, activeTurn: boolean) {
         const machineId = this.metadata?.machineId;
         if (machineId) this.usageOutbox.enqueue(collector => collector.codex(message, { sessionId: this.sessionId, machineId }, model, activeTurn));
@@ -1036,10 +1134,10 @@ export class ApiSessionClient extends EventEmitter {
         type: 'ready'
     } | {
         /** One engine handed this session to another; `briefing` is what crossed. */
-        type: 'engine-handoff', from: string, fromFlavor?: 'claude' | 'codex', source: 'engine' | 'compiled', briefing: string
+        type: 'engine-handoff', from: string, fromFlavor?: 'claude' | 'codex' | 'agy', source: 'engine' | 'compiled', briefing: string
     } | {
         /** A queued switch was called off before the relaunch; the session stays where it was. */
-        type: 'engine-switch-cancelled', target: 'claude' | 'codex'
+        type: 'engine-switch-cancelled', target: 'claude' | 'codex' | 'agy'
     }, id?: string, delivery?: SessionMessageDelivery) {
         let content = {
             role: 'agent',
@@ -1300,6 +1398,9 @@ export class ApiSessionClient extends EventEmitter {
         if (this.closed) return;
         // Set this before awaiting I/O: concurrent close calls must be idempotent.
         this.closed = true;
+        await this.fileAssetInbox?.stop();
+        await this.filePublications?.stop();
+        this.fileShares?.clear();
         for (const pending of this.messagePersistence.values()) pending.reject(new Error('Session closed before message storage was confirmed'));
         this.messagePersistence.clear();
         await this.resourceReview.flush();

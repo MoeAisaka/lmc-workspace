@@ -6,6 +6,7 @@ import * as Fonts from 'expo-font';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { AuthCredentials, TokenStorage } from '@/auth/tokenStorage';
+import { WebInputProbeRuntime } from '@/components/lmc/WebInputProbeRuntime';
 import { PersonalizationRuntime } from '@/components/lmc/PersonalizationRuntime';
 import { ModuleSwitcher } from '@/components/lmc/ModuleSwitcher';
 import { AuthProvider } from '@/auth/AuthContext';
@@ -269,6 +270,7 @@ export default function RootLayout() {
     return (
         <>
             <PersonalizationRuntime />
+            <WebInputProbeRuntime />
             <ModuleSwitcher />
             <FaviconPermissionIndicator />
             {providers}

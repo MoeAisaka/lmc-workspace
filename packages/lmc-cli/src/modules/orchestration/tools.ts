@@ -26,7 +26,7 @@ import type { DelegationRecord } from 'lmc-wire';
  */
 export interface SpawnLocalOptions {
     directory: string;
-    agent: 'claude' | 'codex';
+    agent: 'claude' | 'codex' | 'agy';
     modelMode?: string;
     effortLevel?: string;
     permissionMode?: string;
@@ -47,9 +47,14 @@ export interface OrchestrationPort {
     transcript: (opts: { limit: number }) => Promise<{ entries: TranscriptEntry[] }>;
     /** The live sessions on the account, to tell a standing worker from a dead one. */
     listPeers?: () => Promise<{ sessionId: string; title: string }[]>;
+    /** Trigger an immediate agent-mail poll while waiting in-turn for a worker report. */
+    pollMail?: () => Promise<void>;
+    /** Mark a matching `[from your worker …]` queue item as consumed so it clears the strip and skips a duplicate turn. */
+    consumeQueuedReport?: (id: string, attempt: number, dispatchId?: string) => void;
     /** Turn-by-turn usage, so a report can say what the task cost. */
     meter?: TaskMeter;
     now?: () => number;
+    sleep?: (ms: number) => Promise<void>;
 }
 
 export type ToolResult = { text: string; isError: boolean };
@@ -66,7 +71,7 @@ async function recordOnBoard(port: OrchestrationPort, text: string, counterpart:
 // ---------------------------------------------------------------- spawn_worker
 
 export interface SpawnWorkerArgs {
-    duty: string; name?: string; directory?: string; agent?: 'claude' | 'codex'; model?: string; effort?: string; permission_mode?: string; machine?: string; force?: boolean;
+    duty: string; name?: string; directory?: string; agent?: 'claude' | 'codex' | 'agy'; model?: string; effort?: string; permission_mode?: string; machine?: string; force?: boolean;
 }
 
 /** The hub's live workers whose title carries this duty. */
@@ -225,7 +230,83 @@ export async function assignTask(port: OrchestrationPort, args: AssignTaskArgs):
     const sent = await port.sendMail(args.sessionId, text);
     if (!sent.ok) return fail(`Could not deliver the task: ${sent.error}`);
     await recordOnBoard(port, text, args.sessionId);
-    return ok(`Task ${args.id} (attempt ${attempt}) dispatched to ${args.sessionId} and recorded on the board. The worker's report will arrive as [from your worker …] mail; review it with review_report.`);
+    return ok(`Task ${args.id} (attempt ${attempt}) dispatched to ${args.sessionId} and recorded on the board. The worker's report will arrive as [from your worker …] mail; end your turn once parallel local work is done for automatic wakeup (or call await_report if staying in-turn — never block with native schedule/sleep timers), then review it with review_report.`);
+}
+
+// ---------------------------------------------------------------- await_report
+
+export interface AwaitReportArgs {
+    id?: string;
+    timeout_seconds?: number;
+}
+
+function extractReportFromTranscript(entries: TranscriptEntry[], id: string, attempt: number, dispatchId?: string): string | null {
+    const sorted = [...entries].sort((a, b) => b.seq - a.seq);
+    for (const entry of sorted) {
+        const body = entry.body as { role?: unknown; content?: { text?: unknown } } | null;
+        if (!body || typeof body !== 'object' || body.role !== 'user') continue;
+        const text = typeof body.content?.text === 'string' ? body.content.text : null;
+        if (!text) continue;
+        const env = parseEnvelope(text);
+        if (env?.kind !== 'report' || env.id !== id || env.attempt !== attempt) continue;
+        if (dispatchId && env.fields.dispatch && env.fields.dispatch !== dispatchId) continue;
+        return text;
+    }
+    return null;
+}
+
+export async function awaitReport(port: OrchestrationPort, args: AwaitReportArgs = {}): Promise<ToolResult> {
+    const initial = port.metadata();
+    if (initial?.orchestration?.role !== 'hub') return fail('Only a hub awaits worker reports. This session is not a hub.');
+    const taskId = args.id?.trim() || undefined;
+    if (taskId && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(taskId)) return fail('Invalid task id.');
+    const timeoutSec = Math.min(600, Math.max(1, Math.trunc(args.timeout_seconds ?? 120)));
+    const timeoutMs = timeoutSec * 1000;
+    const sleep = port.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    let elapsed = 0;
+
+    const inspect = () => {
+        const board = boardOf(port.metadata()?.orchestration);
+        if (taskId) {
+            const target = board.find((e) => e.id === taskId);
+            if (!target) return { kind: 'missing' as const };
+            if (target.state === 'done' || target.state === 'blocked' || target.state === 'failed') return { kind: 'ready' as const, entry: target };
+            if (target.state === 'accepted' || target.state === 'rejected') return { kind: 'settled' as const, entry: target };
+            return { kind: 'waiting' as const, waiting: [target.id] };
+        }
+        const ready = board.find((e) => e.state === 'done' || e.state === 'blocked' || e.state === 'failed');
+        if (ready) return { kind: 'ready' as const, entry: ready };
+        const waiting = board.filter((e) => e.state === 'dispatched').map((e) => e.id);
+        return waiting.length ? { kind: 'waiting' as const, waiting } : { kind: 'idle' as const };
+    };
+
+    const finishReady = async (entry: BoardEntry): Promise<ToolResult> => {
+        port.consumeQueuedReport?.(entry.id, entry.attempt, entry.dispatchId);
+        const page = await port.transcript({ limit: 30 }).catch(() => ({ entries: [] as TranscriptEntry[] }));
+        const raw = extractReportFromTranscript(page.entries, entry.id, entry.attempt, entry.dispatchId);
+        const body = raw ?? `[report ${entry.id} · attempt ${entry.attempt} · ${entry.state}]${entry.title && entry.title !== entry.id ? `\ngoal     ${entry.title}` : ''}`;
+        return ok(`Report arrived for ${entry.id} (attempt ${entry.attempt}, ${entry.state}). Review it now with review_report.\n\n${body}`);
+    };
+
+    const first = inspect();
+    if (first.kind === 'missing') return fail(`No task ${taskId} on the board. Dispatch it with assign_task first, or check the id.`);
+    if (first.kind === 'ready') return finishReady(first.entry);
+    if (first.kind === 'settled') return ok(`Task ${first.entry.id} attempt ${first.entry.attempt} was already reviewed (${first.entry.state}).`);
+    if (first.kind === 'idle') return ok('No dispatched tasks are awaiting a report on the board.');
+
+    while (true) {
+        await port.pollMail?.();
+        const afterPoll = inspect();
+        if (afterPoll.kind === 'ready') return finishReady(afterPoll.entry);
+        if (afterPoll.kind === 'settled') return ok(`Task ${afterPoll.entry.id} attempt ${afterPoll.entry.attempt} was already reviewed (${afterPoll.entry.state}).`);
+        if (afterPoll.kind === 'idle' || afterPoll.kind === 'missing') return ok('No dispatched tasks remain in flight on the board.');
+        if (elapsed >= timeoutMs) {
+            return ok(`Still waiting after ${timeoutSec}s: ${afterPoll.waiting.join(', ')} remain dispatched. End your turn to wake automatically when [from your worker …] mail arrives, or call await_report again if you must stay in this turn.`);
+        }
+        const step = Math.min(2000, timeoutMs - elapsed);
+        await sleep(step);
+        elapsed += step;
+    }
 }
 
 // ---------------------------------------------------------------- configure_worker
@@ -451,6 +532,7 @@ export async function reviewReport(port: OrchestrationPort, args: ReviewReportAr
         if (!sent.ok) lines.push(`(the worker could not be told: ${sent.error})`);
     }
     await recordOnBoard(port, text, entry.counterpart);
+    port.consumeQueuedReport?.(args.id, entry.attempt, entry.dispatchId);
     if (args.branch && checks.tip) {
         const branch = args.branch; const sha = checks.tip;
         await port.updateMetadata((m) => {

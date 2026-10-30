@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 import * as React from 'react';
 import { act } from 'react';
+import { createPortal } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 // @ts-expect-error react-native-web has no declarations in this workspace.
 import { Pressable } from 'react-native-web';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SortableHubGroups } from '@/components/lmc/SortableHubGroups.web';
 import { sync } from '@/sync/sync';
-import { SORT_HOLD_MS } from '@/utils/sessionSortGesture';
+import { SORT_HOLD_MS, TOUCH_MENU_HOLD_MS } from '@/utils/sessionSortGesture';
 
 vi.mock('@/sync/storage', () => ({ useSetting: () => ({}) }));
 vi.mock('@/sync/sync', () => ({ sync: { applySettings: vi.fn() } }));
@@ -162,5 +163,140 @@ describe('SortableHubGroups with RN Web Pressable', () => {
             act(() => vi.runAllTimers());
         }
         expect(remove.mock.calls.some(([name, fn]) => name === 'keydown' && fn === listener)).toBe(true);
+    });
+
+    it('opens the hub header contextmenu while still held on iPad touch long-press', () => {
+        mount();
+        const header = container.querySelector('[data-hub-sort-id="H1"][data-session-sort-id="H1"]')!;
+        const onContextMenu = vi.fn();
+        header.addEventListener('contextmenu', onContextMenu);
+        const text = header.querySelector('[data-header-text="H1"]')!;
+
+        pointer(text, 'pointerdown', 10, 'touch');
+        // Minor capacitive finger roll (<= 12px) must not cancel or start a drag.
+        pointer(text, 'pointermove', 20, 'touch');
+        act(() => vi.advanceTimersByTime(TOUCH_MENU_HOLD_MS + 1));
+
+        expect(onContextMenu).toHaveBeenCalledTimes(1);
+        expect(container.querySelector('[data-sort-active="true"]')).toBeNull();
+
+        // Releasing after the menu already opened does not fire a second menu or reorder.
+        pointer(text, 'pointerup', 20, 'touch');
+        act(() => vi.runAllTimers());
+        expect(onContextMenu).toHaveBeenCalledTimes(1);
+        expect(sync.applySettings).not.toHaveBeenCalled();
+    });
+
+    it('ignores secondary right-click / Ctrl+click so iPad trackpad right-click reaches the row menu', () => {
+        mount();
+        const text = container.querySelector('[data-header-text="H1"]')!;
+        const rightDown = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 2, clientX: 20, clientY: 10 });
+        Object.defineProperties(rightDown, { pointerId: { value: 2 }, pointerType: { value: 'touch' }, isPrimary: { value: true } });
+        act(() => { text.dispatchEvent(rightDown); });
+        act(() => vi.advanceTimersByTime(TOUCH_MENU_HOLD_MS + 10));
+        expect(container.querySelector('[data-sort-active="true"]')).toBeNull();
+
+        const ctrlDown = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, ctrlKey: true, clientX: 20, clientY: 10 });
+        Object.defineProperties(ctrlDown, { pointerId: { value: 3 }, pointerType: { value: 'mouse' }, isPrimary: { value: true } });
+        act(() => { text.dispatchEvent(ctrlDown); });
+        act(() => vi.advanceTimersByTime(TOUCH_MENU_HOLD_MS + 10));
+        expect(container.querySelector('[data-sort-active="true"]')).toBeNull();
+    });
+
+    it('does not block clicks inside a React-portaled context menu right after touch long-press', () => {
+        const onMenuAction = vi.fn();
+        const onHeaderPress = vi.fn();
+
+        function Harness() {
+            const [openId, setOpenId] = React.useState<string | null>(null);
+            return React.createElement(SortableHubGroups<{ id: string }>, {
+                storageKey: 'lmc:hubs',
+                items: [{ id: 'H1' }],
+                getId: (item) => item.id,
+                renderItem: (item, handleProps) => React.createElement('section', { 'data-group': item.id },
+                    React.createElement(Pressable, {
+                        ...handleProps,
+                        accessibilityRole: 'button',
+                        onPress: onHeaderPress,
+                        onContextMenu: (e: Event) => {
+                            e.preventDefault();
+                            setOpenId(item.id);
+                        },
+                    }, React.createElement('span', { 'data-header-text': item.id }, item.id)),
+                    openId === item.id
+                        ? createPortal(
+                            React.createElement(Pressable, {
+                                accessibilityRole: 'button',
+                                testID: 'portaled-menu-item',
+                                onPress: onMenuAction,
+                            }, React.createElement('span', null, 'Rename')),
+                            document.body,
+                        )
+                        : null,
+                ),
+            });
+        }
+
+        act(() => root.render(React.createElement(Harness)));
+        const text = container.querySelector('[data-header-text="H1"]')!;
+        pointer(text, 'pointerdown', 10, 'touch');
+        act(() => vi.advanceTimersByTime(TOUCH_MENU_HOLD_MS + 1));
+        pointer(text, 'pointerup', 10, 'touch');
+
+        // Trailing click on the header itself must still be swallowed.
+        act(() => {
+            text.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: 20, clientY: 10 }));
+        });
+        expect(onHeaderPress).not.toHaveBeenCalled();
+
+        // Immediate tap (< 700ms) on the portaled menu item in document.body must fire!
+        const menuItem = document.body.querySelector('[data-testid="portaled-menu-item"]')!;
+        expect(menuItem).not.toBeNull();
+        act(() => {
+            menuItem.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }));
+        });
+        expect(onMenuAction).toHaveBeenCalledTimes(1);
+    });
+
+    it('arms drag and touch long-press through <a data-lmc-context-hit> while still ignoring real nested links', () => {
+        const onContextMenu = vi.fn();
+        act(() => root.render(React.createElement(SortableHubGroups<{ id: string }>, {
+            storageKey: 'lmc:hubs',
+            items: [{ id: 'H1' }, { id: 'H2' }],
+            getId: (item) => item.id,
+            renderItem: (item, handleProps) => React.createElement('section', { 'data-group': item.id },
+                React.createElement(Pressable, {
+                    ...handleProps,
+                    accessibilityRole: 'button',
+                    onContextMenu,
+                },
+                React.createElement('a', { 'data-lmc-context-hit': '', href: 'lmc-context:row', 'data-hit': item.id }, '\u00a0'),
+                React.createElement('a', { href: 'https://example.com', 'data-real-link': item.id }, 'Link'))),
+        })));
+        const geometry = [{ top: 0, height: 80 }, { top: 80, height: 80 }];
+        container.querySelectorAll<HTMLElement>('[data-sort-active]').forEach((node, index) => {
+            vi.spyOn(node, 'getBoundingClientRect').mockReturnValue(geometry[index] as DOMRect);
+        });
+        Object.defineProperty(container.firstElementChild, 'setPointerCapture', { value: () => {}, configurable: true });
+
+        // 1. Real nested link does not arm sorting.
+        const realLink = container.querySelector('[data-real-link="H1"]')!;
+        pickUp(realLink);
+        expect(container.querySelector('[data-sort-active="true"]')).toBeNull();
+        pointer(realLink, 'pointerup', 10);
+
+        // 2. Hit-overlay anchor <a data-lmc-context-hit> DOES arm sorting and touch long-press menu!
+        const hitOverlay = container.querySelector('[data-hit="H1"]')!;
+        pointer(hitOverlay, 'pointerdown', 10, 'touch');
+        act(() => vi.advanceTimersByTime(TOUCH_MENU_HOLD_MS + 1));
+        expect(onContextMenu).toHaveBeenCalledTimes(1);
+        pointer(hitOverlay, 'pointerup', 10, 'touch');
+        act(() => vi.runAllTimers());
+
+        pickUp(hitOverlay);
+        pointer(hitOverlay, 'pointermove', 165);
+        pointer(hitOverlay, 'pointerup', 165);
+        act(() => vi.runAllTimers());
+        expect(sync.applySettings).toHaveBeenCalledExactlyOnceWith({ sessionProjectOrder: { 'lmc:hubs': ['H2', 'H1'] } });
     });
 });

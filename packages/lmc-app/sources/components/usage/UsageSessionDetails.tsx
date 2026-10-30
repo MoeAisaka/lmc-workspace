@@ -69,7 +69,7 @@ export function UsageSessionDetails({ sessions, roles = {}, names, total, ready,
             </Pressable>
         </View>
         <Breakdown tokens={s.tokens} />
-        <Text style={styles.muted}>{s.engines.map(e => e === 'claude' ? 'Claude' : 'Codex').join(' / ')} · {s.count.toLocaleString()} 条记录</Text>
+        <Text style={styles.muted}>{s.engines.map(e => e === 'claude' ? 'Claude' : e === 'agy' ? 'Antigravity' : 'Codex').join(' / ')} · {s.count.toLocaleString()} 条记录</Text>
     </View>;
 
     return <View style={styles.root}>

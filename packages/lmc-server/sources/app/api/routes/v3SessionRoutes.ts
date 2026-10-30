@@ -1,3 +1,9 @@
+import { readableSession } from '@/lmc/access/sessions';
+import { authorizeDeviceRun } from '@/lmc/access/deviceRuns';
+import { accessTransaction } from '@/lmc/access/transaction';
+import { requireCollaborationAgent } from '@/lmc/access/execution';
+import { AccessError } from '@/lmc/access/policy';
+import { multiAccountEnabled } from '@/lmc/access/features';
 import { createMessagesAndReturn } from '@/lmc/mysqlCompatibility';
 import { buildNewMessageUpdate, eventRouter } from "@/app/events/eventRouter";
 import { db } from "@/storage/db";
@@ -76,13 +82,8 @@ export function v3SessionRoutes(app: Fastify) {
         const { sessionId } = request.params;
         const { after_seq, before_seq, limit } = request.query;
 
-        const session = await db.session.findFirst({
-            where: {
-                id: sessionId,
-                accountId: userId
-            },
-            select: { id: true }
-        });
+        reply.header('Cache-Control', 'no-store');
+        const session = await readableSession(userId, sessionId, request.authKind);
 
         if (!session) {
             return reply.code(404).send({ error: 'Session not found' });
@@ -115,6 +116,7 @@ export function v3SessionRoutes(app: Fastify) {
         const hasMore = messages.length > limit;
         const page = hasMore ? messages.slice(0, limit) : messages;
 
+        if (session.shared && !(await readableSession(userId, sessionId, request.authKind))) return reply.code(404).send({ error: 'Session not found' });
         return reply.send({
             messages: page.map(toResponseMessage),
             hasMore
@@ -133,6 +135,16 @@ export function v3SessionRoutes(app: Fastify) {
         const userId = request.userId;
         const { sessionId } = request.params;
         const { messages } = request.body;
+
+        if (request.authKind === 'web' && multiAccountEnabled() && await db.lmcDeviceRun.findUnique({ where: { sessionId } })) {
+            try {
+                await accessTransaction(tx => authorizeDeviceRun(tx, sessionId));
+                await requireCollaborationAgent(userId, sessionId);
+            } catch (error) {
+                if (error instanceof AccessError) return reply.code(error.status).send({ error: error.message });
+                throw error;
+            }
+        }
 
         const session = await db.session.findFirst({
             where: {

@@ -62,6 +62,7 @@ export const sessionFileEventSchema = z.object({
   name: z.string(),
   size: z.number(),
   mimeType: z.string().optional(),
+  assetId: z.string().uuid().optional(),
   // A large file is uploaded as ordered, separately encrypted pieces; `ref` is the first.
   parts: z.array(z.string()).min(1).max(4096).optional(),
   image: z

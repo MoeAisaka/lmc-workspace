@@ -399,6 +399,8 @@ export const en = {
         webViewLoadFailed: 'Failed to load authentication page',
         failedToLoadProfile: 'Failed to load user profile',
         userNotFound: 'User not found',
+        sessionUnavailable: 'Session unavailable',
+        sessionUnavailableDescription: 'It may have been deleted, or your access may have been revoked.',
         sessionDeleted: 'Session has been deleted',
         sessionDeletedDescription: 'This session has been permanently removed',
 
@@ -1144,6 +1146,12 @@ export const en = {
         // Markdown copy functionality
         codeCopied: 'Code copied',
         copyFailed: 'Copy failed',
+        copyTable: 'Copy table',
+        copyTableImage: 'Copy as image',
+        saveTableImage: 'Save image',
+        tableCopied: 'Table copied',
+        tableImageCopied: 'Image copied',
+        copiedMark: 'Copied ✓',
         mermaidRenderFailed: 'Failed to render mermaid diagram',
     },
 
@@ -1348,7 +1356,7 @@ export const en = {
             agentsKeywords: 'model reasoning effort permission default',
             agentsSubtitle: 'Model · Reasoning · Permissions',
             account: 'Account and device access',
-            accountKeywords: 'sign in pair authorise sign out account',
+            accountKeywords: 'sign in pair authorise sign out account profile avatar sharing members permissions invite',
             about: 'About',
             aboutKeywords: 'version changelog release',
             aboutSubtitle: 'Version · Changelog',
@@ -1356,6 +1364,8 @@ export const en = {
             selfHostBlurb: 'LMC is a self-hosted fork of Happy: the web app and your device agents talk to your own center, with no Happy account involved.',
         },
         about: {
+            developerMode: 'Developer mode',
+            developerModeSubtitle: 'Show diagnostic controls on this device. Turning off stops collection immediately.',
             title: 'About Link my Cli',
             changelog: "What's new",
             changelogSubtitle: 'See what changed recently',
@@ -1399,6 +1409,11 @@ export const en = {
             imageFailedHint: 'Try a different picture.',
         },
         account: {
+            sharingSection: 'Sharing and members',
+            mySharing: 'My sharing',
+            mySharingSubtitle: 'Manage sharing for devices, sessions and saved files',
+            members: 'Members and permissions',
+            membersSubtitle: 'Invite members and manage roles and status',
             selfHosted: 'Self-hosted account',
             selfHostedFooter: 'A browser stays signed in for 30 days. Signing out ends this browser only; device access is managed separately.',
             connectDevice: 'Connect a device',

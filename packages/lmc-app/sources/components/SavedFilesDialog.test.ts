@@ -1,0 +1,29 @@
+import React from 'react';
+// @ts-expect-error local renderer has no declarations
+import { act, create } from 'react-test-renderer';
+import { describe, expect, it, vi } from 'vitest';
+vi.mock('react-native', () => ({ View: 'View', Pressable: 'Pressable' }));
+vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme: { colors: {} } }) }));
+vi.mock('@/components/StyledText', () => ({ Text: 'Text' }));
+vi.mock('@/modal', () => ({ Modal: { show: vi.fn() } }));
+vi.mock('@/components/lmc/UtilityDialog', () => ({ UtilityDialog: 'UtilityDialog' }));
+vi.mock('./SavedFilesList', () => ({ SavedFilesList: 'SavedFilesList' }));
+vi.mock('./SavedFileDetails', () => ({ SavedFileDetails: 'SavedFileDetails' }));
+import { SavedFilesDialog } from './SavedFilesDialog';
+it('keeps the file list mounted when opening a detail and returning, and closes through the supplied callback', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const close = vi.fn();
+    let tree: any;
+    await act(async () => { tree = create(React.createElement(SavedFilesDialog, { onClose: close })); });
+    const list = tree.root.findByType('SavedFilesList');
+    await act(async () => list.props.onOpen('file-one'));
+    expect(tree.root.findByType('SavedFilesList')).toBe(list);
+    expect(tree.root.findByType('SavedFileDetails').props.id).toBe('file-one');
+    await act(async () => tree.root.findByType('Pressable').props.onPress());
+    expect(tree.root.findByType('SavedFilesList')).toBe(list);
+    expect(tree.root.findAllByType('SavedFileDetails')).toHaveLength(0);
+    await act(async () => tree.root.findByType('UtilityDialog').props.onClose());
+    expect(close).toHaveBeenCalledOnce();
+    await act(async () => tree.unmount());
+    vi.unstubAllGlobals();
+});

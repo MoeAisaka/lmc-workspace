@@ -11,18 +11,20 @@ import { AccountQuotaCards } from '@/components/lmc/AccountQuotaCards';
 import { usageSessionRoles } from '@/sync/usageSessionGroups';
 import { aiTrafficOf } from '@/utils/lmc/aiTraffic';
 
-export default function UsageSettingsScreen() {
+export default function UsageSettingsScreen({ onClose }: { onClose?: () => void } = {}) {
     const [period, setPeriod] = React.useState<UsagePeriod>('today');
-    const data = useUsageAnalytics(period);
+    const [monthOffset, setMonthOffset] = React.useState(0);
+    const data = useUsageAnalytics(period, period === 'month' ? monthOffset : 0);
     const sessions = useAllSessions(), machines = useAllMachines({ includeOffline: true });
     const roles = React.useMemo(() => usageSessionRoles(sessions), [sessions]);
     const quota = useAccountQuota();
     const router = useRouter();
     return <UsageDashboard {...data} period={period} onPeriod={setPeriod} onRefresh={data.refresh}
+        monthOffset={monthOffset} onMonth={setMonthOffset} quotaSnapshot={quota.snapshot}
         sessionNames={Object.fromEntries(sessions.map(s => [s.id, getSessionName(s)]))}
         sessionRoles={roles}
         machineNames={Object.fromEntries(machines.map(m => [m.id, machineDisplayName(m, m.id.slice(-6))]))}
         aiTraffic={machines.map(m => ({ id: m.id, name: machineDisplayName(m, m.id.slice(-6)), traffic: aiTrafficOf(m) }))}
-        onSession={id => router.push(`/session/${id}`)}
+        onSession={id => { onClose?.(); router.push(`/session/${id}`); }}
         quota={<AccountQuotaCards {...quota} onRefresh={quota.refresh} />} />;
 }

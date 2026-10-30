@@ -3,7 +3,7 @@ import type { Metadata, MachineMetadata } from './storageTypes';
 
 export function withModelCatalogs(metadata: Metadata | null | undefined, machine?: MachineMetadata | null): Metadata | undefined {
     if (!metadata) return undefined;
-    if (!metadata.sessionCapabilities?.modelDiscovery) return metadata;
+    if (!metadata.sessionCapabilities?.modelDiscovery && metadata.flavor !== 'agy') return metadata;
     const catalogs = { ...metadata.modelCatalogs, ...machine?.modelCatalogs };
     const engine = metadata.flavor;
     if (engine === 'claude' || engine === 'codex') {
@@ -18,7 +18,7 @@ export function withModelCatalogs(metadata: Metadata | null | undefined, machine
 
 /** Creation has no session snapshot yet; capabilities come from the target device. */
 export function machineModelMetadata(machine: MachineMetadata | null | undefined): Metadata {
-    return { path: '', host: '', modelCatalogs: machine?.modelDiscovery ? machine.modelCatalogs : undefined };
+    return { path: '', host: '', version: machine?.happyCliVersion, modelCatalogs: machine?.modelDiscovery ? machine.modelCatalogs : undefined };
 }
 
 // Claude's managed runtime reports its SDK package version (0.3.N), which

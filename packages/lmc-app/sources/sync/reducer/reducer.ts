@@ -1219,13 +1219,40 @@ export function reducer(state: ReducerState, messages: NormalizedMessage[], agen
     // Collect changed messages (only root-level messages)
     //
 
-    const sourceSequences = new Map(messages.map(message => [message.id, message.serverSeq]));
+    // Reconcile after creation as optimistic input and its durable echo may
+    // arrive in the same reducer batch. Keep the row id/text/time unchanged.
+    for (const msg of messages) {
+        if (msg.role !== 'user' || !msg.localId || msg.serverSeq === undefined) continue;
+        const mid = state.localIds.get(msg.localId);
+        const existing = mid ? state.messages.get(mid) : undefined;
+        if (existing && mid && existing.serverSeq === undefined) {
+            existing.serverSeq = msg.serverSeq;
+            existing.realID = msg.id;
+            state.messageIds.set(msg.id, mid);
+            changed.add(mid);
+        }
+    }
+
+    // A file envelope keeps its source id and normalizes to an agent tool row.
+    // Its durable echo is therefore deduplicated before it can mark that row
+    // changed. Reconcile all rows by source id, including these skipped echoes,
+    // so attachments cannot leave the display sorter mixing device clocks with
+    // server order. An unsequenced copy in the same batch must not erase an ack.
+    const sourceSequences = new Map<string, number>();
+    for (const message of messages) {
+        if (message.serverSeq !== undefined) sourceSequences.set(message.id, message.serverSeq);
+    }
+    for (const [id, existing] of state.messages) {
+        if (existing.serverSeq !== undefined || !existing.realID) continue;
+        const sourceSequence = sourceSequences.get(existing.realID);
+        if (sourceSequence === undefined) continue;
+        existing.serverSeq = sourceSequence;
+        changed.add(id);
+    }
+
     for (let id of changed) {
         let existing = state.messages.get(id);
         if (!existing) continue;
-
-        const sourceSequence = existing.realID ? sourceSequences.get(existing.realID) : undefined;
-        if (sourceSequence !== undefined && existing.serverSeq === undefined) existing.serverSeq = sourceSequence;
         let message = convertReducerMessageToMessage(existing, state);
         if (message) {
             newMessages.push(message);

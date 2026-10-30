@@ -31,33 +31,36 @@ let browser;
             const text = sel => (document.querySelector(sel)?.innerText ?? '').replace(/\s+/g, ' ').trim();
             const box = sel => { const r = document.querySelector(sel)?.getBoundingClientRect(); return r ? {x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height)} : null; };
             const card = document.querySelector('[data-testid="usage-traffic-card"]');
-            return {total: text('[data-testid="ai-traffic-total"]'), claude: text('[data-testid="ai-traffic-claude"]'), openai: text('[data-testid="ai-traffic-openai"]'), projection: text('[data-testid="ai-traffic-projection"]'),
+            return {total: text('[data-testid="ai-traffic-total"]'), claude: text('[data-testid="ai-traffic-claude"]'), openai: text('[data-testid="ai-traffic-openai"]'), antigravity: text('[data-testid="ai-traffic-antigravity"]'), projection: text('[data-testid="ai-traffic-projection"]'),
                 rows: [...document.querySelectorAll('[data-testid^="ai-traffic-row-"]')].map(n => n.getAttribute('data-testid').slice(15) + ' ' + n.innerText.replace(/\s+/g, ' ').trim()),
                 empty: text('[data-testid="ai-traffic-empty"]'), card: box('[data-testid="usage-traffic-card"]'), model: box('[data-testid="usage-model-card"]'), session: box('[data-testid="usage-session-card"]'),
-                boxes: ['total', 'claude', 'openai', 'projection'].map(k => box(`[data-testid="ai-traffic-${k}"]`)),
+                boxes: ['total', 'claude', 'openai', 'antigravity', 'projection'].map(k => box(`[data-testid="ai-traffic-${k}"]`)),
                 overflow: card ? card.scrollWidth - card.clientWidth : null, pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth};
         });
         const today = await read();
-        // Fixture today: Mac mini Claude 1.5 GB up/60 MB down, OpenAI 90/100 MB; MacBook Claude 2 GB/70 MB, OpenAI 55/65 MB.
-        check(`${name}: today's totals carry the up/down split`, today.total.includes('3.93 GB') && today.total.includes('↑ 3.64 GB') && today.total.includes('↓ 295 MB')
-            && today.claude.includes('3.63 GB') && today.claude.includes('↑ 3.50 GB') && today.openai.includes('310 MB') && today.openai.includes('↑ 145 MB · ↓ 165 MB'), today);
-        check(`${name}: machines are listed largest first with a Claude and an OpenAI row each`, today.rows.length === 4 && today.rows[0].startsWith('m2-claude') && today.rows[0].includes('2.07 GB')
-            && today.rows[1].startsWith('m2-openai') && today.rows[2].startsWith('m1-claude') && today.rows[2].includes('↑ 1.50 GB') && today.rows[3].includes('190 MB'), today.rows);
+        // Fixture today: Mac mini Claude 1.5 GB up/60 MB down, OpenAI 90/100 MB, Antigravity 320/40 MB; MacBook Claude 2 GB/70 MB, OpenAI 55/65 MB, Antigravity 480/30 MB.
+        check(`${name}: today's totals carry the up/down split across Claude, OpenAI, and Antigravity`, today.total.includes('4.78 GB') && today.total.includes('↑ 4.42 GB') && today.total.includes('↓ 365 MB')
+            && today.claude.includes('3.63 GB') && today.claude.includes('↑ 3.50 GB') && today.openai.includes('310 MB') && today.openai.includes('↑ 145 MB · ↓ 165 MB')
+            && today.antigravity.includes('870 MB') && today.antigravity.includes('↑ 800 MB · ↓ 70 MB'), today);
+        check(`${name}: machines are listed largest first with Claude, OpenAI, and Antigravity rows each`, today.rows.length === 6 && today.rows[0].startsWith('m2-claude') && today.rows[0].includes('2.07 GB')
+            && today.rows[1].startsWith('m2-openai') && today.rows[2].startsWith('m2-antigravity') && today.rows[2].includes('510 MB')
+            && today.rows[3].startsWith('m1-claude') && today.rows[3].includes('↑ 1.50 GB') && today.rows[4].includes('190 MB')
+            && today.rows[5].startsWith('m1-antigravity') && today.rows[5].includes('360 MB'), today.rows);
         // Mac mini: six whole days of 4 GB in the last seven; MacBook began yesterday, so it has no whole day.
         check(`${name}: the month is projected from whole days only`, today.projection.includes('≈ 119 GB') && today.projection.includes('日均 3.98 GB × 30') && !today.projection.includes('仅'), today.projection);
         check(`${name}: the card sits between the model card and the session card without overflowing`, today.card && today.model && today.session && today.card.y >= today.model.y + today.model.h && today.session.y >= today.card.y + today.card.h
             && today.overflow <= 1 && today.pageOverflow <= 1, {card: today.card, model: today.model, session: today.session, overflow: today.overflow, pageOverflow: today.pageOverflow});
         const ys = new Set(today.boxes.map(b => b.y));
-        check(`${name}: the four figures are ${name === 'phone' ? 'two rows of two' : 'one row'}`, name === 'phone' ? ys.size === 2 && today.boxes[0].y === today.boxes[1].y && today.boxes[2].y === today.boxes[3].y : ys.size === 1, today.boxes);
+        check(`${name}: the five figures are ${name === 'phone' ? 'two pairs plus full-width projection' : 'one row'}`, name === 'phone' ? ys.size === 3 && today.boxes[0].y === today.boxes[1].y && today.boxes[2].y === today.boxes[3].y && today.boxes[4].y > today.boxes[2].y : ys.size === 1, today.boxes);
         await card.scrollIntoViewIfNeeded(); await page.screenshot({path: path.join(out, `${name}-today.png`)});
         await page.getByText('7 天', {exact: true}).first().click();
         const week = await read();
         // 7 days: today + six days at 3 GB/100 MB/400 MB/500 MB for Mac mini, + MacBook's yesterday.
-        check(`${name}: the period filter changes the totals`, week.total.includes('28.0 GB') && week.claude.includes('·') && week.rows[0].startsWith('m1-claude'), week);
+        check(`${name}: the period filter changes the totals`, week.total.includes('28.8 GB') && week.claude.includes('·') && week.rows[0].startsWith('m1-claude'), week);
         if (name === 'desktop') {
             await page.getByText('MacBook', {exact: true}).first().click();
             const one = await read();
-            check('desktop: the device filter narrows the card to that machine', one.rows.length === 2 && one.rows.every(r => r.startsWith('m2-')) && one.projection.includes('—') && one.projection.includes('满一整天后开始推算'), one);
+            check('desktop: the device filter narrows the card to that machine', one.rows.length === 3 && one.rows.every(r => r.startsWith('m2-')) && one.projection.includes('—') && one.projection.includes('满一整天后开始推算'), one);
             await page.getByText('全部设备', {exact: true}).first().click();
             await page.getByRole('button', {name: '深色', exact: true}).click(); await page.waitForTimeout(300);
             await card.scrollIntoViewIfNeeded(); await page.screenshot({path: path.join(out, 'desktop-dark-7days.png')});

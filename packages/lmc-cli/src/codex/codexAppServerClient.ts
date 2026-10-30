@@ -1,3 +1,4 @@
+import { sanitizeSessionEnvironment } from '@/daemon/sessionEnvironment';
 import { codexExecutable } from '@/runtime/managedRuntime';
 import { validateCodexServiceTier, type CodexServiceTier } from './serviceTier';
 import { validateCodexContextLimits, type CodexContextLimits } from './contextLimits';
@@ -19,8 +20,8 @@ import { engineLoginContext } from '@/utils/engineLoginContext';
  * app-server wrapper or approval callbacks. See docs/plans/codex-app-server-migration.md.
  */
 
-import { execSync, execFileSync, type ChildProcess } from 'node:child_process';
-import { spawn as crossSpawn } from 'cross-spawn';
+import { execSync, type ChildProcess } from 'node:child_process';
+import { spawn as crossSpawn, sync as crossSpawnSync } from 'cross-spawn';
 import { createInterface, type Interface as ReadlineInterface } from 'node:readline';
 import { logger } from '@/ui/logger';
 import type {
@@ -119,8 +120,11 @@ function parseCodexCliVersion(version: string): { major: number; minor: number; 
 
 function readCodexCliVersion(): { major: number; minor: number; patch: number } | null {
     try {
-        const version = execFileSync(codexExecutable(), ['--version'], { encoding: 'utf8', windowsHide: true }).trim();
-        return parseCodexCliVersion(version);
+        // npm installs a .cmd shim on Windows, which execFileSync cannot launch.
+        // Use the same platform-aware resolution as the app-server transport.
+        const result = crossSpawnSync(codexExecutable(), ['--version'], { encoding: 'utf8', windowsHide: true });
+        if (result.error || result.status !== 0) return null;
+        return parseCodexCliVersion(result.stdout.trim());
     } catch {
         return null;
     }
@@ -230,6 +234,7 @@ export class CodexAppServerClient {
     private processEpoch = 0;
     private connected = false;
     private processShutdown: Promise<void> | null = null;
+    private closedProcesses = new WeakSet<ChildProcess>();
     private threadNeedsResume = false;
     private pendingAbort: Promise<AbortResult> | null = null;
     private sandboxConfig?: SandboxConfig;
@@ -655,23 +660,36 @@ export class CodexAppServerClient {
 
     // ─── Lifecycle ──────────────────────────────────────────────
 
+    /** Pauses before the second and third start of an app-server that exited while initializing. */
+    static startupRetryDelaysMs: readonly number[] = [1_500, 4_000];
+
+    /**
+     * Sessions restarted together start their app-servers together, and Codex
+     * initializes its state database under a lock: the one that loses exits at
+     * once ("failed to initialize sqlite state runtime"). That is over a moment
+     * later, so the start is tried again instead of ending the session.
+     */
     async connect(): Promise<void> {
+        for (let attempt = 0; ; attempt++) {
+            try { return await this.connectOnce(); }
+            catch (error) {
+                const delay = CodexAppServerClient.startupRetryDelaysMs[attempt];
+                const exitedDuringStartup = error instanceof Error && /exited \(code=.*\) while waiting for initialize$/.test(error.message);
+                if (!exitedDuringStartup || delay === undefined) throw error;
+                logger.warn(`[CodexAppServer] Exited while initializing; starting again in ${delay}ms (attempt ${attempt + 2})`);
+                await this.disconnectInternal({ preserveThreadState: true });
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+    }
+
+    private async connectOnce(): Promise<void> {
         if (this.connected) return;
 
         // Ending stdin / sending SIGTERM only REQUESTS shutdown. Starting a
         // replacement before the old process closes races its rollout writer
         // lock. Keep this barrier across failed recovery attempts as well.
-        if (this.processShutdown) {
-            let timer: ReturnType<typeof setTimeout> | undefined;
-            try {
-                await Promise.race([
-                    this.processShutdown,
-                    new Promise<never>((_, reject) => {
-                        timer = setTimeout(() => reject(new Error('Previous Codex process has not exited yet')), 5_000);
-                    }),
-                ]);
-            } finally { if (timer) clearTimeout(timer); }
-        }
+        await this.waitForProcessShutdown();
 
         if (!isAppServerAvailable()) {
             throw new Error(
@@ -703,7 +721,7 @@ export class CodexAppServerClient {
 
         // Build env — same filtering as the old MCP client
         const env: Record<string, string> = {};
-        for (const [key, value] of Object.entries(process.env)) {
+        for (const [key, value] of Object.entries(sanitizeSessionEnvironment(process.env))) {
             if (typeof value === 'string') env[key] = value;
         }
         // Mute noisy rollout list logging
@@ -732,6 +750,9 @@ export class CodexAppServerClient {
             detached: process.platform !== 'win32',
         });
         this.process = proc;
+        // `exit` is only the launcher; inherited pipes can keep its native
+        // app-server (and the thread writer lock) alive until `close`.
+        proc.once('close', () => { this.closedProcesses.add(proc); });
 
         proc.on('error', (err) => {
             logger.debug('[CodexAppServer] Process error:', err);
@@ -774,8 +795,8 @@ export class CodexAppServerClient {
         // Perform initialize handshake
         const initParams: InitializeParams = {
             clientInfo: {
-                name: 'happy-codex',
-                title: 'Happy Codex Client',
+                name: 'lmc',
+                title: 'Link my Cli',
                 version: packageJson.version,
             },
             capabilities: {
@@ -788,8 +809,24 @@ export class CodexAppServerClient {
         logger.debug('[CodexAppServer] Connected and initialized');
     }
 
+    private async waitForProcessShutdown(): Promise<void> {
+        if (!this.processShutdown) return;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+            await Promise.race([
+                this.processShutdown,
+                new Promise<never>((_, reject) => {
+                    timer = setTimeout(() => reject(new Error('Previous Codex process has not exited yet')), 5_000);
+                }),
+            ]);
+        } finally { if (timer) clearTimeout(timer); }
+    }
+
     private async disconnectInternal(opts?: { preserveThreadState?: boolean }): Promise<void> {
-        if (!this.connected && !this.process) return;
+        if (!this.connected && !this.process) {
+            await this.waitForProcessShutdown();
+            return;
+        }
 
         const proc = this.process;
         const pid = proc?.pid;
@@ -799,9 +836,11 @@ export class CodexAppServerClient {
         this.readline?.close();
         this.readline = null;
 
-        if (proc && proc.exitCode == null && proc.signalCode == null) {
+        let killTimer: ReturnType<typeof setTimeout> | undefined;
+        if (proc && !this.closedProcesses.has(proc)) {
             const shutdown = new Promise<void>(resolve => {
                 proc.once('close', () => {
+                    if (killTimer) clearTimeout(killTimer);
                     if (this.processShutdown === shutdown) this.processShutdown = null;
                     resolve();
                 });
@@ -810,17 +849,20 @@ export class CodexAppServerClient {
         }
 
         try {
-            proc?.stdin?.end();
-            if (pid && process.platform !== 'win32') {
-                process.kill(-pid, 'SIGTERM');
-            } else {
-                proc?.kill('SIGTERM');
+            if (proc && !this.closedProcesses.has(proc)) {
+                proc.stdin?.end();
+                if (pid && process.platform !== 'win32') {
+                    process.kill(-pid, 'SIGTERM');
+                } else {
+                    proc.kill('SIGTERM');
+                }
             }
         } catch { /* ignore */ }
 
         // Force kill after 2s (unref so timer doesn't block process exit)
-        if (pid) {
-            const killTimer = setTimeout(() => {
+        if (pid && proc && !this.closedProcesses.has(proc)) {
+            killTimer = setTimeout(() => {
+                if (this.closedProcesses.has(proc)) return;
                 try {
                     if (process.platform !== 'win32') {
                         process.kill(-pid, 0); // check process group alive
@@ -861,6 +903,11 @@ export class CodexAppServerClient {
         }
         this.sandboxEnabled = false;
 
+        // The runner exits immediately after disconnect during a refresh.
+        // Waiting only in connect() protects in-process reconnects, but not a
+        // replacement runner started by the daemon. Keep the old runner alive
+        // until its app-server is closed, and never report a timeout as success.
+        await this.waitForProcessShutdown();
         logger.debug('[CodexAppServer] Disconnected');
     }
 
@@ -873,7 +920,7 @@ export class CodexAppServerClient {
         let cursor: string | undefined;
         let happyReady = false;
         do {
-            const result = await this.request('mcpServerStatus/list', { threadId: this._threadId, detail: 'full', cursor }) as {
+            const result = await this.request('mcpServerStatus/list', { threadId: this._threadId, detail: 'full', cursor }, CodexAppServerClient.sessionInitTimeoutMs) as {
                 data: Array<{ name: string; tools?: Record<string, unknown>; runtimeStatus?: string | null }>;
                 nextCursor?: string | null;
             };
@@ -945,7 +992,7 @@ export class CodexAppServerClient {
             persistExtendedHistory: true,
         };
 
-        const result = await this.request('thread/start', params) as NewConversationResponse;
+        const result = await this.request('thread/start', params, CodexAppServerClient.sessionInitTimeoutMs) as NewConversationResponse;
         this._threadId = result.thread.id;
         this.threadNeedsResume = false;
         this._turnId = null;
@@ -985,7 +1032,7 @@ export class CodexAppServerClient {
             excludeTurns: true,
         };
 
-        const result = await this.request('thread/resume', params) as ResumeConversationResponse;
+        const result = await this.request('thread/resume', params, CodexAppServerClient.sessionInitTimeoutMs) as ResumeConversationResponse;
         this._threadId = result.thread.id;
         this.threadNeedsResume = false;
         this._turnId = null;
@@ -1024,7 +1071,7 @@ export class CodexAppServerClient {
             threadSource: null,
         };
 
-        const result = await this.request('thread/fork', params) as ForkConversationResponse;
+        const result = await this.request('thread/fork', params, CodexAppServerClient.sessionInitTimeoutMs) as ForkConversationResponse;
         this._threadId = result.thread.id;
         this._turnId = null;
         this.rememberThreadDefaults({
@@ -1463,6 +1510,14 @@ export class CodexAppServerClient {
 
     /** Default timeout for RPC requests (ms). */
     private static readonly REQUEST_TIMEOUT_MS = 30_000;
+    /**
+     * Starting or resuming a thread initializes the whole session before it
+     * answers: model list, plugin sync, shell snapshot, skill warm-up, then every
+     * MCP server. Codex's own log put that at 28 s and still going on a machine
+     * restarting several sessions at once, so the default timeout ended sessions
+     * that were seconds from ready. The MCP status list waits on the same servers.
+     */
+    static sessionInitTimeoutMs = 180_000;
 
     private request(method: string, params?: unknown, timeoutMs?: number): Promise<unknown> {
         const timeout = timeoutMs ?? CodexAppServerClient.REQUEST_TIMEOUT_MS;

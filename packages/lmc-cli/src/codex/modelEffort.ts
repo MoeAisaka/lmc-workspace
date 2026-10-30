@@ -1,8 +1,12 @@
 import { cachedModel } from '@/runtime/modelCatalogCache';
 // Codex registry compatibility fallback, checked against the existing WebApp
-// catalog (Codex 0.153 family for Astra, 0.144 family for GPT-5.6).
+// catalog (Codex 0.153 family for Astra, 0.144 family for GPT-5.6, 0.162
+// for GPT-6.1 Sol and GPT-6 Sol/Luna).
 // This is a Codex harness catalog, not the public Responses API effort enum.
 const CODEX_MODEL_EFFORTS: Record<string, readonly string[]> = {
+    'gpt-6.1-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+    'gpt-6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+    'gpt-6-luna': ['low', 'medium', 'high', 'xhigh', 'max'],
     'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
     'gpt-5.6-sol': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
     'gpt-5.6-terra': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],

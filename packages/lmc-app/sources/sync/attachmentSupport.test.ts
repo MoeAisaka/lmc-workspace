@@ -7,6 +7,12 @@ import {
 } from './attachmentSupport';
 
 describe('supportsImageAttachmentsForFlavor', () => {
+    it('enables Antigravity only after its Agent advertises the file inbox', () => {
+        expect(supportsImageAttachmentsForFlavor('agy', true)).toBe(true);
+        expect(supportsImageAttachmentsForFlavor('agy')).toBe(false);
+        expect(supportsImageAttachmentsForFlavor('agy', false)).toBe(false);
+        expect(supportsImageAttachmentsForFlavor('custom-agent', true)).toBe(false);
+    });
     it('supports legacy sessions, Claude, and Codex', () => {
         expect(supportsImageAttachmentsForFlavor(undefined)).toBe(true);
         expect(supportsImageAttachmentsForFlavor(null)).toBe(true);

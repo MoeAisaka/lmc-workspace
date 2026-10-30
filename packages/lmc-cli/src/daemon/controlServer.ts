@@ -1,3 +1,4 @@
+import { SessionOwnershipConflict } from './sessionOwnership';
 import type { SessionRefreshOptions } from './sessionRefresh';
 /**
  * HTTP control server for daemon management
@@ -43,7 +44,7 @@ export function startDaemonControlServer({
       options: z.object({ receiveSeq: z.number().int().nonnegative().optional(), model: z.string().optional(), effort: z.string().optional(), permissionMode: z.string().optional(),
         codexServiceTier: z.enum(['fast','default']).optional(),
         codexContextLimits: z.object({ contextWindow: z.number().optional(), autoCompactTokenLimit: z.number().optional() }).optional(),
-        engine: z.enum(['claude', 'codex']).optional(),
+        engine: z.enum(['claude', 'codex', 'agy']).optional(),
       }),
     }) } }, async request => prepareSessionRefresh
       ? prepareSessionRefresh(request.body.sessionId, request.body.pid, request.body.options)
@@ -66,10 +67,11 @@ export function startDaemonControlServer({
         response: {
           200: z.object({
             status: z.literal('ok')
-          })
+          }),
+          409: z.object({ error: z.string(), code: z.string() })
         }
       }
-    }, async (request) => {
+    }, async (request, reply) => {
       const { sessionId, metadata, encryption } = request.body;
 
       logger.debug(`[CONTROL SERVER] Session started: ${sessionId}`);
@@ -85,7 +87,11 @@ export function startDaemonControlServer({
         };
       }
 
-      onHappySessionWebhook(sessionId, metadata, encryptionData);
+      try { onHappySessionWebhook(sessionId, metadata, encryptionData); }
+      catch (error) {
+        if (error instanceof SessionOwnershipConflict) return reply.code(409).send({ error: error.message, code: error.code });
+        throw error;
+      }
 
       return { status: 'ok' as const };
     });

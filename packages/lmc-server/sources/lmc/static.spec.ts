@@ -13,4 +13,6 @@ it('serves newly published assets and returns 404 for missing scripts without cr
  const found=await app.inject({url:'/_expo/new.js'});expect(found.statusCode).toBe(200);expect(found.body).toBe('window.lmc=true;');
  expect((await app.inject({url:'/_expo/missing.js'})).statusCode).toBe(404);
  const html=await app.inject({url:'/terminal/connect'});expect(html.statusCode).toBe(200);expect(html.body).toContain('__HAPPY_CONFIG__');expect(html.headers['content-security-policy']).toContain("connect-src 'self'");
+ const saved=await app.inject({url:'/saved-files/11111111-1111-4111-8111-111111111111'});expect(saved.statusCode).toBe(200);expect(saved.body).toContain('__HAPPY_CONFIG__');
+ expect((await app.inject({url:'/files/assets/11111111-1111-4111-8111-111111111111/test.enc'})).statusCode).toBe(404);
 });

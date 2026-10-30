@@ -5,7 +5,10 @@ import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { ProfileSection } from '@/components/lmc/settings/ProfileSection';
+import { openMembers } from '@/components/lmc/MembersDialog';
+import { openResourceSharingList } from '@/components/lmc/ResourceSharingDialog';
 import { Modal } from '@/modal';
+import { accountMe, type AccountCapabilities } from '@/sync/apiAccounts';
 import { useProfile } from '@/sync/storage';
 import { getServerUrl } from '@/sync/serverConfig';
 import { useConnectTerminal } from '@/hooks/useConnectTerminal';
@@ -19,9 +22,16 @@ export default function AccountSettings({ onNavigate }: { onNavigate?: () => voi
     const router = useRouter();
     const profile = useProfile();
     const { connectTerminal, isLoading: pairing } = useConnectTerminal();
+    const [membership, setMembership] = useState<AccountCapabilities | null>(null);
     const [devices, setDevices] = useState<Device[]>([]);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
+    useEffect(() => {
+        let active = true;
+        setMembership(null);
+        void accountMe().then((value) => { if (active) setMembership(value); }).catch(() => {});
+        return () => { active = false; };
+    }, [auth.credentials?.token]);
     const request = useCallback(async (path: string, method = 'GET') => {
         const response = await fetch(`${getServerUrl()}/v1/lmc/devices${path}`, {
             method, headers: { Authorization: `Bearer ${auth.credentials?.token}` }, cache: 'no-store',
@@ -45,6 +55,22 @@ export default function AccountSettings({ onNavigate }: { onNavigate?: () => voi
     };
     return <ItemList>
         <ProfileSection />
+        {membership && (
+            <ItemGroup title={t('lmc.account.sharingSection')}>
+                <Item
+                    title={t('lmc.account.mySharing')}
+                    subtitle={t('lmc.account.mySharingSubtitle')}
+                    onPress={() => openResourceSharingList()}
+                />
+                {membership.account.role === 'admin' && (
+                    <Item
+                        title={t('lmc.account.members')}
+                        subtitle={t('lmc.account.membersSubtitle')}
+                        onPress={() => openMembers()}
+                    />
+                )}
+            </ItemGroup>
+        )}
         <ItemGroup title={t('lmc.account.selfHosted')} footer={t('lmc.account.selfHostedFooter')}>
             <Item title={profile.firstName || t('lmc.settings.fallbackAccount')} subtitle={getServerUrl()} showChevron={false} />
             <Item title={t('lmc.account.connectDevice')} subtitle={t('lmc.account.connectDeviceHint')} onPress={connectTerminal} loading={pairing} />

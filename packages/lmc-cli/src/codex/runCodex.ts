@@ -1,4 +1,8 @@
+import { assertSessionReconnectAvailable } from '@/daemon/controlClient';
+import { resolveNodeExecutable } from '@/utils/nodeExecutable';
+import { SessionOwnershipConflict } from '@/daemon/sessionOwnership';
 import { isLargeFileEvent, receiveLargeFileEvent } from '@/modules/common/largeFileEvent';
+import { normalizePermissionModeForEngine } from 'lmc-wire';
 import { cachedDefaultEffort } from '@/runtime/modelCatalogCache';
 import { startSessionProgressMonitor } from '@/modules/diagnostics/noProgress';
 import { readComputerUseSetup } from '@/runtime/computerUse';
@@ -35,7 +39,7 @@ import { AsyncLock } from '@/utils/lock';
 import { createCodexAutomaticGoal } from './codexAutomaticGoal';
 import packageJson from '../../package.json';
 import { MessageQueue2, type PendingAttachment } from '@/utils/MessageQueue2';
-import { attachQueuePublisher } from '@/utils/sessionQueueControl';
+import { attachQueuePublisher, bindQueuedReportConsumer } from '@/utils/sessionQueueControl';
 import { readMessageIntent } from '@/utils/queueControlRequest';
 import { projectPath } from '@/projectPath';
 import { join } from 'node:path';
@@ -199,7 +203,7 @@ export async function runCodex(opts: {
     // Create session
     //
 
-    const initialPermissionMode = opts.permissionMode ?? DEFAULT_CODEX_PERMISSION_MODE;
+    const initialPermissionMode = normalizePermissionModeForEngine('codex', opts.permissionMode ?? DEFAULT_CODEX_PERMISSION_MODE);
     // Lineage from the daemon's spawn RPC (set by app-side fork / duplicate).
     const forkedFromSessionId = process.env.HAPPY_FORKED_FROM_SESSION_ID;
     const forkedFromMessageId = process.env.HAPPY_FORKED_FROM_MESSAGE_ID;
@@ -235,6 +239,7 @@ export async function runCodex(opts: {
 
     // Check for session reconnection env vars (set by daemon for resume-in-place)
     const reconnectSessionId = process.env.HAPPY_RECONNECT_SESSION_ID;
+    if (reconnectSessionId) await assertSessionReconnectAvailable(reconnectSessionId);
     const reconnectKeyBase64 = process.env.HAPPY_RECONNECT_ENCRYPTION_KEY;
     const reconnectVariant = process.env.HAPPY_RECONNECT_ENCRYPTION_VARIANT as 'legacy' | 'dataKey' | undefined;
     const reconnectSeq = process.env.HAPPY_RECONNECT_SEQ;
@@ -267,6 +272,28 @@ export async function runCodex(opts: {
     let client!: CodexAppServerClient;
     let reasoningProcessor!: ReasoningProcessor;
     let abortInProgress: Promise<void> | null = null;
+    // Always report to daemon if it exists (skip if offline)
+    if (response) {
+        try {
+            logger.debug(`[START] Reporting session ${response.id} to daemon`);
+            const result = await notifyDaemonSessionStarted(response.id, metadata, {
+                encryptionKey: encodeBase64(response.encryptionKey),
+                encryptionVariant: response.encryptionVariant,
+                seq: response.seq,
+                metadataVersion: response.metadataVersion,
+                agentStateVersion: response.agentStateVersion,
+            });
+            if (result.error) {
+                logger.debug(`[START] Failed to report to daemon (may not be running):`, result.error);
+            } else {
+                logger.debug(`[START] Reported session ${response.id} to daemon`);
+            }
+        } catch (error) {
+        if (error instanceof SessionOwnershipConflict) throw error;
+            logger.debug('[START] Failed to report to daemon (may not be running):', error);
+        }
+    }
+
     const { session: initialSession, reconnectionHandle } = setupOfflineReconnection({
         api,
         sessionTag,
@@ -307,31 +334,12 @@ export async function runCodex(opts: {
         }));
     }
 
-    // Always report to daemon if it exists (skip if offline)
-    if (response) {
-        try {
-            logger.debug(`[START] Reporting session ${response.id} to daemon`);
-            const result = await notifyDaemonSessionStarted(response.id, metadata, {
-                encryptionKey: encodeBase64(response.encryptionKey),
-                encryptionVariant: response.encryptionVariant,
-                seq: response.seq,
-                metadataVersion: response.metadataVersion,
-                agentStateVersion: response.agentStateVersion,
-            });
-            if (result.error) {
-                logger.debug(`[START] Failed to report to daemon (may not be running):`, result.error);
-            } else {
-                logger.debug(`[START] Reported session ${response.id} to daemon`);
-            }
-        } catch (error) {
-            logger.debug('[START] Failed to report to daemon (may not be running):', error);
-        }
-    }
 
     const messageQueue = new MessageQueue2<EnhancedMode>(hashCodexEnhancedMode);
     // The app sees the queue through agentState; the consumption mode survives
     // relaunches through metadata.
     attachQueuePublisher(messageQueue, session, session.getMetadata()?.queueMode);
+    const consumeQueuedReport = bindQueuedReportConsumer(messageQueue);
     let activeTurnModeHash: string | null = null;
     let activeTurnMode: EnhancedMode | null = null;
     let activeTurnIsHub = false;
@@ -579,7 +587,7 @@ export async function runCodex(opts: {
     let configurationBlocked = false;
     let refreshHandoff = false;
     // Held between the request and the boundary the relaunch waits for.
-    let switchTarget: 'claude' | 'codex' | undefined;
+    let switchTarget: 'claude' | 'codex' | 'agy' | undefined;
     let switchSettings: ReturnType<typeof readSwitchSettings> = {};
     // What a queued refresh is waiting on, as this runner sees it. Published
     // into the metadata so the daemon can tell a busy session from a wedged
@@ -1158,7 +1166,13 @@ export async function runCodex(opts: {
         if (target) session.sendSessionEvent({ type: 'engine-switch-cancelled', target });
         return { status: 'cancelled' };
     });
-    const happyServer = await startHappyServer(session, agentMail.mail, handoffPort, { cwd: process.cwd(), machineId, meter });
+    const happyServer = await startHappyServer(session, agentMail.mail, handoffPort, {
+        cwd: process.cwd(),
+        machineId,
+        meter,
+        pollMail: () => agentMail.pollNow?.() ?? Promise.resolve(),
+        consumeQueuedReport,
+    });
     // Taking a session over: same door as agent mail, for the same reason.
     const inherited = await consumePendingHandoff(session);
     if (inherited) {
@@ -1187,7 +1201,7 @@ export async function runCodex(opts: {
     const mcpServersForRole = () => ({
         ...computerUse.mcpServers,
         happy: {
-            command: process.execPath,
+            command: resolveNodeExecutable(),
             args: ['--no-warnings', '--no-deprecation', bridgeEntrypoint, '--url', happyServer.url],
             // Explicit per-tool trust preserves hub orchestration under `never`
             // without granting approval to other MCP servers or native tools.
@@ -1197,6 +1211,9 @@ export async function runCodex(opts: {
     let threadToolsKey = JSON.stringify(mcpServersForRole().happy.tools);
     let first = true;
     let appendSystemPromptInjected = false;
+    // Resume can contain the old LMC scaffold without the file delivery policy.
+    // Inject it once per running thread, independently of browser options text.
+    let fileDeliveryInstructionsInjected = false;
 
     try {
         logger.debug('[codex]: client.connect begin');
@@ -1243,6 +1260,7 @@ export async function runCodex(opts: {
                 // duplicate costs nothing, while skipping loses chips entirely.
                 logger.debug('[codex]: could not read resumed thread, will inject instructions:', error);
                 appendSystemPromptInjected = false;
+                fileDeliveryInstructionsInjected = false;
             }
         }
 
@@ -1420,6 +1438,7 @@ export async function runCodex(opts: {
                 reasoningProcessor.abort();
                 diffProcessor.reset();
                 appendSystemPromptInjected = false;
+                fileDeliveryInstructionsInjected = false;
                 thinking = false;
                 session.keepAlive(thinking, 'remote');
                 messageBuffer.addMessage('Context was reset', 'status');
@@ -1521,6 +1540,7 @@ export async function runCodex(opts: {
                     mode: message.mode,
                     includeAppendSystemPrompt,
                     includeTitleInstruction: first,
+                    includeFileDeliveryInstructions: !fileDeliveryInstructionsInjected,
                 });
 
                 activeTurnModeHash = hashCodexEnhancedMode(message.mode, 'steer');
@@ -1545,6 +1565,7 @@ export async function runCodex(opts: {
                     })),
                 });
                 first = false;
+                fileDeliveryInstructionsInjected = true;
                 if (includeAppendSystemPrompt) {
                     appendSystemPromptInjected = true;
                 }

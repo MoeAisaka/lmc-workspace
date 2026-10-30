@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { appendDaemonSpawnModeArgs, shouldForwardDaemonPermissionMode } from './spawnModeArgs';
 
 describe('daemon spawn mode arguments', () => {
+  it('forwards Antigravity model, effort and permission into its runner', () => {
+    const args: string[] = [];
+    appendDaemonSpawnModeArgs(args, {directory:'/repo', modelMode:'claude-opus-5-5', effortLevel:'medium', permissionMode:'yolo'}, 'agy');
+    expect(args).toEqual(['--permission-mode','yolo','--model','claude-opus-5-5','--effort','medium']);
+  });
   it('forwards Codex default because it is a concrete ask-first policy', () => {
     const args: string[] = [];
 

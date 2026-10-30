@@ -19,7 +19,7 @@ export function appendDaemonSpawnModeArgs(
   options: SpawnSessionOptions,
   agent: string,
 ): void {
-  if (agent !== 'claude' && agent !== 'codex') return;
+  if (agent !== 'claude' && agent !== 'codex' && agent !== 'agy') return;
   if (agent === 'codex') assertCodexModelEffort(options.modelMode, options.effortLevel);
 
   const tierArgs = agent === 'codex' ? codexServiceTierArgs(options.codexServiceTier) : [];

@@ -1,13 +1,16 @@
+import { findAgyBin } from '@/agy/constants';
+import { projectAgyQuota } from '@/daemon/antigravityQuota';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { projectPath } from '@/projectPath';
 import { claudeExecutable, codexExecutable, runtimeVersion } from '@/runtime/managedRuntime';
-import { execFile } from 'node:child_process';
+import { probeCommand } from './probeCommand';
 import { createRequire } from 'node:module';
 import type { ApiSessionClient } from '@/api/apiSession';
 import { engineLoginContext } from './engineLoginContext';
+import { poeClaudeEnvironment, readPoeSettings } from '@/runtime/poe';
 
 const agentBuild = (() => {try{return createHash('sha256').update(readFileSync(join(projectPath(),'dist','index.mjs'))).digest('hex');}catch{return undefined;}})();
 
@@ -81,18 +84,23 @@ function codexEnvKeyAuthReady(env: NodeJS.ProcessEnv): boolean {
     } catch { return false; }
 }
 
-export async function checkEngineAuth(engine: Engine, cwd: string, env?: Record<string, string>, inheritEnvironment = true): Promise<EngineAuthStatus> {
+export async function checkEngineAuth(engine: Engine | 'agy', cwd: string, env?: Record<string, string>, inheritEnvironment = true): Promise<EngineAuthStatus> {
     try {
+        if (engine === 'agy') {
+            const binary = findAgyBin();
+            if (!binary) return 'required';
+            const probe = await probeCommand(binary, ['--print', '/usage', '--output-format', 'json', '--print-timeout', '15s'], { cwd, timeout: 20000 });
+            const status = projectAgyQuota(JSON.parse(probe.stdout)).status;
+            return status === 'ready' ? 'ready' : status === 'sign_in_required' ? 'required' : 'unknown';
+        }
         const command = engine === 'claude' ? claudeSdkExecutable() : codexExecutable();
         const args = engine === 'claude' ? ['auth', 'status', '--json'] : ['login', 'status'];
-        const merged = inheritEnvironment ? { ...process.env, ...env } : { ...env };
-        return await new Promise(resolve => {
-            execFile(command, args, { cwd, env: merged, timeout: 10_000, maxBuffer: 64 * 1024 }, (error, stdout, stderr) => {
-                const code = error ? (typeof error.code === 'number' ? error.code : null) : 0;
-                const status = parseEngineAuth(engine, code, engine === 'claude' ? stdout : `${stdout}\n${stderr}`);
-                resolve(engine === 'codex' && status === 'required' && codexEnvKeyAuthReady(merged) ? 'ready' : status);
-            });
-        });
+        // The explicit login flow must still check the official account in isolation.
+        const poe = engine === 'claude' && inheritEnvironment && !env?.ANTHROPIC_BASE_URL ? poeClaudeEnvironment(readPoeSettings()) : undefined;
+        const merged = inheritEnvironment ? { ...process.env, ...env, ...poe } : { ...env };
+        const { code, stdout, stderr } = await probeCommand(command, args, { cwd, env: merged });
+        const status = parseEngineAuth(engine, code, engine === 'claude' ? stdout : `${stdout}\n${stderr}`);
+        return engine === 'codex' && status === 'required' && codexEnvKeyAuthReady(merged) ? 'ready' : status;
     } catch { return 'unknown'; }
 }
 

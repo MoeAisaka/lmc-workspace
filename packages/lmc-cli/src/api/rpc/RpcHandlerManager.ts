@@ -20,12 +20,14 @@ export class RpcHandlerManager {
     private readonly encryptionVariant: 'legacy' | 'dataKey';
     private readonly logger: (message: string, data?: any) => void;
     private socket: Socket | null = null;
+    private readonly beforeRequest?: RpcHandlerConfig['beforeRequest'];
 
     constructor(config: RpcHandlerConfig) {
         this.scopePrefix = config.scopePrefix;
         this.encryptionKey = config.encryptionKey;
         this.encryptionVariant = config.encryptionVariant;
         this.logger = config.logger || ((msg, data) => defaultLogger.debug(msg, data));
+        this.beforeRequest = config.beforeRequest;
     }
 
     /**
@@ -76,6 +78,7 @@ export class RpcHandlerManager {
 
             // Decrypt the incoming params
             const decryptedParams = decrypt(this.encryptionKey, this.encryptionVariant, decodeBase64(request.params));
+            await this.beforeRequest?.(request.method.slice(this.scopePrefix.length + 1), decryptedParams);
 
             // Call the handler
             this.logger('[RPC] Calling handler', { method: request.method });

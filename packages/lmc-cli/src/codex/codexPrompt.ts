@@ -1,6 +1,7 @@
 import type { PermissionMode } from '@/api/types';
 import { CHANGE_TITLE_INSTRUCTION } from '@/gemini/constants';
 import { hashObject } from '@/utils/deterministicJson';
+import { FILE_DELIVERY_INSTRUCTIONS } from '@/modules/common/fileDelivery';
 
 import type { ReasoningEffort } from './codexAppServerTypes';
 
@@ -61,11 +62,16 @@ export function buildCodexTurnPrompt(opts: {
     mode: Pick<CodexEnhancedMode, 'appendSystemPrompt'>;
     includeAppendSystemPrompt: boolean;
     includeTitleInstruction: boolean;
+    includeFileDeliveryInstructions?: boolean;
 }): string {
     const parts: string[] = [];
 
     if (opts.includeAppendSystemPrompt && opts.mode.appendSystemPrompt) {
         parts.push(wrapHappySystem(opts.mode.appendSystemPrompt));
+    }
+
+    if (opts.includeFileDeliveryInstructions ?? opts.includeAppendSystemPrompt) {
+        parts.push(wrapHappySystem(FILE_DELIVERY_INSTRUCTIONS));
     }
 
     parts.push(opts.message);

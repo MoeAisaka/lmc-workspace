@@ -2,7 +2,7 @@ import * as React from 'react';
 import { sync } from '@/sync/sync';
 import { useSetting } from '@/sync/storage';
 import { orderSessions, moveSession } from '@/sync/sessionOrder';
-import { holdReleaseIntent, SORT_HOLD_MS, touchSortIntent } from '@/utils/sessionSortGesture';
+import { holdReleaseIntent, SORT_HOLD_MS, sortSlopForPointer, TOUCH_MENU_HOLD_MS, touchSortIntent } from '@/utils/sessionSortGesture';
 import type { SortableHubGroupsProps } from './SortableHubGroups';
 
 /**
@@ -25,6 +25,7 @@ export function SortableHubGroups<T>({ storageKey, items, getId, renderItem }: S
     const latestRows = React.useRef(rows); latestRows.current = rows;
     const touch = React.useRef<{ id: string; pointer: number; x: number; y: number; armed: boolean; target: HTMLElement; pointerType: string } | null>(null);
     const holdTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    const menuTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     const [held, setHeld] = React.useState<string | null>(null);
     const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     // A completed drag's pointerup can still fire the header's own onPress as
@@ -32,10 +33,21 @@ export function SortableHubGroups<T>({ storageKey, items, getId, renderItem }: S
     // over the group never also navigates to its hub.
     const suppressClick = React.useRef(false);
     const clickTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-    const blockClick = () => { suppressClick.current = true; if (clickTimer.current) clearTimeout(clickTimer.current); clickTimer.current = setTimeout(() => { suppressClick.current = false; }, 700); };
+    const clearBlockClick = () => { suppressClick.current = false; if (clickTimer.current) { clearTimeout(clickTimer.current); clickTimer.current = null; } };
+    const blockClick = () => { suppressClick.current = true; if (clickTimer.current) clearTimeout(clickTimer.current); clickTimer.current = setTimeout(() => { suppressClick.current = false; clickTimer.current = null; }, 700); };
     const update = (next: Drag | null) => { current.current = next; setDrag(next); };
     const save = (id: string, target: string, after: boolean) => sync.applySettings({ sessionProjectOrder: { [storageKey]: moveSession(latestRows.current.map((r) => r.id), id, target, after) } });
-    const clearTouch = () => { if (holdTimer.current) clearTimeout(holdTimer.current); touch.current = null; setHeld(null); };
+    const clearMenuTimer = () => { if (menuTimer.current) { clearTimeout(menuTimer.current); menuTimer.current = null; } };
+    const clearTouch = () => { if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; } clearMenuTimer(); touch.current = null; setHeld(null); };
+    const openHubMenu = (id: string, target: HTMLElement, x: number, y: number) => {
+        const groupNode = elements.current.get(id);
+        const headerNode = groupNode?.querySelector<HTMLElement>('[data-session-sort-id][data-hub-sort-id]');
+        const receiver = (target.isConnected && headerNode?.contains(target) ? target : null)
+            ?? headerNode
+            ?? (target.isConnected && target.closest('[role="button"]') ? target : null)
+            ?? (target.isConnected ? target : groupNode ?? null);
+        receiver?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+    };
 
     const begin = (id: string, pointer: number, y: number) => {
         if (current.current || !root.current) return;
@@ -64,7 +76,7 @@ export function SortableHubGroups<T>({ storageKey, items, getId, renderItem }: S
         }, reduced ? 0 : 180);
     };
 
-    React.useEffect(() => () => { if (timer.current) clearTimeout(timer.current); if (holdTimer.current) clearTimeout(holdTimer.current); if (clickTimer.current) clearTimeout(clickTimer.current); }, []);
+    React.useEffect(() => () => { if (timer.current) clearTimeout(timer.current); if (holdTimer.current) clearTimeout(holdTimer.current); if (menuTimer.current) clearTimeout(menuTimer.current); if (clickTimer.current) clearTimeout(clickTimer.current); }, []);
     React.useEffect(() => {
         const node = root.current; if (!node) return;
         const prevent = (e: TouchEvent) => { if (touch.current?.armed || current.current) e.preventDefault(); };
@@ -105,7 +117,8 @@ export function SortableHubGroups<T>({ storageKey, items, getId, renderItem }: S
             ref={root}
             style={{ position: 'relative' }}
             onPointerDownCapture={(e) => {
-                if (current.current || e.isPrimary === false || e.button !== 0) return;
+                if (current.current || e.isPrimary === false || e.button !== 0 || e.ctrlKey) return;
+                if (e.currentTarget.contains(e.target as Node)) clearBlockClick();
                 const target = e.target as HTMLElement;
                 const handle = target.closest<HTMLElement>('[data-hub-sort-id]');
                 if (!handle || !e.currentTarget.contains(handle)) return;
@@ -116,22 +129,31 @@ export function SortableHubGroups<T>({ storageKey, items, getId, renderItem }: S
                 const rowHandle = target.closest<HTMLElement>('[data-session-sort-id]');
                 if (rowHandle && rowHandle.dataset.hubSortId !== id) return;
                 // Nested controls keep their normal click/press behavior.
-                const control = target.closest('button, [role="button"], input, textarea, select, a');
+                const control = target.closest('button, [role="button"], input, textarea, select, a:not([data-lmc-context-hit])');
                 if (control && control !== handle && handle.contains(control)) return;
-                clearTouch(); suppressClick.current = false;
-                touch.current = { id, pointer: e.pointerId, x: e.clientX, y: e.clientY, armed: false, target, pointerType: e.pointerType };
-                holdTimer.current = setTimeout(() => { const p = touch.current; if (p) { p.armed = true; setHeld(p.id); } }, SORT_HOLD_MS);
+                clearTouch();
+                const p = { id, pointer: e.pointerId, x: e.clientX, y: e.clientY, armed: false, target, pointerType: e.pointerType };
+                touch.current = p;
+                holdTimer.current = setTimeout(() => { if (touch.current === p) { p.armed = true; setHeld(p.id); } }, SORT_HOLD_MS);
+                if (holdReleaseIntent(e.pointerType, true) === 'menu') {
+                    menuTimer.current = setTimeout(() => {
+                        if (touch.current !== p || current.current) return;
+                        const { id: hubId, target: menuTarget, x, y } = p;
+                        blockClick(); clearTouch();
+                        openHubMenu(hubId, menuTarget, x, y);
+                    }, TOUCH_MENU_HOLD_MS);
+                }
             }}
-            onClickCapture={(e) => { if (suppressClick.current) { e.preventDefault(); e.stopPropagation(); } }}
+            onClickCapture={(e) => { if (suppressClick.current && e.currentTarget.contains(e.target as Node)) { clearBlockClick(); e.preventDefault(); e.stopPropagation(); } }}
             onContextMenuCapture={(e) => { if (touch.current?.armed || current.current) { e.preventDefault(); e.stopPropagation(); } }}
             onPointerMove={(e) => {
                 const p = touch.current;
                 if (p && p.pointer === e.pointerId && !current.current) {
-                    const intent = touchSortIntent(p.armed, Math.hypot(e.clientX - p.x, e.clientY - p.y), false);
+                    const intent = touchSortIntent(p.armed, Math.hypot(e.clientX - p.x, e.clientY - p.y), false, sortSlopForPointer(p.pointerType));
                     if (intent === 'scroll') clearTouch();
-                    else if (intent === 'drag') { blockClick(); begin(p.id, p.pointer, p.y); (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); }
+                    else if (intent === 'drag') { clearMenuTimer(); blockClick(); begin(p.id, p.pointer, p.y); try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {} }
                 }
-                if (e.pointerId === current.current?.pointer) move(e.clientY);
+                if (e.pointerId === current.current?.pointer) { e.stopPropagation(); move(e.clientY); }
             }}
             onPointerUp={(e) => {
                 const p = touch.current;
@@ -139,12 +161,10 @@ export function SortableHubGroups<T>({ storageKey, items, getId, renderItem }: S
                 else if (p?.pointer === e.pointerId && p.armed) {
                     blockClick();
                     if (holdReleaseIntent(p.pointerType, p.armed) === 'menu') {
-                        // A held touch released without becoming a drag: the
-                        // sortable system intercepted it before useSessionRowMenu's
-                        // own long-press could open the header's context menu, so
-                        // replay it as a genuine contextmenu event, same as a row.
-                        const target = p.target; const x = p.x, y = p.y;
-                        setTimeout(() => { if (target.isConnected) target.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y })); }, 0);
+                        // A held touch released before TOUCH_MENU_HOLD_MS without
+                        // becoming a drag: replay it as a contextmenu event on the hub header.
+                        const id = p.id; const target = p.target; const x = p.x, y = p.y;
+                        setTimeout(() => { openHubMenu(id, target, x, y); }, 0);
                     }
                 }
                 clearTouch();
@@ -165,12 +185,17 @@ export function SortableHubGroups<T>({ storageKey, items, getId, renderItem }: S
                         data-hub-sort-id={row.id}
                         data-sort-active={selected || held === row.id}
                         style={{
+                            // Include the group's outer margins in measured drag geometry.
+                            // Otherwise collapsed margins leave neighbours one gap short.
+                            display: 'flow-root',
                             position: 'relative',
                             userSelect: 'none',
+                            WebkitUserSelect: 'none',
                             WebkitTouchCallout: 'none',
                             zIndex: selected ? 2 : 0,
                             transform: `translateY(${shift}px)`,
-                            transition: selected && drag?.phase === 'drag' ? 'box-shadow 150ms ease' : 'transform 180ms cubic-bezier(.2,.8,.2,1), box-shadow 180ms ease',
+                            // Once DOM order commits, reset transforms without replaying the drop.
+                            transition: !drag || (selected && drag.phase === 'drag') ? 'box-shadow 150ms ease' : 'transform 180ms cubic-bezier(.2,.8,.2,1), box-shadow 180ms ease',
                         } as React.CSSProperties}
                     >
                         {renderItem(row.item, handleProps(row.id))}

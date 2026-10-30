@@ -1,4 +1,6 @@
+import { readAgyQuota, unavailableAgy } from './antigravityQuota';
 import { readCodexCredits } from './codexCredits';
+import { createQuotaBackground } from './quotaBackground';
 import { readFile, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
@@ -59,8 +61,7 @@ async function readSmallJson(path: string) {
 
 /** Only an operator-configured loopback dashboard can be read. RPC callers cannot
  * supply paths, URLs or tokens. The existing credential stays on this device. */
-export async function readDashboardQuota(): Promise<AccountQuotaSnapshot> {
-    const settings = await readSmallJson(settingsPath());
+async function readDashboardSources(settings: Record<string, any>): Promise<AccountQuotaSnapshot> {
     const config = await readSmallJson(settings.configPath);
     const port = config.port ?? 19390;
     if (!Number.isInteger(port) || port < 1 || port > 65535 || typeof config.token !== 'string' || !config.token || /[\r\n]/.test(config.token)) throw new Error('Invalid quota configuration');
@@ -81,9 +82,59 @@ export async function readDashboardQuota(): Promise<AccountQuotaSnapshot> {
         }
     } finally { await reader.cancel().catch(() => {}); }
     const snapshot = projectAccountQuota(JSON.parse(Buffer.concat(chunks).toString('utf8')));
-    const credits = await readCodexCredits();
-    return { ...snapshot, providers: snapshot.providers.map(p => p.engine === 'codex' ? { ...p, usageCredits: credits } : p) };
+    return snapshot;
 }
+
+/** Explicit enablement is independent of collection failures. Missing configuration keeps legacy behavior. */
+export function applyQuotaConfiguration(snapshot: AccountQuotaSnapshot, providers: unknown): AccountQuotaSnapshot {
+    const configured = record(providers);
+    return { providers: snapshot.providers.filter(p => record(configured[p.engine]).enabled !== false).map(p => ({
+        ...p, plan: plan(record(configured[p.engine]).plan) ?? p.plan,
+    })) };
+}
+export function createDashboardQuotaReader(
+    readSettings = () => readSmallJson(settingsPath()),
+    readDashboard = readDashboardSources,
+    readCredits = readCodexCredits,
+    readAgy = readAgyQuota,
+) {
+    const staleDashboard = (previous?: AccountQuotaSnapshot) => ({
+        providers: (previous ?? projectAccountQuota(null)).providers.map(p => ({ ...p, stale: true, refreshFailed: true })),
+    });
+    let settingsKey = '';
+    let dashboardCache = createQuotaBackground<AccountQuotaSnapshot>(15_000, staleDashboard);
+    const creditsCache = createQuotaBackground<Awaited<ReturnType<typeof readCredits>>>(60_000,
+        previous => previous ? { ...previous, stale: true } : null);
+    const agyCache = createQuotaBackground<Awaited<ReturnType<typeof readAgy>>>(300_000,
+        () => unavailableAgy('unavailable'));
+    return async (): Promise<AccountQuotaSnapshot> => {
+        // Fail closed before probing anything if this device is not a source.
+        const settings = await readSettings();
+        const nextKey = JSON.stringify(settings);
+        if (nextKey !== settingsKey) {
+            settingsKey = nextKey;
+            dashboardCache = createQuotaBackground<AccountQuotaSnapshot>(15_000, staleDashboard);
+        }
+        const agyEnabled = record(record(settings.providers).agy).enabled === true;
+        const codexEnabled = record(record(settings.providers).codex).enabled !== false;
+        const [dashboard, credits, agy] = await Promise.all([
+            dashboardCache(() => readDashboard(settings)),
+            codexEnabled ? creditsCache(readCredits) : Promise.resolve({ value: null, refreshing: false }),
+            agyEnabled ? agyCache(readAgy) : Promise.resolve({ value: undefined, refreshing: false }),
+        ]);
+        const combined: AccountQuotaSnapshot = {
+            providers: (dashboard.value ?? projectAccountQuota(null)).providers.map(p =>
+                p.engine === 'codex' ? { ...p, usageCredits: credits.value ?? null,
+                    ...(!credits.value?.stale && credits.value?.windows?.length ? { windows: credits.value.windows, capturedAt: credits.value.capturedAt, stale: false, refreshFailed: false } : {}) } : p),
+            refreshing: dashboard.refreshing || credits.refreshing || agy.refreshing,
+        };
+        if (agyEnabled) combined.providers.push(agy.value ?? {
+            ...unavailableAgy(undefined), checkedAt: undefined, refreshFailed: false,
+        });
+        return { ...applyQuotaConfiguration(combined, settings.providers), refreshing: combined.refreshing };
+    };
+}
+export const readDashboardQuota = createDashboardQuotaReader();
 
 export function createAccountQuotaHandler(read = readDashboardQuota) {
     type Reply = { snapshot?: AccountQuotaSnapshot; error?: 'unavailable' };
@@ -91,7 +142,7 @@ export function createAccountQuotaHandler(read = readDashboardQuota) {
     let last: Reply | null = null;
     let at = 0;
     return () => {
-        if (last && Date.now() - at < 15_000) return Promise.resolve(last);
+        if (last && Date.now() - at < (last.snapshot?.refreshing ? 1_000 : 15_000)) return Promise.resolve(last);
         if (pending) return pending;
         pending = read().then(snapshot => ({ snapshot }), () => ({ error: 'unavailable' as const }))
             .then(result => { last = result; at = Date.now(); return result; }).finally(() => { pending = null; });

@@ -29,6 +29,20 @@ describe('D22 latest-turn elapsed', () => {
         expect(resolveTurnElapsed([], lifecycle, false)).toMatchObject({ startedAt: 2000, endedAt: 10000 });
         expect(resolveFetchedSessionLifecycle(lifecycle, [{ seq: 1, raw: event('turn-start', 1, 'old') }], 'older')).toBe(lifecycle);
     });
+    it('recovers latest-turn elapsed when turn-start arrives in an older page after a 400-tool-call initial page', () => {
+        const afterInitialPage = resolveFetchedSessionLifecycle(undefined, [], 'newest');
+        expect(afterInitialPage).toBeUndefined();
+        const afterOlderPage = resolveFetchedSessionLifecycle(afterInitialPage, [
+            { seq: 171497, raw: event('turn-end', 1000, 'prev') },
+            { seq: 171500, raw: event('turn-start', 2000, 'current') },
+        ], 'older');
+        expect(resolveTurnElapsed([tool('Bash', 3000, 9000)], afterOlderPage, true)).toMatchObject({
+            startedAt: 2000,
+            endedAt: null,
+            approximate: false,
+            status: 'running',
+        });
+    });
     it('does not restart on duplicate starts, queued prompts, or subagent events', () => {
         const start = resolveSessionLifecycle(undefined, event('turn-start', 2000), 2);
         const duplicate = resolveSessionLifecycle(start, event('turn-start', 3000), 3);

@@ -2,6 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { parseCodexCredits, createCreditsReader } from './codexCredits';
 const payload = (balance: unknown, unlimited = false) => ({ rateLimitsByLimitId: { codex: { credits: { balance, unlimited } }, base_model_inference: { credits: { balance: '100' } } } });
 describe('official Codex credit balance', () => {
+    it('reuses the native account probe for current quota windows, without requiring credit balance', () => {
+        const v = parseCodexCredits({rateLimits:{primary:{usedPercent:22,windowDurationMins:300,resetsAt:1793000000}}},1000)!;
+        expect(v.windows).toEqual([{id:'five_hour',remaining:78,resetsAt:1793000000000,durationMins:300,pending:false}]);
+        expect(v.capturedAt).toBe(1000);
+    });
     it('preserves decimal credits and zero, never substitutes reserve percentages', () => {
         expect(parseCodexCredits(payload('53480.0723700000'), 1)?.balance).toBe(53480.07237);
         expect(parseCodexCredits(payload('0'), 1)?.balance).toBe(0);
