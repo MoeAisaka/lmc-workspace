@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
+import { t } from '@/text';
 import type { CreationPickerProps } from './CreationPicker';
 /** Portal keeps the centered composer completely outside the menu's layout. */
 export function CreationPicker({anchor,area,onClose,children}:CreationPickerProps){
@@ -26,5 +27,5 @@ export function CreationPicker({anchor,area,onClose,children}:CreationPickerProp
         return()=>{window.removeEventListener('resize',place);window.visualViewport?.removeEventListener('resize',place);window.removeEventListener('scroll',scroll,true);document.removeEventListener('pointerdown',outside,true);document.removeEventListener('keydown',key);};
     },[anchor,area,onClose]);
     if(!box)return null;
-    return createPortal(<div ref={root} data-testid="creation-picker-overlay" role="dialog" aria-label="新会话配置" style={{position:'fixed',...box,zIndex:10000,display:'flex',flexDirection:'column'}}>{children}</div>,document.body);
+    return createPortal(<div ref={root} data-testid="creation-picker-overlay" role="dialog" aria-label={t('lmc.dialogs.newSessionConfig')} style={{position:'fixed',...box,zIndex:10000,display:'flex',flexDirection:'column'}}>{children}</div>,document.body);
 }

@@ -229,7 +229,7 @@ export default function MachineDetailScreen({ machineId: suppliedId, onClose }: 
                 {!!suppliedId && <Item title={t('common.rename')} onPress={handleRenameMachine} disabled={isRenamingMachine} />}
                 {/* Daemon */}
                 <ItemGroup>
-                        {sharingEnabled && <Item title="共享设置" subtitle="指定账号可以共用设备；新会话仍默认独占" onPress={() => openResourceSharing('machine', machineId!)} />}
+                        {sharingEnabled && <Item title={t('lmc.sharing.settingsTitle')} subtitle={t('lmc.sharing.machineSubtitle')} onPress={() => openResourceSharing('machine', machineId!)} />}
                         <Item
                             title={t('machine.status')}
                             detail={machineOnline ? t('status.online') : t('status.offline')}

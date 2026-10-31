@@ -6,6 +6,7 @@ import { getServerUrl } from './serverConfig';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { decryptBlob, encryptBlob } from '@/encryption/blob';
 import { randomUUID, getRandomBytes } from 'expo-crypto';
+import { t } from '@/text';
 
 export type OpenFileAsset = { manifest: FileAssetManifest; key: Uint8Array; createdAt: number; shared?: boolean };
 export const FILE_DOWNLOAD_MEMORY_LIMIT = 128 * 1024 * 1024;
@@ -13,9 +14,9 @@ export const FILE_PREVIEW_LIMIT = 16 * 1024 * 1024;
 
 async function request(path: string, options?: RequestInit): Promise<Response> {
     const credentials = sync.getCredentials();
-    if (!credentials) throw new Error('请先登录 LMC');
+    if (!credentials) throw new Error(t('lmc.sharing.signInRequired'));
     const response = await fetch(getServerUrl() + path, { ...options, headers: { Authorization: 'Bearer ' + credentials.token, 'Content-Type': 'application/json', ...options?.headers }, signal: options?.signal ?? AbortSignal.timeout(60_000) });
-    if (!response.ok) throw new Error(response.status === 404 ? '文件不存在或当前 LMC 中心需要升级' : '文件操作失败（' + response.status + '），请重试');
+    if (!response.ok) throw new Error(response.status === 404 ? t('lmc.savedFiles.errNotFoundOrUpgrade') : t('lmc.savedFiles.errHttpStatus', { status: response.status }));
     return response;
 }
 export async function decryptFileAsset(record: unknown, providedKey?: Uint8Array): Promise<OpenFileAsset> {
@@ -29,11 +30,11 @@ export async function decryptFileAsset(record: unknown, providedKey?: Uint8Array
             if (typeof value === 'string') key = decodeBase64(value, 'base64');
         }
     }
-    if (key?.length !== 32) throw new Error('当前账号无法解密此文件');
+    if (key?.length !== 32) throw new Error(t('lmc.savedFiles.errKeyUnavailable'));
     const clear = decryptBlob(decodeBase64(file.manifest, 'base64'), key);
-    if (!clear) throw new Error('文件清单解密失败');
+    if (!clear) throw new Error(t('lmc.savedFiles.errManifestDecrypt'));
     const manifest = fileAssetManifestSchema.parse(JSON.parse(new TextDecoder().decode(clear)));
-    if (manifest.id !== file.id || manifest.size !== file.size || manifest.parts.length !== file.partCount) throw new Error('文件清单不匹配');
+    if (manifest.id !== file.id || manifest.size !== file.size || manifest.parts.length !== file.partCount) throw new Error(t('lmc.savedFiles.errManifestMismatch'));
     return { manifest, key, createdAt: file.createdAt, shared: z.object({ shared: z.boolean().default(false) }).parse(record).shared };
 }
 export async function getFileAsset(id: string): Promise<OpenFileAsset> {
@@ -50,9 +51,9 @@ export async function readFileAssetParts(file: OpenFileAsset, write: (bytes: Uin
         const response = await request('/v1/files/' + file.manifest.id + '/parts/' + index, { signal });
         const bytes = decryptBlob(new Uint8Array(await response.arrayBuffer()), file.key);
         const part = file.manifest.parts[index];
-        if (!bytes || bytes.length !== part.size) throw new Error('文件分片不完整');
+        if (!bytes || bytes.length !== part.size) throw new Error(t('lmc.savedFiles.errPartIncomplete'));
         const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer));
-        if (Array.from(hash, b => b.toString(16).padStart(2, '0')).join('') !== part.sha256) throw new Error('文件分片校验失败');
+        if (Array.from(hash, b => b.toString(16).padStart(2, '0')).join('') !== part.sha256) throw new Error(t('lmc.savedFiles.errPartHashMismatch'));
         signal?.throwIfAborted();
         await write(bytes);
         received += bytes.length;
@@ -60,13 +61,13 @@ export async function readFileAssetParts(file: OpenFileAsset, write: (bytes: Uin
     }
 }
 export async function fileAssetBlob(file: OpenFileAsset, limit = FILE_DOWNLOAD_MEMORY_LIMIT, progress?: (received: number) => void, signal?: AbortSignal) {
-    if (file.manifest.size > limit) throw new Error('此浏览器的内存下载上限为 128 MiB，请转交到电脑会话下载');
+    if (file.manifest.size > limit) throw new Error(t('lmc.savedFiles.errMemoryLimit'));
     const chunks: ArrayBuffer[] = [];
     await readFileAssetParts(file, async bytes => { chunks.push(new Uint8Array(bytes).buffer); }, progress, signal);
     return new Blob(chunks, { type: file.manifest.mimeType });
 }
 export async function downloadFileAsset(file: OpenFileAsset, progress?: (received: number) => void, signal?: AbortSignal) {
-    if (typeof window === 'undefined') throw new Error('请在网页版下载文件');
+    if (typeof window === 'undefined') throw new Error(t('lmc.savedFiles.errDownloadWebOnly'));
     const picker = (window as any).showSaveFilePicker;
     if (typeof picker === 'function') {
         // Must run in the original click gesture, before any network await.
@@ -87,9 +88,9 @@ export async function downloadFileAsset(file: OpenFileAsset, progress?: (receive
 const intents = new Map<string, { id: string; sessionId: string; ciphertext: string }>();
 export async function deliverFileAsset(file: OpenFileAsset, sessionId: string): Promise<FileDelivery> {
     const session = storage.getState().sessions[sessionId];
-    if (!session?.metadata?.sessionCapabilities?.persistentFiles) throw new Error('目标会话需要升级 Agent 后才能接收文件');
+    if (!session?.metadata?.sessionCapabilities?.persistentFiles) throw new Error(t('lmc.savedFiles.errTargetAgentUpgrade'));
     const encryption = sync.encryption.getSessionEncryption(sessionId);
-    if (!encryption) throw new Error('目标会话尚未同步，请刷新后重试');
+    if (!encryption) throw new Error(t('lmc.savedFiles.errTargetNotSynced'));
     const identity = file.manifest.id + ':' + sessionId;
     let intent = intents.get(identity);
     if (!intent) {
@@ -122,7 +123,7 @@ export async function createFileShare(file: OpenFileAsset, hours = 24): Promise<
     const identity = file.manifest.id + ':' + hours;
     let intent = shareIntents.get(identity);
     if (!intent) {
-        if (shareIntents.size >= 32) throw new Error('待确认的外链操作过多，请刷新页面后查看已有外链');
+        if (shareIntents.size >= 32) throw new Error(t('lmc.savedFiles.errTooManyShareIntents'));
         const bytes = getRandomBytes(32);
         const hex = (value: Uint8Array) => Array.from(value, b => b.toString(16).padStart(2, '0')).join('');
         intent = { token: hex(bytes), body: fileShareCreateSchema.parse({ id: randomUUID(), hours,
@@ -132,7 +133,7 @@ export async function createFileShare(file: OpenFileAsset, hours = 24): Promise<
     }
     const response = await request('/v1/files/' + file.manifest.id + '/shares', { method: 'POST', body: JSON.stringify(intent.body) });
     const share = fileShareSchema.parse(await response.json());
-    if (!share.urlPrefix || share.revokedAt || share.expiresAt <= Date.now()) throw new Error('外链已不可用，请刷新后重试');
+    if (!share.urlPrefix || share.revokedAt || share.expiresAt <= Date.now()) throw new Error(t('lmc.savedFiles.errShareUnavailable'));
     shareIntents.delete(identity);
     return { ...share, url: share.urlPrefix + intent.token };
 }

@@ -6,6 +6,7 @@ import { encodeBase64 } from '@/encryption/base64';
 import { decryptFileAsset, readFileAssetParts, fileAssetBlob, downloadFileAsset, deliverFileAsset, createFileShare, revokeFileShare, getFileShares, FILE_DOWNLOAD_MEMORY_LIMIT } from './apiFileAssets';
 
 const mocks = vi.hoisted(() => ({ sessions: {} as Record<string, any>, key: new Uint8Array(32), fetch: vi.fn(), encrypt: vi.fn() }));
+vi.mock('@/sync/persistence', () => ({ loadSettings: () => ({ settings: {} }) }));
 vi.mock('@/encryption/libsodium.lib', async () => ({ default: (await import('libsodium-wrappers')).default }));
 vi.mock('expo-crypto', async () => { const c = await import('node:crypto'); return { randomUUID: c.randomUUID, getRandomBytes: (n: number) => new Uint8Array(c.randomBytes(n)) }; });
 vi.mock('./serverConfig', () => ({ getServerUrl: () => 'https://file-test.invalid' }));
@@ -52,7 +53,7 @@ describe('saved file client', () => {
         expect((await decryptFileAsset(record)).manifest).toEqual(manifest);
         expect((await decryptFileAsset({ ...record, keyMode: 'legacy' })).manifest).toEqual(manifest);
         mocks.key = randomBytes(32);
-        await expect(decryptFileAsset(record)).rejects.toThrow('解密失败');
+        await expect(decryptFileAsset(record)).rejects.toThrow('decrypt');
     });
     it('checks plaintext hashes before writing and never requests the original session device', async () => {
         const { file, ciphertext, bytes } = fixture();
@@ -63,7 +64,7 @@ describe('saved file client', () => {
         expect(mocks.fetch.mock.calls[0][0]).toBe('https://file-test.invalid/v1/files/' + file.manifest.id + '/parts/0');
         file.manifest.parts[0].sha256 = '0'.repeat(64);
         const write = vi.fn();
-        await expect(readFileAssetParts(file, write)).rejects.toThrow('校验失败');
+        await expect(readFileAssetParts(file, write)).rejects.toThrow('checksum');
         expect(write).not.toHaveBeenCalled();
     });
     it('uses a streaming file writer and aborts it on damaged content', async () => {
@@ -74,7 +75,7 @@ describe('saved file client', () => {
         await downloadFileAsset(file);
         expect(output.write).toHaveBeenCalledTimes(1); expect(output.close).toHaveBeenCalledTimes(1);
         mocks.fetch.mockImplementation(async () => new Response(new Uint8Array(40)));
-        await expect(downloadFileAsset(file)).rejects.toThrow('不完整');
+        await expect(downloadFileAsset(file)).rejects.toThrow('Incomplete');
         expect(output.abort).toHaveBeenCalledTimes(1); expect(output.close).toHaveBeenCalledTimes(1);
     });
     it('enforces the fallback memory bound before fetching and honours cancellation', async () => {
@@ -87,7 +88,7 @@ describe('saved file client', () => {
     });
     it('gates old Agents and reuses one delivery intent after a lost response', async () => {
         const { file } = fixture(), sessionId = randomUUID();
-        await expect(deliverFileAsset(file, sessionId)).rejects.toThrow('升级 Agent');
+        await expect(deliverFileAsset(file, sessionId)).rejects.toThrow('upgraded Agent');
         expect(mocks.fetch).not.toHaveBeenCalled();
         mocks.sessions[sessionId] = { metadata: { sessionCapabilities: { persistentFiles: true } } };
         let saved: any, attempts = 0;

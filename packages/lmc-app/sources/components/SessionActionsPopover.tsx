@@ -327,7 +327,7 @@ export function SessionActionsPopover({
         <Pressable key="sharing" accessibilityRole="button" onPress={() => runWhenArmed(() => { onClose(); openResourceSharing('session', sessionId); })}
             style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}>
             <Ionicons color={theme.colors.text} name="share-social-outline" size={18} />
-            <Text style={[styles.menuItemLabel, { color: theme.colors.text }]}>共享设置</Text>
+            <Text style={[styles.menuItemLabel, { color: theme.colors.text }]}>{t('lmc.sharing.settingsTitle')}</Text>
         </Pressable>
     );
 

@@ -123,7 +123,7 @@ export function buildDeviceEngineGroups(
         const sharedDeviceName = sharedDevice ? deviceSessions.find(s => s.metadata?.sharedDevice && s.metadata.host)?.metadata?.host : undefined;
         groups.push({
             machineId, shared, sharedDevice,
-            name: shared ? '共享会话' : sharedDevice ? (sharedDeviceName || '共享设备') : machineId ? machineDisplayName(machine, machineId.slice(0, 8)) : (options.unknownDeviceLabel ?? t('lmc.common.unknownDevice')),
+            name: shared ? t('lmc.sharing.sharedSessions') : sharedDevice ? (sharedDeviceName || t('lmc.sharing.sharedDevice')) : machineId ? machineDisplayName(machine, machineId.slice(0, 8)) : (options.unknownDeviceLabel ?? t('lmc.common.unknownDevice')),
             online: shared || (machine ? machine.active : sharedDevice && deviceSessions.some(s => s.presence === 'online')),
             agentVersion: machineAgentVersion(machine),
             attentionCount,

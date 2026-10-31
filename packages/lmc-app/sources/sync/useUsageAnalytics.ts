@@ -3,6 +3,7 @@ import { AppState, Platform } from 'react-native';
 import { UsageRecordSchema, type UsageRecord } from 'lmc-wire';
 import { apiSocket } from './apiSocket';
 import { usageQueryRange, type UsagePeriod } from './usageAnalytics';
+import { t } from '@/text';
 
 export type UsageAnalyticsState = { records: UsageRecord[]; loading: boolean; error: string | null;
     collectedSince: number | null; updatedAt: number | null; now: number };
@@ -34,14 +35,14 @@ export function useUsageAnalytics(period: UsagePeriod, monthOffset = 0) {
                             headers: { 'Content-Type': 'application/json' }, signal: pageAbort.signal,
                             body: JSON.stringify({ ...range, updatedSince: since || undefined, cursor, snapshotAt }) });
                     } finally { clearTimeout(timeout); abort.signal.removeEventListener('abort', cancel); }
-                    if (!response.ok) throw new Error(response.status === 404 ? '中心尚未支持用量看板，请升级中心后重试。' : '用量暂时加载失败，请重试。');
+                    if (!response.ok) throw new Error(response.status === 404 ? t('lmc.usage.errUsageCenterUpgrade') : t('lmc.usage.errUsageLoadFailed'));
                     const page = await response.json();
-                    if (!Array.isArray(page.records) || !Number.isFinite(page.snapshotAt)) throw new Error('用量数据格式异常。');
+                    if (!Array.isArray(page.records) || !Number.isFinite(page.snapshotAt)) throw new Error(t('lmc.usage.errUsageInvalid'));
                     for (const value of page.records) {
                         const record = UsageRecordSchema.parse(value);
                         changes.set(`${record.sessionId}:${record.key}`, record);
                     }
-                    if (page.nextCursor && page.nextCursor === cursor) throw new Error('用量分页未完成，请重试。');
+                    if (page.nextCursor && page.nextCursor === cursor) throw new Error(t('lmc.usage.errUsagePagination'));
                     cursor = page.nextCursor ?? undefined; snapshotAt = page.snapshotAt; collectedSince = page.collectedSince;
                 } while (cursor && !disposed);
                 if (disposed) return;
@@ -53,7 +54,7 @@ export function useUsageAnalytics(period: UsagePeriod, monthOffset = 0) {
                 setState({ records: [...records.values()], loading: false, error: null, updatedAt: now, collectedSince, now });
             } catch (error) {
                 if (!disposed) setState(s => ({ ...s, loading: false, error: error instanceof Error && error.name === 'AbortError'
-                    ? '用量加载超时，请重试。' : error instanceof Error ? error.message : '用量加载失败', now }));
+                    ? t('lmc.usage.errUsageTimeout') : error instanceof Error ? error.message : t('lmc.usage.errUsageGeneric'), now }));
             } finally { busy = false; }
         };
         refreshRef.current = () => { void refresh(); };

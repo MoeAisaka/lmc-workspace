@@ -122,7 +122,7 @@ export const MarkdownView = React.memo((props: {
                     } else if (block.type === 'mermaid') {
                         return <MermaidRenderer content={block.content} key={index} />;
                     } else if (block.type === 'interactive') {
-                        return props.imageExport ? <Text key={index} style={style.text}>[互动内容请在原消息中查看]</Text> : <InteractiveBlock block={block} sessionId={props.sessionId} key={index} />;
+                        return props.imageExport ? <Text key={index} style={style.text}>{t('lmc.savedFiles.interactiveInOriginal')}</Text> : <InteractiveBlock block={block} sessionId={props.sessionId} key={index} />;
                     } else if (block.type === 'options' || block.type === 'followups') {
                         return <RenderOptionsBlock items={block.items} key={index} first={index === 0} last={index === blocks.length - 1} selectable={selectable} onOptionPress={props.onOptionPress} />;
                     } else if (block.type === 'table') {
@@ -315,7 +315,7 @@ function RenderImageBlock(props: { url: string, alt: string, sessionId?: string,
                 </Pressable>}
                 {image.status === 'unsupported' && (savedId
                     ? <Pressable accessibilityRole="button" onPress={() => openSavedFile(savedId)} style={{ padding: 16 }}>
-                        <Text style={[style.imageCaption, style.link]}>此文件不是图片，点击查看已保存文件</Text>
+                        <Text style={[style.imageCaption, style.link]}>{t('lmc.savedFiles.notAnImageViewSaved')}</Text>
                     </Pressable>
                     : <Text style={[style.imageCaption, { padding: 16 }]}>{t('lmc.resources.unsupported')}</Text>)}
             </View>

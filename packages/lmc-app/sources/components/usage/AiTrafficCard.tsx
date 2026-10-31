@@ -4,10 +4,10 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
 import { lmcColors } from '@/components/lmc/lmcColors';
 import { formatTraffic, providerSum, summarizeAiTraffic, trafficSum, type AiTraffic, type AiTrafficProvider, type TrafficBytes, type TrafficPeriod } from '@/utils/lmc/aiTraffic';
+import { t } from '@/text';
 
 export type AiTrafficMachine = { id: string; name: string; traffic: AiTraffic | null };
 const CLAUDE = '#D97757';
-const periodLabel: Record<TrafficPeriod, string> = { today: '今日', '7days': '近 7 天', '30days': '近 30 天' };
 
 const styles = StyleSheet.create(theme => ({
     title: { color: theme.colors.text, fontSize: 15, fontWeight: '600', lineHeight: 22 },
@@ -37,7 +37,8 @@ const split = (t: TrafficBytes) => `↑ ${formatTraffic(t.up)} · ↓ ${formatTr
 export function AiTrafficCard(props: { machines: AiTrafficMachine[]; period: TrafficPeriod; now: number; machineId: string; phone: boolean }) {
     const { theme } = useUnistyles();
     const summary = React.useMemo(() => summarizeAiTraffic(props.machines, props.period, props.now, props.machineId), [props.machines, props.period, props.now, props.machineId]);
-    const period = periodLabel[props.period], openaiColor = theme.colors.text, antigravityColor = theme.dark ? '#4C92FF' : '#257EFB';
+    const period = props.period === 'today' ? t('lmc.usage.trafficPeriodToday') : props.period === '7days' ? t('lmc.usage.trafficPeriod7d') : t('lmc.usage.trafficPeriod30d');
+    const openaiColor = theme.colors.text, antigravityColor = theme.dark ? '#4C92FF' : '#257EFB';
     const providerMeta: Record<AiTrafficProvider, { label: string; color: string }> = {
         claude: { label: 'Claude', color: CLAUDE },
         openai: { label: 'OpenAI', color: openaiColor },
@@ -71,15 +72,15 @@ export function AiTrafficCard(props: { machines: AiTrafficMachine[]; period: Tra
     };
     const projection = summary.projection;
     return <>
-        <View style={styles.head}><Text style={styles.title}>AI 流量</Text><Text style={[styles.muted, { flex: 1, minWidth: 160 }]}>Claude、OpenAI 与 Antigravity 的网络数据量 · ↑ 上行 ↓ 下行</Text><Text style={styles.muted}>{period}</Text></View>
-        {!summary.reporting ? <Text testID="ai-traffic-empty" style={styles.muted}>还没有流量数据。各机器的 Agent 升级后开始记录。</Text> : <>
+        <View style={styles.head}><Text style={styles.title}>{t('lmc.usage.trafficTitle')}</Text><Text style={[styles.muted, { flex: 1, minWidth: 160 }]}>{t('lmc.usage.trafficSubtitle')}</Text><Text style={styles.muted}>{period}</Text></View>
+        {!summary.reporting ? <Text testID="ai-traffic-empty" style={styles.muted}>{t('lmc.usage.trafficEmpty')}</Text> : <>
             <View style={styles.stats}>
-                {stat('total', `合计 · ${period}`, formatTraffic(trafficSum(total)), split(total))}
+                {stat('total', t('lmc.usage.trafficTotalPeriod', { period }), formatTraffic(trafficSum(total)), split(total))}
                 {stat('claude', `Claude · ${period}`, formatTraffic(trafficSum(summary.total.claude)), split(summary.total.claude), CLAUDE)}
                 {stat('openai', `OpenAI · ${period}`, formatTraffic(trafficSum(summary.total.openai)), split(summary.total.openai), openaiColor)}
                 {stat('antigravity', `Antigravity · ${period}`, formatTraffic(trafficSum(summary.total.antigravity)), split(summary.total.antigravity), antigravityColor)}
-                {stat('projection', '按近 7 天推算的月用量', projection ? `≈ ${formatTraffic(projection.monthlyBytes)}` : '—',
-                    projection ? `${projection.days < 6 ? `仅 ${projection.days} 天数据 · ` : ''}日均 ${formatTraffic(projection.dailyBytes)} × 30` : '满一整天后开始推算')}
+                {stat('projection', t('lmc.usage.trafficProjectionTitle'), projection ? `≈ ${formatTraffic(projection.monthlyBytes)}` : '—',
+                    projection ? t('lmc.usage.trafficProjectionSub', { days: projection.days, daily: formatTraffic(projection.dailyBytes) }) : t('lmc.usage.trafficProjectionWaiting'))}
             </View>
             {summary.machines.length ? <View>{summary.machines.map((machine, index) => <View key={machine.id}>
                 {index > 0 && <View style={styles.line} />}
@@ -87,9 +88,9 @@ export function AiTrafficCard(props: { machines: AiTrafficMachine[]; period: Tra
                 {row(machine.id, 'claude', machine.traffic.claude)}
                 {row(machine.id, 'openai', machine.traffic.openai)}
                 {row(machine.id, 'antigravity', machine.traffic.antigravity)}
-            </View>)}</View> : <Text style={styles.muted}>{period}没有记录到流量。</Text>}
+            </View>)}</View> : <Text style={styles.muted}>{t('lmc.usage.trafficNoneInPeriod', { period })}</Text>}
             <View style={styles.line} />
-            <Text style={styles.muted}>应用层发出的数据量；实际占用的 SIM 流量还要加上加密与代理协议的开销。Windows 上其他程序访问这三家服务域名也会计入。</Text>
+            <Text style={styles.muted}>{t('lmc.usage.trafficFootnote')}</Text>
         </>}
     </>;
 }

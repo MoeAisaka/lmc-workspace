@@ -5,6 +5,8 @@ import Constants from 'expo-constants';
 import { TokenStorage } from '@/auth/tokenStorage';
 import { Encryption } from './encryption/encryption';
 import { storage } from './storage';
+import { t } from '@/text';
+import { translateLmcServerMessage } from '@/utils/lmc/serverErrorText';
 
 export function getLmcClientId(): string {
     let platform: string = Platform.OS; // 'ios' | 'android' | 'web'
@@ -186,13 +188,13 @@ class ApiSocket {
 
         if (sharedSession?.shared) {
             const action = method === 'abort' ? 'stop' : ['permission', 'communication'].includes(method) ? 'approve' : null;
-            if (!action || !sharedSession.accessActions?.includes(action)) throw new Error('此共享操作未获授权');
+            if (!action || !sharedSession.accessActions?.includes(action)) throw new Error(t('lmc.sharing.sharedActionUnauthorized'));
             const response = await this.request(`/v1/lmc/sessions/${encodeURIComponent(sessionId)}/action`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(40000),
                 body: JSON.stringify({ method, params: await sessionEncryption.encryptRaw(params) }),
             });
             const data = await response.json();
-            if (!response.ok) throw new Error(data.error || '共享操作未完成');
+            if (!response.ok) throw new Error(translateLmcServerMessage(data.error, data.code) || t('lmc.sharing.sharedActionIncomplete'));
             return await sessionEncryption.decryptRaw(data.result) as R;
         }
 

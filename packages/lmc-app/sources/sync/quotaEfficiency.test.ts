@@ -1,4 +1,5 @@
-import {describe,it,expect} from 'vitest';
+import {describe,it,expect,vi} from 'vitest';
+vi.mock('@/sync/persistence', () => ({ loadSettings: () => ({ settings: {} }) }));
 import {quotaEfficiency} from './quotaEfficiency';
 import type {QuotaObservation,UsageRecord} from 'lmc-wire';
 const at=1793000000000;

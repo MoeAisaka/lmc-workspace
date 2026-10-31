@@ -1,4 +1,5 @@
 import { t } from '@/text';
+import { translateLmcServerMessage } from '@/utils/lmc/serverErrorText';
 /**
  * Session operations for remote procedure calls
  * Provides strictly typed functions for all session-related RPC operations
@@ -528,7 +529,7 @@ export async function machineResumeSession(options: ResumeSessionOptions & { mod
         if (storage.getState().sessions[sessionId]?.metadata?.sharedDevice || storage.getState().sessions[sessionId]?.shared) {
             const response = await apiSocket.request(`/v1/lmc/runtime/${encodeURIComponent(sessionId)}/resume`, { method: 'POST', signal: AbortSignal.timeout(120000) });
             const result = await response.json();
-            if (!response.ok) throw new Error(result.error || '共享设备会话恢复失败');
+            if (!response.ok) throw new Error(translateLmcServerMessage(result.error, result.code) || t('lmc.sharing.sharedDeviceResumeFailed'));
             return result;
         }
         const isCodex = storage.getState().sessions[sessionId]?.metadata?.flavor === 'codex';

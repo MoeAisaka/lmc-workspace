@@ -6,6 +6,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import { MarkdownView } from './markdown/MarkdownView';
 import { canCopyImage } from './markdown/tableCopy';
 import { Modal } from '@/modal';
+import { t } from '@/text';
 import { showToast } from './lmc/Toast';
 
 export function MessageImageCopyButton(props: { text: string; sessionId: string }) {
@@ -18,7 +19,7 @@ export function MessageImageCopyButton(props: { text: string; sessionId: string 
         let cancelled = false;
         import('@/utils/messageImage.web').then(module => module.renderMessageImage(node.current!))
             .then(blob => { if (!cancelled) job.resolve(blob); }, job.reject);
-        return () => { cancelled = true; job.reject(new Error('图片生成已取消。')); };
+        return () => { cancelled = true; job.reject(new Error(t('lmc.messageImage.cancelled'))); };
     }, [job]);
 
     const copy = () => {
@@ -31,21 +32,21 @@ export function MessageImageCopyButton(props: { text: string; sessionId: string 
         try {
             write = canCopyImage()
                 ? navigator.clipboard.write([new ClipboardItem({ 'image/png': image })])
-                : Promise.reject(new Error('当前浏览器不支持复制图片。'));
+                : Promise.reject(new Error(t('lmc.messageImage.unsupportedBrowser')));
         } catch (error) { write = Promise.reject(error); }
         void (async () => {
             try {
                 await write;
-                showToast('图片已复制', 'info');
+                showToast(t('lmc.messageImage.copied'), 'info');
             } catch {
                 try {
                     const blob = await image;
-                    Modal.alert('图片已生成', '未能写入剪贴板，可以保存图片后使用。', [
-                        { text: '取消', style: 'cancel' },
-                        { text: '保存图片', onPress: () => { void import('@/utils/messageImage.web').then(module => module.downloadMessageImage(blob)); } },
+                    Modal.alert(t('lmc.messageImage.generatedTitle'), t('lmc.messageImage.generatedBody'), [
+                        { text: t('common.cancel'), style: 'cancel' },
+                        { text: t('lmc.messageImage.saveImage'), onPress: () => { void import('@/utils/messageImage.web').then(module => module.downloadMessageImage(blob)); } },
                     ]);
                 } catch (error) {
-                    Modal.alert('图片生成失败', error instanceof Error ? error.message : '请稍后重试。');
+                    Modal.alert(t('lmc.messageImage.failedTitle'), error instanceof Error ? error.message : t('lmc.messageImage.retryLater'));
                 }
             } finally {
                 busy.current = false;
@@ -57,7 +58,7 @@ export function MessageImageCopyButton(props: { text: string; sessionId: string 
     };
 
     return <>
-        <Pressable accessibilityRole="button" accessibilityLabel={job ? '正在生成图片' : '复制成图片'}
+        <Pressable accessibilityRole="button" accessibilityLabel={job ? t('lmc.messageImage.generatingA11y') : t('lmc.messageImage.copyAsImageA11y')}
             disabled={!!job} onPress={copy} hitSlop={10}
             style={({ pressed }) => ({ height: 24, width: 28, alignItems: 'center', justifyContent: 'center', opacity: pressed || job ? 0.5 : 1 })}>
             <Ionicons name="image-outline" size={17} color={theme.colors.text} />

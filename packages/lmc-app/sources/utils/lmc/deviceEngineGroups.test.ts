@@ -39,7 +39,7 @@ describe('buildDeviceEngineGroups', () => {
         const groups = buildDeviceEngineGroups([shared, session('owned', 'private-host', 'codex')], [machine('private-host')]);
         expect(groups).toHaveLength(2);
         const group = groups.find(g => g.shared)!;
-        expect(group.name).toBe('共享会话');
+        expect(group.name).toBe('Shared sessions');
         expect(group.attentionCount).toBe(0);
         expect(group.agentVersion).toBeNull();
         expect(group.engines[0].sessions.map(s => s.id)).toEqual(['shared']);

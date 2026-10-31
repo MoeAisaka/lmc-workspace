@@ -3,6 +3,7 @@ import React from 'react';
 import { View, Pressable, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
+import { t } from '@/text';
 
 export type FileAction = {
     key: string;
@@ -74,7 +75,7 @@ export function FileActionSheet({ name, path, note, actions, onClose }: {
                 onPress={onClose}
                 style={({ pressed }) => ({ padding: 15, borderTopWidth: 1, borderColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : 'transparent' })}
             >
-                <Text style={{ textAlign: 'center', fontSize: 15, color: theme.colors.textSecondary }}>取消</Text>
+                <Text style={{ textAlign: 'center', fontSize: 15, color: theme.colors.textSecondary }}>{t('common.cancel')}</Text>
             </Pressable>
         </View>
     );

@@ -70,7 +70,7 @@ function AttachmentThumbnail({
                 <Ionicons name="document-outline" size={20} color={theme.colors.textSecondary} />
                 <View style={{ flex: 1, minWidth: 0 }}>
                     <Text numberOfLines={1} style={{ fontSize: 12, color: theme.colors.text }}>{image.name}</Text>
-                    <Text numberOfLines={1} style={{ fontSize: 11, color: theme.colors.textSecondary }}>{kb || t('lmc.common.attachedFile')} · 发到会话所在 Mac</Text>
+                    <Text numberOfLines={1} style={{ fontSize: 11, color: theme.colors.textSecondary }}>{kb || t('lmc.common.attachedFile')} · {t('lmc.newSessionBar.sendToSessionMac')}</Text>
                 </View>
                 <Pressable onPress={() => onRemove(image.id)} hitSlop={4} style={(p) => [styles.removeButton, { backgroundColor: theme.colors.surfaceHigh, opacity: p.pressed ? 0.7 : 1 }]}>
                     <Ionicons name="close" size={10} color={theme.colors.text} />

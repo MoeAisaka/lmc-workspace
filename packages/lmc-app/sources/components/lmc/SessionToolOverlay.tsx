@@ -78,7 +78,7 @@ export const SessionToolOverlay = React.memo(({ sessionId, messageId, filePath, 
                             ? <Text numberOfLines={1} style={{ fontSize: 15, color: theme.colors.text, ...Typography.default('semiBold') }}>{filePath.split('/').pop()}</Text>
                             : message?.kind === 'tool-call'
                             ? <ToolHeader tool={message.tool} />
-                            : <Text style={{ fontSize: 15, color: theme.colors.text, ...Typography.default('semiBold') }}>详情</Text>}
+                            : <Text style={{ fontSize: 15, color: theme.colors.text, ...Typography.default('semiBold') }}>{t('lmc.dialogs.details')}</Text>}
                     </View>
                     {!filePath && message?.kind === 'tool-call' && <ToolStatusIndicator tool={message.tool} active={active} />}
                     <Pressable
@@ -104,7 +104,7 @@ export const SessionToolOverlay = React.memo(({ sessionId, messageId, filePath, 
                             <Text style={{ fontSize: 15, lineHeight: 24, color: theme.colors.text, ...Typography.default() }}>{message.text}</Text>
                         </ScrollView>
                     ) : (
-                        <Text style={styles.missing}>这条消息没有可展开的详情。</Text>
+                        <Text style={styles.missing}>{t('lmc.dialogs.noExpandableDetails')}</Text>
                     )}
                 </View>
             </Animated.View>

@@ -1,4 +1,5 @@
 import { usageTotal, type UsageRecord, type QuotaObservation } from 'lmc-wire';
+import { t } from '@/text';
 export function quotaPool(engine: string, model: string | null) {
     if (engine !== 'agy') return 'account';
     if (!model) return null;
@@ -16,7 +17,7 @@ export function quotaEfficiency(observations: QuotaObservation[], records: Usage
         .filter(s=>s.w && !s.w.pending && s.w.remaining!==null && s.w.resetsAt!==null).sort((a,b)=>a.at-b.at);
     const scoped = records.filter(r=>r.engine===options.engine && (options.allMachines || r.machineId===options.machineId) && quotaPool(r.engine,r.model)===options.pool);
     const models=new Map<string,{model:string;tokens:number;matchedTokens:number;points:number;samples:number}>();
-    for(const r of scoped){const model=r.model??'型号未上报';const row=models.get(model)??{model,tokens:0,matchedTokens:0,points:0,samples:0};row.tokens+=usageTotal(r.tokens);models.set(model,row);}
+    for(const r of scoped){const model=r.model??t('lmc.usage.unreportedModel');const row=models.get(model)??{model,tokens:0,matchedTokens:0,points:0,samples:0};row.tokens+=usageTotal(r.tokens);models.set(model,row);}
     let points=0, ambiguousPoints=0, excluded=0, intervals=0;
     const trend: {at:number;remaining:number}[]=samples.map(s=>({at:s.at,remaining:s.w!.remaining!}));
     for(let i=1;i<samples.length;i++){

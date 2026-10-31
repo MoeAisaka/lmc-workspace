@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+vi.mock('@/sync/persistence', () => ({ loadSettings: () => ({ settings: {} }) }));
 import { fiveHourUsageRange, summarizeUsage, usageCalendar, usageQueryRange, usageRange } from './usageAnalytics';
 import { usageTotal, type AccountQuotaSnapshot, type UsageRecord } from 'lmc-wire';
 const now = new Date(2026, 9, 5, 12).getTime();

@@ -8,6 +8,7 @@ const api = vi.hoisted(() => ({
     getFileShares: vi.fn(), getFileDeliveries: vi.fn(), createFileShare: vi.fn(),
     deliverFileAsset: vi.fn(), revokeFileShare: vi.fn(), decryptFileReceipt: vi.fn(),
 }));
+vi.mock('@/sync/persistence', () => ({ loadSettings: () => ({ settings: {} }) }));
 vi.mock('@/sync/apiFileAssets', () => ({ ...api, FILE_PREVIEW_LIMIT: 16 * 1024 * 1024 }));
 vi.mock('react-native', () => ({ View: 'View', ScrollView: 'ScrollView', Pressable: 'Pressable', ActivityIndicator: 'ActivityIndicator', Platform: { OS: 'web' } }));
 vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme: { colors: {} } }) }));
@@ -53,7 +54,7 @@ describe('saved file overlay content', () => {
         await mount();
         expect(api.fileAssetBlob).toHaveBeenCalledTimes(1);
         expect(JSON.stringify(renderer.toJSON())).toContain('preview body');
-        await press('复制链接');
+        await press('Copy link');
         expect(clipboard).toHaveBeenCalledWith('https://lmc.example:8443/saved-files/' + id);
         expect(api.createFileShare).not.toHaveBeenCalled();
         expect(api.deliverFileAsset).not.toHaveBeenCalled();
@@ -78,7 +79,7 @@ describe('saved file overlay content', () => {
         api.fileAssetBlob.mockRejectedValueOnce(new Error('预览连接中断'));
         await mount();
         expect(JSON.stringify(renderer.toJSON())).toContain('预览连接中断');
-        await press('加载预览');
+        await press('Load preview');
         expect(JSON.stringify(renderer.toJSON())).toContain('preview body');
         expect(JSON.stringify(renderer.toJSON())).not.toContain('预览连接中断');
     });
@@ -87,8 +88,8 @@ describe('saved file overlay content', () => {
         api.getFileAsset.mockResolvedValue({ ...file, manifest: { ...file.manifest, size: 17 * 1024 * 1024 } });
         await mount();
         expect(api.fileAssetBlob).not.toHaveBeenCalled();
-        expect(JSON.stringify(renderer.toJSON())).toContain('文件超过 16 MiB');
-        await press('下载');
+        expect(JSON.stringify(renderer.toJSON())).toContain('File exceeds 16 MiB');
+        await press('Download');
         expect(api.downloadFileAsset).toHaveBeenCalledOnce();
     });
 });

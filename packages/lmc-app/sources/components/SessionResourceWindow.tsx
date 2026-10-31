@@ -154,7 +154,7 @@ export function SessionResourceWindow({ sessionId, onOpen, onBrowse, active = tr
                 {!!review?.entries.length && <Pressable onPress={() => { void apiSocket.sessionRPC(sessionId, 'resource-review', { viewed: review.cursor, scope }).then(() => readReview()).catch(e => setReviewError(e.message)); }}><Text style={{ padding: 12, color: linkColor }}>{t('lmc.resources.markSeen')}</Text></Pressable>}
             </>}
         </ScrollView>
-        <Pressable accessibilityRole="button" onPress={openSavedFiles} style={{ padding: 12, borderTopWidth: 1, borderColor: theme.colors.divider }}><Text style={{ color: linkColor, textAlign: 'center' }}>已保存文件</Text></Pressable>
+        <Pressable accessibilityRole="button" onPress={openSavedFiles} style={{ padding: 12, borderTopWidth: 1, borderColor: theme.colors.divider }}><Text style={{ color: linkColor, textAlign: 'center' }}>{t('lmc.savedFiles.title')}</Text></Pressable>
         <Pressable accessibilityRole="button" onPress={onBrowse} style={{ padding: 12, borderTopWidth: 1, borderColor: theme.colors.divider }}><Text style={{ color: linkColor, textAlign: 'center' }}>{t('lmc.resources.browseProject')}</Text></Pressable>
     </View></SettingsMenuHost>;
 }

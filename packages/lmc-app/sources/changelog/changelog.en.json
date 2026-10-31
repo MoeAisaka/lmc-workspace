@@ -1,0 +1,9 @@
+{
+  "entries": [
+    {
+      "title": "LMC Self-Hosted Release Candidate",
+      "summary": "A self-hosted web workspace built on top of Happy.",
+      "markdown": "- Self-hosted MySQL center with username and password sign-in.\n- Independent browser-based device pairing and access management.\n- Preserves sessions, devices, projects and engine settings.\n- Removes voice, mobile push and official Happy service dependencies."
+    }
+  ]
+}

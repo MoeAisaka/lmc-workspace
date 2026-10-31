@@ -5,6 +5,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/StyledText';
 import { lmcElevation } from './elevation';
+import { t } from '@/text';
 
 /** Auxiliary tasks keep the underlying workspace mounted and its scroll position intact. */
 export function UtilityDialog({ title, onClose, children, maxWidth = 900, testID }: {
@@ -20,7 +21,7 @@ export function UtilityDialog({ title, onClose, children, maxWidth = 900, testID
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: 20, paddingRight: 8,
             minHeight: 56, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
             <Text accessibilityRole="header" numberOfLines={1} style={{ flex: 1, fontSize: 16, fontWeight: '600', color: theme.colors.text }}>{title}</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel={'关闭' + title + '浮窗'} onPress={onClose}
+            <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.dialogs.closeDialog', { title })} onPress={onClose}
                 style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfaceHigh : 'transparent' })}>
                 <Ionicons name="close" size={22} color={theme.colors.text} />
             </Pressable>

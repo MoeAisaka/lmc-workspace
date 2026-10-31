@@ -1,11 +1,12 @@
 import { getServerUrl } from '@/sync/serverConfig';
 import type { AuthCredentials } from './tokenStorage';
 import { t } from '@/text';
+import { translateLmcServerMessage } from '@/utils/lmc/serverErrorText';
 
 export async function lmcLogin(username: string, password: string): Promise<AuthCredentials> {
     const result = await fetch(`${getServerUrl()}/v1/lmc/login`, { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username,password}) });
     const body = await result.json();
-    if (!result.ok) throw new Error(body.error || t('lmc.login.retryLater'));
+    if (!result.ok) throw new Error(translateLmcServerMessage(body.error, body.code) || t('lmc.login.retryLater'));
     return body;
 }
 export async function lmcRestore(): Promise<AuthCredentials | null> {

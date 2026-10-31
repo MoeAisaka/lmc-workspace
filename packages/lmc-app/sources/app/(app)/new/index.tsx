@@ -1902,10 +1902,10 @@ function NewSessionScreen() {
     const creationChoices = (
         <View style={[styles.targetRowGroup, { flexDirection: 'row', flexWrap: 'wrap' }]}>
             {([
-                { key: 'machine', label: '设备', value: machineName, icon: 'desktop-outline', disabled: false },
+                { key: 'machine', label: t('lmc.newSessionBar.machine'), value: machineName, icon: 'desktop-outline', disabled: false },
                 { key: 'agent', label: 'CLI', value: agent.label, icon: 'terminal-outline', disabled: isOffline },
-                { key: 'model', label: '模型', value: currentModel?.name ?? 'CLI 默认', icon: 'sparkles-outline', disabled: isOffline || modelModes.length < 2 },
-                { key: 'effort', label: '思考强度', value: currentEffort?.name ?? 'CLI 默认', icon: 'speedometer-outline', disabled: isOffline || !showEffort },
+                { key: 'model', label: t('lmc.newSessionBar.model'), value: currentModel?.name ?? t('lmc.newSessionBar.cliDefault'), icon: 'sparkles-outline', disabled: isOffline || modelModes.length < 2 },
+                { key: 'effort', label: t('lmc.newSessionBar.effort'), value: currentEffort?.name ?? t('lmc.newSessionBar.cliDefault'), icon: 'speedometer-outline', disabled: isOffline || !showEffort },
             ] as const).map(choice => <View key={choice.key} ref={node => { pickerAnchors.current[choice.key] = node; }} style={{ flexGrow: 1, flexBasis: windowWidth >= 800 ? '22%' : '45%', minWidth: 0 }}>
                 {targetRow({ ...choice, icon: <Ionicons name={choice.icon} size={17} color={theme.colors.textSecondary} /> })}
             </View>)}

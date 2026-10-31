@@ -5,6 +5,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
 import { lmcColors } from '@/components/lmc/lmcColors';
 import { compactTokens, usageCalendar, type UsageBucket } from '@/sync/usageAnalytics';
+import { getDateLocale, t } from '@/text';
 import { usageTotal } from 'lmc-wire';
 
 const styles = StyleSheet.create(theme => ({
@@ -41,24 +42,28 @@ export function UsageCalendar(props: {
             onPress={() => props.onMonth(offset)} style={({ pressed }) => [styles.arrow, { opacity: enabled ? pressed ? .6 : 1 : .3 }]}>
             <Ionicons name={icon} size={16} color={theme.colors.text} />
         </Pressable>;
+    const locale = getDateLocale();
+    const monthTitle = new Date(calendar.year, calendar.month, 1).toLocaleDateString(locale, { year: 'numeric', month: 'long' });
+    const selectedDateStr = props.selectedAt === null ? '' : new Date(props.selectedAt).toLocaleDateString(locale, { month: 'short', day: 'numeric' });
     return <View testID="usage-calendar" style={{ gap: 10 }}>
         <View style={styles.header}>
-            <Text style={styles.title}>用量日历</Text>
+            <Text style={styles.title}>{t('lmc.usage.calendarTitle')}</Text>
             <View style={styles.row}>
-                {arrow('上个月', 'chevron-back', canPrevious, props.monthOffset - 1)}
-                <Text testID="usage-calendar-month" style={styles.title}>{calendar.year} 年 {calendar.month + 1} 月</Text>
-                {arrow('下个月', 'chevron-forward', props.monthOffset < 0, props.monthOffset + 1)}
+                {arrow(t('lmc.usage.prevMonthA11y'), 'chevron-back', canPrevious, props.monthOffset - 1)}
+                <Text testID="usage-calendar-month" style={styles.title}>{monthTitle}</Text>
+                {arrow(t('lmc.usage.nextMonthA11y'), 'chevron-forward', props.monthOffset < 0, props.monthOffset + 1)}
             </View>
         </View>
         <View style={styles.grid}>
-            {['一', '二', '三', '四', '五', '六', '日'].map(day => <View key={day} style={styles.slot}><Text style={styles.weekday}>{day}</Text></View>)}
+            {t('lmc.usage.weekdays').split('|').map(day => <View key={day} style={styles.slot}><Text style={styles.weekday}>{day}</Text></View>)}
             {cells.map((day, index) => {
                 if (!day) return <View key={`blank-${index}`} style={styles.slot} />;
                 const selected = day.at === props.selectedAt;
                 const disabled = !props.ready || day.state === 'future' || day.state === 'uncollected';
                 const value = usageTotal(day.tokens);
-                const note = !props.ready ? '等待数据' : day.state === 'future' ? '尚未发生' : day.state === 'uncollected' ? '未采集' : day.count ? `${value.toLocaleString()} Token · ${day.count} 条记录` : '无记录';
-                const label = `${calendar.month + 1} 月 ${day.day} 日 · ${note}`;
+                const note = !props.ready ? t('lmc.usage.dayWaiting') : day.state === 'future' ? t('lmc.usage.dayFuture') : day.state === 'uncollected' ? t('lmc.usage.dayUncollected') : day.count ? t('lmc.usage.dayRecordsNote', { tokens: value.toLocaleString(), count: day.count }) : t('lmc.usage.dayNoRecords');
+                const dayDateLabel = new Date(calendar.year, calendar.month, day.day).toLocaleDateString(locale, { month: 'short', day: 'numeric' });
+                const label = `${dayDateLabel} · ${note}`;
                 return <View key={day.at} style={styles.slot}>
                     <Pressable testID={`usage-day-${day.day}`} accessibilityRole="button" accessibilityLabel={label}
                         accessibilityState={{ selected, disabled }} disabled={disabled}
@@ -66,15 +71,15 @@ export function UsageCalendar(props: {
                         onPress={() => props.onSelect(selected ? null : day.at)}
                         style={({ pressed }) => [styles.day, { backgroundColor: heat(props.ready ? day.level : 0), borderColor: selected ? colors.brand : 'transparent', opacity: disabled ? .35 : pressed ? .65 : 1 }]}>
                         <Text style={styles.date}>{day.day}</Text>
-                        <Text numberOfLines={1} style={styles.amount}>{!props.ready || day.state === 'future' ? '—' : day.state === 'uncollected' ? '未采集' : day.count ? compactTokens(value) : '无记录'}</Text>
+                        <Text numberOfLines={1} style={styles.amount}>{!props.ready || day.state === 'future' ? '—' : day.state === 'uncollected' ? t('lmc.usage.dayUncollected') : day.count ? compactTokens(value) : t('lmc.usage.dayNoRecords')}</Text>
                     </Pressable>
                 </View>;
             })}
         </View>
         <View style={styles.footer}>
-            <Text style={styles.muted}>{props.selectedAt === null ? '选择日期查看当天模型、会话和用量记录' : `${new Date(props.selectedAt).getMonth() + 1} 月 ${new Date(props.selectedAt).getDate()} 日明细 · 再次点击返回整月`}</Text>
-            <View style={styles.row}><Text style={styles.muted}>少</Text>{[0, 1, 2, 3, 4].map(level => <View key={level} style={[styles.swatch, { backgroundColor: heat(level) }]} />)}<Text style={styles.muted}>多</Text></View>
+            <Text style={styles.muted}>{props.selectedAt === null ? t('lmc.usage.selectDateHint') : t('lmc.usage.selectedDateHint', { date: selectedDateStr })}</Text>
+            <View style={styles.row}><Text style={styles.muted}>{t('lmc.usage.less')}</Text>{[0, 1, 2, 3, 4].map(level => <View key={level} style={[styles.swatch, { backgroundColor: heat(level) }]} />)}<Text style={styles.muted}>{t('lmc.usage.more')}</Text></View>
         </View>
-        <Text style={styles.muted}>颜色按本月已记录 Token 相对分级；无记录不代表实际没有使用。日期按本地时区。</Text>
+        <Text style={styles.muted}>{t('lmc.usage.calendarFootnote')}</Text>
     </View>;
 }

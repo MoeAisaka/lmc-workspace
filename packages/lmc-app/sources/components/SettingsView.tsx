@@ -89,8 +89,8 @@ export const SettingsView = React.memo(({ topContentInset = 0, bottomContentInse
             {(
                 <ItemGroup>
                     <Item
-                        title="用量看板"
-                        subtitle="Claude 与 Codex 的用量、趋势和会话明细"
+                        title={t('lmc.menu.usage')}
+                        subtitle={t('lmc.menu.usageSubtitle')}
                         icon={<Ionicons name="analytics-outline" size={22} color={theme.colors.textSecondary} />}
                         onPress={() => openUsage()}
                     />

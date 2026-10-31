@@ -46,6 +46,7 @@ import {
 } from '@/track';
 import type { MessageSentSource } from '@/track';
 import { lmcIdentity } from '@/auth/lmcAuth';
+import { translateLmcServerMessage } from '@/utils/lmc/serverErrorText';
 import { getServerUrl } from './serverConfig';
 import { config } from '@/config';
 import { log } from '@/log';
@@ -738,13 +739,13 @@ class Sync {
             session = storage.getState().sessions[sessionId];
         }
         if (session?.shared) {
-            if (!encryption || !session.accessActions?.includes('send')) throw new Error('没有发送权限或共享已撤销');
-            if (options?.attachments?.length) throw new Error('共享消息暂不支持上传新附件');
+            if (!encryption || !session.accessActions?.includes('send')) throw new Error(t('lmc.sharing.sharedSendForbidden'));
+            if (options?.attachments?.length) throw new Error(t('lmc.sharing.sharedAttachmentsUnsupported'));
             const response = await apiSocket.request(`/v1/lmc/sessions/${encodeURIComponent(sessionId)}/commands`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(15000),
                 body: JSON.stringify({ requestId: options?.sharedRequestId ?? randomUUID(), content: await encryption.encryptRaw({ text }) }),
             });
-            if (!response.ok) { const body = await response.json(); throw new Error(body.error || '共享消息未发送'); }
+            if (!response.ok) { const body = await response.json(); throw new Error(translateLmcServerMessage(body.error, body.code) || t('lmc.sharing.sharedMessageFailed')); }
             this.messagesSync.get(sessionId)?.invalidate();
             return;
         }

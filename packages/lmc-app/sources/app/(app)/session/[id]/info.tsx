@@ -145,8 +145,8 @@ function SharedSessionInfo({ session }: { session: Session }) {
     const { theme } = useUnistyles();
     return <View style={{ padding: 24, gap: 16 }}>
         <Text style={{ fontSize: 22, fontWeight: '600', color: theme.colors.text }}>{getSessionName(session)}</Text>
-        <Text style={{ color: theme.colors.textSecondary }}>共享会话 · 只读</Text>
-        <Text style={{ color: theme.colors.textSecondary }}>可以查看会话历史和附件。发送消息、审批、运行命令和设备文件浏览暂不开放。</Text>
+        <Text style={{ color: theme.colors.textSecondary }}>{t('lmc.sharing.sharedReadOnlyTitle')}</Text>
+        <Text style={{ color: theme.colors.textSecondary }}>{t('lmc.sharing.sharedReadOnlyBody')}</Text>
     </View>;
 }
 

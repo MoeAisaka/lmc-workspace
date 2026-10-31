@@ -7,7 +7,7 @@ import '../unistyles';
 // do not have access to the DOM or browser APIs.
 export default function Root({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="zh-CN">
+    <html lang="en">
       <head>
         <meta charSet="utf-8" />
         <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=musubi1" />

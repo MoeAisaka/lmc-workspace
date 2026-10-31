@@ -433,13 +433,13 @@ const DeviceSection = React.memo(({ group, selectedSessionId, now, onNavigate, o
         : { height: bodyHeight ? progress.value * bodyHeight : undefined, opacity: progress.value }));
     const chevronStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${-90 + progress.value * 90}deg` }] }));
 
-    const meta = group.shared ? '按会话授权' : [group.sharedDevice ? '共享设备' : null, group.agentVersion ? `Agent ${group.agentVersion}` : null, group.online ? null : t('lmc.list.offline')].filter(Boolean).join(' · ');
+    const meta = group.shared ? t('lmc.sharing.perSessionGrant') : [group.sharedDevice ? t('lmc.sharing.sharedDevice') : null, group.agentVersion ? `Agent ${group.agentVersion}` : null, group.online ? null : t('lmc.list.offline')].filter(Boolean).join(' · ');
     return (
         <View>
             <View style={styles.deviceHeader}>
                 <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={group.shared ? '共享会话 · 按会话授权' : group.sharedDevice ? `${group.name} · 共享设备` : t('lmc.list.deviceDetail', { name: group.name })}
+                    accessibilityLabel={group.shared ? t('lmc.sharing.sharedSessionsA11y') : group.sharedDevice ? t('lmc.sharing.sharedDeviceA11y', { name: group.name }) : t('lmc.list.deviceDetail', { name: group.name })}
                     disabled={!group.machineId || group.shared || group.sharedDevice}
                     onPress={() => { onNavigate?.(); group.machineId && openMachineDetails(group.machineId); }}
                     style={({ pressed }) => ({ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8, opacity: pressed ? 0.6 : 1 })}

@@ -94,6 +94,7 @@ vi.mock('@/components/lmc/MembersDialog', () => ({ openMembers }));
 vi.mock('@/components/lmc/ResourceSharingDialog', () => ({ openResourceSharingList }));
 vi.mock('@/text', () => ({
     t: (key: string) => ({
+        'lmc.menu.usage': '用量看板',
         'lmc.menu.settings': '设置',
         'lmc.menu.devices': '设备与 Agent 升级',
         'lmc.menu.profile': '个人资料',

@@ -91,7 +91,7 @@ export function chooseSessionFile({ sessionId, path, onPreview, onBusyChange }: 
     // The Agent only delivers files inside the project, so say so before the tap.
     const blocked = supported ? undefined : t('lmc.resources.unsupported');
     const actions: FileAction[] = [
-        { key: 'save', title: '保存到 LMC', subtitle: '保存为固定版本，源电脑离线后仍可下载', icon: 'cloud-upload-outline', disabledReason: session?.metadata?.sessionCapabilities?.persistentFiles ? undefined : '请升级此会话的 Agent', onPress: () => {
+        { key: 'save', title: t('lmc.savedFiles.saveToLmc'), subtitle: t('lmc.savedFiles.saveToLmcSubtitle'), icon: 'cloud-upload-outline', disabledReason: session?.metadata?.sessionCapabilities?.persistentFiles ? undefined : t('lmc.savedFiles.upgradeAgentToSave'), onPress: () => {
             void (async () => {
                 if (inFlight.has(path)) return;
                 inFlight.add(path); onBusyChange?.(path);
@@ -100,18 +100,18 @@ export function chooseSessionFile({ sessionId, path, onPreview, onBusyChange }: 
                 saveIntents.set(identity, requestId);
                 try {
                     const result = await apiSocket.sessionRPC<{ success: boolean; job?: unknown; error?: string }, { path: string; requestId: string }>(sessionId, 'publish-file', { path, requestId });
-                    if (!result.success) throw new Error(result.error || '文件保存失败');
+                    if (!result.success) throw new Error(result.error || t('lmc.savedFiles.saveFailed'));
                     let job = filePublicationSchema.parse(result.job);
                     while (job.state === 'uploading') {
-                        showToast('正在保存文件' + (job.total ? ' · ' + Math.floor(job.bytes / job.total * 100) + '%' : ''));
+                        showToast(t('lmc.savedFiles.savingToast', { percent: job.total ? Math.floor(job.bytes / job.total * 100) : null }));
                         const state = await apiSocket.sessionRPC<{ success: boolean; job?: unknown; error?: string }, { id: string }>(sessionId, 'file-publication', { id: job.id });
-                        if (!state.success) throw new Error(state.error || '保存状态不可用，请查看已保存文件');
+                        if (!state.success) throw new Error(state.error || t('lmc.savedFiles.saveStateUnavailable'));
                         job = filePublicationSchema.parse(state.job);
                     }
                     saveIntents.delete(identity);
-                    if (job.state !== 'ready' || !job.file) throw new Error(job.error || '文件保存失败');
+                    if (job.state !== 'ready' || !job.file) throw new Error(job.error || t('lmc.savedFiles.saveFailed'));
                     openSavedFile(job.file.id);
-                } catch (error) { Modal.alert('保存文件', error instanceof Error ? error.message : '文件保存失败'); }
+                } catch (error) { Modal.alert(t('lmc.savedFiles.saveModalTitle'), error instanceof Error ? error.message : t('lmc.savedFiles.saveFailed')); }
                 finally { inFlight.delete(path); onBusyChange?.(null); }
             })();
         } },

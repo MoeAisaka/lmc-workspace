@@ -100,7 +100,7 @@ export function AccountMenu({ anchor, onClose }: { anchor: AccountMenuAnchor; on
                 <ScrollView testID="account-menu-scroll" showsVerticalScrollIndicator contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: 2 }}>
                 <AccountQuotaCards {...quota} onRefresh={quota.refresh} />
                 <View style={styles.divider} />
-                <Item icon="analytics-outline" label="用量看板" onPress={go(() => openUsage())} />
+                <Item icon="analytics-outline" label={t('lmc.menu.usage')} onPress={go(() => openUsage())} />
                 <Item icon="settings-outline" label={t('lmc.menu.settings')} onPress={open('general')} />
                 <View style={styles.divider} />
                 <Item icon="log-out-outline" label={t('lmc.menu.signOut')} onPress={logout} destructive />

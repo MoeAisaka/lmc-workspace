@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+vi.mock('@/sync/persistence', () => ({ loadSettings: () => ({ settings: {} }) }));
 import { usageTotal, type UsageRecord } from 'lmc-wire';
 import { summarizeUsage } from './usageAnalytics';
 import { groupUsageByHub, usageSessionRoles } from './usageSessionGroups';

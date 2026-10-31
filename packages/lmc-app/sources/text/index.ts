@@ -95,6 +95,9 @@ if (!found) {
 }
 
 console.log(`[i18n] Final language: ${currentLanguage}`);
+if (typeof document !== 'undefined' && document.documentElement) {
+    document.documentElement.lang = currentLanguage === 'zh-Hans' ? 'zh-CN' : 'en';
+}
 
 /**
  * Main translation function with strict typing
@@ -163,4 +166,11 @@ export function t<K extends TranslationKey>(
  */
 export function getCurrentLanguage(): SupportedLanguage {
     return currentLanguage;
+}
+
+/**
+ * BCP 47 locale tag matching the active UI language for Date/Intl formatting
+ */
+export function getDateLocale(): string {
+    return currentLanguage === 'zh-Hans' ? 'zh-CN' : 'en-US';
 }

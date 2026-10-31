@@ -21,6 +21,7 @@ with tempfile.TemporaryDirectory(prefix='.publish-selftest-', dir=scripts) as sc
     (build / 'canvaskit.wasm').write_bytes(b'new-wasm')
     (live / 'canvaskit.wasm').write_bytes(b'old-wasm')
     (build / 'worker.js').write_text('new-worker')
+    (build / 'assets' / '._chunk.js').write_text('appledouble')
     for name in ('chunk.js', 'other.js'):
         (live / 'assets' / name).write_text('old-' + name)
         (build / 'assets' / name).write_text('new-' + name)
@@ -44,8 +45,15 @@ with tempfile.TemporaryDirectory(prefix='.publish-selftest-', dir=scripts) as sc
         assert (live / entry['backup']).read_text() == 'old-' + suffix
         assert '.pre-selftest-v1-' in entry['backup']
     assert 'selftest-v1' in (live / 'index.html').read_text()
+    assert '<html lang="en">' in (live / 'index.html').read_text()
+    assert not (live / 'assets' / '._chunk.js').exists()
     assert (live / 'index.html').exists()
+    (live / 'index.html').write_text('<html lang="en"><head><title>LMC (dev)</title></head></html>')
+    result2 = subprocess.run([sys.executable, str(scripts / 'publish-web.py'), '--marker', 'selftest-v2', '--build-dir', str(build), '--live-dir', str(live)], capture_output=True, text=True, check=True)
+    assert 'selftest-v2' in (live / 'index.html').read_text()
+    assert '<link rel="icon" href="/icon.ico">' in (live / 'index.html').read_text()
     print('PASS root WASM replaced with backup and new worker published')
     print('PASS repeated --allow-replace preserves .pre- backups and replaces assets')
+    print('PASS recovers icon links from index.previous-*.html and ignores AppleDouble files')
 print('All publish self-checks passed; fixtures removed.')
 PY

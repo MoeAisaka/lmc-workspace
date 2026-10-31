@@ -7,6 +7,7 @@ import { Modal } from '@/modal';
 import { Text } from '@/components/StyledText';
 import { SavedFileDetails } from '@/components/SavedFileDetails';
 import { lmcElevation } from '@/components/lmc/elevation';
+import { t } from '@/text';
 
 export function SavedFileDialog({ id, onClose }: { id: string; onClose?: () => void }) {
     const { theme } = useUnistyles();
@@ -19,8 +20,8 @@ export function SavedFileDialog({ id, onClose }: { id: string; onClose?: () => v
         borderWidth: 1, borderColor: theme.colors.divider, ...lmcElevation(theme, 3),
     }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 20, paddingRight: 8, minHeight: 56, borderBottomWidth: 1, borderBottomColor: theme.colors.divider }}>
-            <Text accessibilityRole="header" style={{ fontSize: 16, fontWeight: '600', color: theme.colors.text }}>文件</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel="关闭文件浮窗" onPress={onClose}
+            <Text accessibilityRole="header" style={{ fontSize: 16, fontWeight: '600', color: theme.colors.text }}>{t('lmc.dialogs.file')}</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.dialogs.closeFileDialog')} onPress={onClose}
                 style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfaceHigh : 'transparent' })}>
                 <Ionicons name="close" size={22} color={theme.colors.text} />
             </Pressable>

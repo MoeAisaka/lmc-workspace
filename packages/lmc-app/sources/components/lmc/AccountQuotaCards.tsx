@@ -6,7 +6,7 @@ import { fableWeeklyShare, quotaDailyPace, type AccountQuotaSnapshot, type Accou
 import { Text } from '@/components/StyledText';
 import { ProviderIcon } from '@/components/ProviderIcon';
 import { Typography } from '@/constants/Typography';
-import { t, getCurrentLanguage } from '@/text';
+import { t, getCurrentLanguage, getDateLocale } from '@/text';
 import { exhaustedWindow, usageCreditLabel, quotaTone, quotaToneColor, resetCountdown, weeklyResetLabel } from '@/sync/quotaDisplay';
 import { lmcColors } from './lmcColors';
 
@@ -34,7 +34,7 @@ const styles = StyleSheet.create(theme => ({
     refresh: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
 }));
 const n = (v: number) => String(Math.round(v * 10) / 10);
-const date = (value: number, now: number) => new Date(value).toLocaleString(undefined, {
+const date = (value: number, now: number) => new Date(value).toLocaleString(getDateLocale(), {
     ...(new Date(value).toDateString() === new Date(now).toDateString() ? {} : { month: 'numeric' as const, day: 'numeric' as const }),
     hour: '2-digit', minute: '2-digit',
 });

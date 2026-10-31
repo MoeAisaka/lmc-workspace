@@ -18,7 +18,7 @@ export function ToolTimelineTiming({ tool, active = false, compact = false }: { 
     const time = (value: number | null) => validTimestamp(value) ? new Date(value).toLocaleString() : '—';
     return (
         <View style={[styles.card, compact && { padding: 10, marginBottom: 12 }]} testID="tool-timeline-timing">
-            <Pressable disabled={!compact} accessibilityRole={compact ? "button" : undefined} accessibilityLabel={compact ? "展开或收起步骤时间" : undefined} accessibilityState={compact ? { expanded } : undefined} onPress={() => setExpanded(value => !value)}>
+            <Pressable disabled={!compact} accessibilityRole={compact ? "button" : undefined} accessibilityLabel={compact ? t('lmc.dialogs.toggleStepTiming') : undefined} accessibilityState={compact ? { expanded } : undefined} onPress={() => setExpanded(value => !value)}>
             <Text style={[styles.status, timing.status === 'error' && styles.error]}>
                 {t(`toolGroup.timeline.${timing.status}`)} · {timing.durationMs === null ? t('toolGroup.timeline.unrecorded') : formatWorkDuration(timing.durationMs)}
                 {compact ? (expanded ? "  ▴" : "  ▾") : ""}

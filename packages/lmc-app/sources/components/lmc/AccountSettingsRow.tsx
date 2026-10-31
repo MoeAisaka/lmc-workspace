@@ -47,15 +47,16 @@ export const AccountSettingsRow = React.memo(({ onNavigate, menuCardRef, menuPan
     const displayName = getDisplayName(profile) || 'Link my Cli';
     const avatarUrl = getAvatarUrl(profile);
     const versions = new Set(online.map(machineAgentVersion).filter(Boolean) as string[]);
-    const versionText = versions.size === 1 ? `Agent ${[...versions][0]}` : versions.size > 1 ? `Agent 版本不一致` : null;
+    const versionText = versions.size === 1 ? `Agent ${[...versions][0]}` : versions.size > 1 ? t('lmc.menu.agentVersionMismatch') : null;
     // "0 devices online" during hydration reads as a failure; say nothing yet.
     // With the quota rings in the row there is room only for what cannot be
     // read elsewhere: the device count, and a version mismatch if there is one.
     const withRings = !!quota.snapshot;
+    const onlineLabel = t('lmc.menu.devicesOnline', { count: online.length });
     const subtitle = isDataReady
         ? (withRings
-            ? [versions.size > 1 ? versionText : null, `${online.length} 台设备在线`]
-            : [t('lmc.menu.settings'), versionText, `${online.length} 台设备在线`]).filter(Boolean).join(' · ')
+            ? [versions.size > 1 ? versionText : null, onlineLabel]
+            : [t('lmc.menu.settings'), versionText, onlineLabel]).filter(Boolean).join(' · ')
         : t('lmc.menu.settings');
 
     return (

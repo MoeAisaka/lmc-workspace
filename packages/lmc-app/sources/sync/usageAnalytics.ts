@@ -1,4 +1,5 @@
 import { addUsage, emptyUsage, usageTotal, type AccountQuotaSnapshot, type UsageRecord, type UsageTokens } from 'lmc-wire';
+import { t } from '@/text';
 
 export type UsagePeriod = '5hours' | 'today' | '7days' | '30days' | 'month';
 export type UsageTimeRange = { start: number; end: number };
@@ -75,7 +76,7 @@ export function summarizeUsage(records: UsageRecord[], period: UsagePeriod, now:
         total = addUsage(total, r.tokens);
         const b = buckets.get(bucketAt(r.occurredAt));
         if (b) { b.tokens = addUsage(b.tokens, r.tokens); b.count++; }
-        group(sessions, r.sessionId, r); group(engines, r.engine, r); group(models, `${r.engine} · ${r.model ?? '未上报型号'}`, r);
+        group(sessions, r.sessionId, r); group(engines, r.engine, r); group(models, `${r.engine} · ${r.model ?? t('lmc.usage.unreportedModel')}`, r);
         if (r.occurredAt >= now - 600_000) recent += usageTotal(r.tokens);
         const minute = Math.floor(r.occurredAt / 60_000) * 60_000;
         const p = pulse.find(p => p.at === minute); if (p) { p.tokens = addUsage(p.tokens, r.tokens); p.count++; }

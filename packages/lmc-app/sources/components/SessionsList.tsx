@@ -575,10 +575,10 @@ export function SessionsList({
             <View style={styles.contentContainer}>
                 <View style={{ marginHorizontal: 12, marginTop: topContentInset + 8, marginBottom: 8, paddingHorizontal: 10, borderRadius: 10, flexDirection: 'row', alignItems: 'center', backgroundColor: styles.container.backgroundColor, borderWidth: 1, borderColor: '#b8bec633' }}>
                     <Ionicons name="search-outline" size={17} color="#88909b" />
-                    <TextInput accessibilityLabel="搜索会话" placeholder="搜索会话、项目…" placeholderTextColor="#88909b" value={searchQuery} onChangeText={setSearchQuery} style={{ flex: 1, minWidth: 0, height: 40, fontSize: 13, paddingHorizontal: 8, color: searchTheme.colors.text }} />
-                    {!!searchQuery && <Pressable accessibilityRole="button" accessibilityLabel="清空搜索" onPress={() => setSearchQuery('')} hitSlop={8}><Ionicons name="close" size={17} color="#88909b" /></Pressable>}
+                    <TextInput accessibilityLabel={t('lmc.list.search')} placeholder={t('lmc.list.searchPlaceholder')} placeholderTextColor="#88909b" value={searchQuery} onChangeText={setSearchQuery} style={{ flex: 1, minWidth: 0, height: 40, fontSize: 13, paddingHorizontal: 8, color: searchTheme.colors.text }} />
+                    {!!searchQuery && <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.resources.clearSearch')} onPress={() => setSearchQuery('')} hitSlop={8}><Ionicons name="close" size={17} color="#88909b" /></Pressable>}
                 </View>
-                {query && data.length === 0 && <Text style={{ padding: 16, color: '#88909b' }}>没有匹配的会话</Text>}
+                {query && data.length === 0 && <Text style={{ padding: 16, color: '#88909b' }}>{t('lmc.list.noMatches')}</Text>}
                 <FlatList
                     data={data}
                     renderItem={renderItem}

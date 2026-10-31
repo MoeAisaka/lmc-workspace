@@ -70,7 +70,7 @@ function getResumeAvailability(session: Session, machine: Machine | null | undef
 
     if (session.metadata?.sharedDevice || session.shared) {
         const allowed = !session.shared || !!session.accessActions?.includes('send');
-        return { canResume: allowed, canShowResume: allowed, subtitle: '在原共享设备恢复，会重新核对设备使用权限', message: '没有恢复此共享会话的权限' };
+        return { canResume: allowed, canShowResume: allowed, subtitle: t('lmc.sharing.resumeOnSharedDeviceSubtitle'), message: t('lmc.sharing.noResumePermission') };
     }
 
     const machineId = session.metadata?.machineId;

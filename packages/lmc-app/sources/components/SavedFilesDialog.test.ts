@@ -2,6 +2,7 @@ import React from 'react';
 // @ts-expect-error local renderer has no declarations
 import { act, create } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
+vi.mock('@/sync/persistence', () => ({ loadSettings: () => ({ settings: {} }) }));
 vi.mock('react-native', () => ({ View: 'View', Pressable: 'Pressable' }));
 vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme: { colors: {} } }) }));
 vi.mock('@/components/StyledText', () => ({ Text: 'Text' }));

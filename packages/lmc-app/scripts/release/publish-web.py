@@ -25,14 +25,22 @@ marker = args.marker
 old = (live / 'index.html').read_text()
 new = (build / 'index.html').read_text() \
     .replace('<title>LMC (dev)</title>', '<title>Link my Cli</title>') \
-    .replace('<html lang="en">', '<html lang="zh-CN">')
+    .replace('<html lang="zh-CN">', '<html lang="en">')
 icons = re.findall(r'<link[^>]+rel="(?:icon|apple-touch-icon)"[^>]*>', old)
+if not icons:
+    for prev in sorted(live.glob('index.previous-*.html'), reverse=True):
+        icons = re.findall(r'<link[^>]+rel="(?:icon|apple-touch-icon)"[^>]*>', prev.read_text())
+        if icons:
+            break
 assert icons, 'Missing icon links in live index.html'
 new = new.replace('</head>', ''.join(icons) + f'<meta name="lmc-release" content="{marker}" /></head>')
-assert '<html lang="zh-CN">' in new and '<title>Link my Cli</title>' in new
+assert '<html lang="en">' in new and '<title>Link my Cli</title>' in new
 
-# Include root resources (WASM, workers, icons, manifests) and nested exports.
-files = sorted(p for p in build.rglob('*') if p.is_file() and p != build / 'index.html')
+# Include root resources (WASM, workers, icons, manifests) and nested exports; skip macOS AppleDouble forks.
+files = sorted(
+    p for p in build.rglob('*')
+    if p.is_file() and p != build / 'index.html' and not p.name.startswith('._')
+)
 assert not any(p.is_symlink() for p in build.rglob('*')), 'Build must not contain symlinks'
 # Validate every conflict before modifying live files, even when some are approved.
 allowed = set(args.allow_replace)

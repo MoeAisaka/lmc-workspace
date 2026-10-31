@@ -6,6 +6,7 @@ import { openSavedFile } from '@/components/SavedFileDialog';
 import { fileSize } from '@/utils/fileSize';
 import { useUnistyles } from 'react-native-unistyles';
 import { FileIcon } from '@/components/FileIcon';
+import { t } from '@/text';
 
 export { fileSize } from '@/utils/fileSize';
 export function SavedFileCard({ id, name, size, onOpen }: { id: string; name: string; size: number; onOpen?: (id: string) => void }) {
@@ -15,8 +16,8 @@ export function SavedFileCard({ id, name, size, onOpen }: { id: string; name: st
     return (
         <Pressable
             accessibilityRole="button"
-            accessibilityLabel={'打开已保存文件：' + name}
-            accessibilityHint="查看文件预览和下载操作"
+            accessibilityLabel={t('lmc.savedFiles.openFileA11y', { name })}
+            accessibilityHint={t('lmc.savedFiles.openFileHint')}
             onPress={() => (onOpen ?? openSavedFile)(id)}
             style={({ pressed }) => ({
                 width: '100%', maxWidth: 520, alignSelf: 'flex-start',
@@ -32,7 +33,7 @@ export function SavedFileCard({ id, name, size, onOpen }: { id: string; name: st
             <View style={{ flex: 1, minWidth: 0 }}>
                 <Text numberOfLines={2} style={{ color: theme.colors.text, fontSize: 14, lineHeight: 20, fontWeight: '500' }}>{name}</Text>
                 <Text style={{ marginTop: 4, fontSize: 12, lineHeight: 16, color: theme.colors.textSecondary }}>
-                    {extension || '文件'} · {fileSize(size)}
+                    {extension || t('lmc.savedFiles.fileFallback')} · {fileSize(size)}
                 </Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />
