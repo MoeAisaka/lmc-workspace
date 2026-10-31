@@ -91,7 +91,7 @@ export function WebPromptModal({ config, onClose, onConfirm }: WebPromptModalPro
             textAlign: 'center',
             color: theme.colors.text,
             marginTop: 4,
-            lineHeight: 18,
+            lineHeight: 19.5,
             ...appearance.message
         },
         input: {

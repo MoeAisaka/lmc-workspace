@@ -2,7 +2,7 @@
  * changes the navigation, user bubbles, code grid, or status colors. Nested
  * spans inherit these metrics; inline emphasis keeps its own semantic style. */
 export const readingStyles = `
-[data-lmc-prose] { min-width: 0; overflow-wrap: anywhere; }
+[data-lmc-prose] { min-width: 0; overflow-wrap: anywhere; line-height: 1.5; }
 /* Mail is supporting material: 14px against the reply's 16px. Capture the
  * user's scale on the card before overriding it inside prose. Nested quotes
  * and details inherit the same value, rather than shrinking a second time.
@@ -20,11 +20,11 @@ html[data-lmc-reading-style="editorial"] [data-lmc-prose="prose"],
 html[data-lmc-reading-style="academic"] [data-lmc-prose="prose"] { max-width: 100%; }
 html[data-lmc-reading-style="editorial"] [data-lmc-prose="prose"] > [data-lmc-block="paragraph"],
 html[data-lmc-reading-style="editorial"] [data-lmc-prose="prose"] > [data-lmc-block="list"] {
-  font-size: calc(16px * var(--lmc-text-scale, 1)); line-height: calc(28px * var(--lmc-text-scale, 1) * var(--lmc-line-scale, 1)); margin-top: 10px; margin-bottom: 18px;
+  font-size: calc(16px * var(--lmc-text-scale, 1)); line-height: calc(24px * var(--lmc-text-scale, 1) * var(--lmc-line-scale, 1)); margin-top: 10px; margin-bottom: 18px;
 }
 html[data-lmc-reading-style="academic"] [data-lmc-prose="prose"] > [data-lmc-block="paragraph"],
 html[data-lmc-reading-style="academic"] [data-lmc-prose="prose"] > [data-lmc-block="list"] {
-  font-size: calc(16px * var(--lmc-text-scale, 1)); line-height: calc(28px * var(--lmc-text-scale, 1) * var(--lmc-line-scale, 1)); margin-top: 8px; margin-bottom: 14px;
+  font-size: calc(16px * var(--lmc-text-scale, 1)); line-height: calc(24px * var(--lmc-text-scale, 1) * var(--lmc-line-scale, 1)); margin-top: 8px; margin-bottom: 14px;
 }
 html:not([data-lmc-reading-style="standard"]) [data-lmc-prose="prose"] > [data-lmc-block="list"] [data-lmc-list-text] { font-size: inherit; line-height: inherit; }
 html[data-lmc-reading-style="editorial"] [data-lmc-prose="prose"] > [data-lmc-block="list"] { gap: 12px; }

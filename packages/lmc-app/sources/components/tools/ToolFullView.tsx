@@ -160,7 +160,7 @@ const styles = StyleSheet.create((theme) => ({
     },
     description: {
         fontSize: 14,
-        lineHeight: 20,
+        lineHeight: 21,
         color: theme.colors.textSecondary,
     },
     toolId: {
@@ -178,7 +178,7 @@ const styles = StyleSheet.create((theme) => ({
     errorText: {
         fontSize: 14,
         color: theme.colors.box.error.text,
-        lineHeight: 20,
+        lineHeight: 21,
     },
     emptyOutputContainer: {
         alignItems: 'center',

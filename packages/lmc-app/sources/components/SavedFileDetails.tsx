@@ -141,7 +141,7 @@ export function SavedFileDetails({ id }: { id: string }) {
                 {preview?.url && Platform.OS === 'web' && (previewType === 'image'
                     ? React.createElement('img', { src: preview.url, alt: file.manifest.name, style: { maxWidth: '100%', maxHeight: 600, objectFit: 'contain' } })
                     : React.createElement('iframe', { src: preview.url, title: file.manifest.name, sandbox: '', style: { width: '100%', height: 560, border: 0 } }))}
-                {preview?.text !== undefined && <Text selectable style={{ color: theme.colors.text, lineHeight: 22 }}>{preview.text}</Text>}
+                {preview?.text !== undefined && <Text selectable style={{ color: theme.colors.text, fontSize: 14, lineHeight: 21 }}>{preview.text}</Text>}
                     {previewType && Platform.OS === 'web' && file.manifest.size <= FILE_PREVIEW_LIMIT && !preview && !busy && button(t('lmc.savedFiles.loadPreview'), () => void run(loadingPreviewLabel, async () => {
                         if (Platform.OS !== 'web') throw new Error(t('lmc.savedFiles.previewWebOnlyError'));
                         if (file.manifest.size > FILE_PREVIEW_LIMIT) throw new Error(t('lmc.savedFiles.previewLimitError'));
@@ -149,7 +149,7 @@ export function SavedFileDetails({ id }: { id: string }) {
                         const value = await readPreview(file, controller.current.signal);
                         if (alive.current) setPreview(value); else if (value.url) URL.revokeObjectURL(value.url);
                     }))}
-                    {!previewType && <Text style={{ color: theme.colors.textSecondary, lineHeight: 22 }}>{t('lmc.savedFiles.previewUnsupported')}</Text>}
+                    {!previewType && <Text style={{ color: theme.colors.textSecondary, fontSize: 14, lineHeight: 21 }}>{t('lmc.savedFiles.previewUnsupported')}</Text>}
                     {previewType && Platform.OS !== 'web' && <Text style={{ color: theme.colors.textSecondary }}>{t('lmc.savedFiles.previewWebOnly')}</Text>}
                     {previewType && file.manifest.size > FILE_PREVIEW_LIMIT && <Text style={{ color: theme.colors.textSecondary }}>{t('lmc.savedFiles.previewTooLarge')}</Text>}
                 </View>}

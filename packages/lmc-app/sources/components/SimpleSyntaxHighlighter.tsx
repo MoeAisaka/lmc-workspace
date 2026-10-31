@@ -301,7 +301,7 @@ export const SimpleSyntaxHighlighter: React.FC<SimpleSyntaxHighlighterProps> = (
         style={{ 
           fontFamily: Typography.mono().fontFamily,
           fontSize: 14 * theme.personalization.textScale,
-          lineHeight: 20 * theme.personalization.textScale * theme.personalization.lineScale,
+          lineHeight: 21 * theme.personalization.textScale * theme.personalization.lineScale,
         }}
       >
         {tokens.map((token, index) => (

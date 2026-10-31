@@ -101,7 +101,7 @@ export const SessionToolOverlay = React.memo(({ sessionId, messageId, filePath, 
                         <ToolFullView tool={message.tool} messages={message.children} active={active} compact />
                     ) : message.kind === 'agent-text' || message.kind === 'user-text' ? (
                         <ScrollView contentContainerStyle={{ padding: 16 }}>
-                            <Text style={{ fontSize: 15, lineHeight: 24, color: theme.colors.text, ...Typography.default() }}>{message.text}</Text>
+                            <Text style={{ fontSize: 16, lineHeight: 24, color: theme.colors.text, ...Typography.default() }}>{message.text}</Text>
                         </ScrollView>
                     ) : (
                         <Text style={styles.missing}>{t('lmc.dialogs.noExpandableDetails')}</Text>

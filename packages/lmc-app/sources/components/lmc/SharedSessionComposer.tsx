@@ -34,7 +34,7 @@ export function SharedSessionComposer({ sessionId, actions, connected }: { sessi
     }
     return <View testID={canSend ? 'shared-session-composer' : 'shared-session-readonly'} style={{ padding: 16, gap: 10, backgroundColor: theme.colors.surface, borderRadius: 20 }}>
         <Text style={{ color: theme.colors.textSecondary }}>{canSend ? t('lmc.sharing.sharedComposerEditableHint') : t('lmc.sharing.sharedComposerReadOnlyHint')}</Text>
-        {canSend && <TextInput accessibilityLabel={t('lmc.sharing.sendToSharedSession')} placeholder={t('lmc.sharing.messagePlaceholder')} placeholderTextColor={theme.colors.textSecondary} multiline value={text} editable={!busy} onChangeText={setText} style={{ color: theme.colors.text, fontSize: 16, minHeight: 52, maxHeight: 160, padding: 10 }} />}
+        {canSend && <TextInput accessibilityLabel={t('lmc.sharing.sendToSharedSession')} placeholder={t('lmc.sharing.messagePlaceholder')} placeholderTextColor={theme.colors.textSecondary} multiline value={text} editable={!busy} onChangeText={setText} style={{ color: theme.colors.text, fontSize: 16, lineHeight: 24, minHeight: 52, maxHeight: 160, padding: 10 }} />}
         {!!error && <Text accessibilityRole="alert" style={{ color: theme.colors.textDestructive }}>{error}</Text>}
         <View style={{ flexDirection: 'row', gap: 12, justifyContent: 'flex-end' }}>
             {canSend && !connected && <Pressable accessibilityRole="button" disabled={busy} onPress={() => void resume()} style={{ padding: 12 }}><Text style={{ color: theme.colors.textLink }}>{t('lmc.sharing.resumeSession')}</Text></Pressable>}

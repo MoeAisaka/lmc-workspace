@@ -479,7 +479,7 @@ const styles = StyleSheet.create((theme) => ({
   agentEventText: {
     color: theme.colors.agentEventText,
     fontSize: 14,
-    lineHeight: 22,
+    lineHeight: 21,
     maxWidth: '100%',
     minWidth: 0,
     flexShrink: 1,

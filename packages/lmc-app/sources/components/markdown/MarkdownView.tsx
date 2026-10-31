@@ -224,7 +224,7 @@ function RenderListBlock(props: { items: { depth: number, spans: MarkdownSpan[] 
         <View {...{ dataSet: { lmcBlock: 'list' } }} style={style.listContainer}>
             {props.items.map((item, index) => (
                 <View key={index} style={{ flexDirection: 'row', alignItems: 'flex-start', paddingLeft: item.depth * 16 }}>
-                    <Text {...{ dataSet: { lmcListText: 'marker' } }} selectable={false} style={[listStyle, { marginRight: 8, marginTop: 1 }]}>{BULLETS[Math.min(item.depth, BULLETS.length - 1)]}</Text>
+                    <Text {...{ dataSet: { lmcListText: 'marker' } }} selectable={false} style={[listStyle, { marginRight: 8 }]}>{BULLETS[Math.min(item.depth, BULLETS.length - 1)]}</Text>
                     <Text {...{ dataSet: { lmcListText: 'body' } }} selectable={props.selectable} style={[listStyle, { flex: 1, minWidth: 0 }]}><RenderSpans spans={item.spans} baseStyle={listStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} /></Text>
                 </View>
             ))}
@@ -238,7 +238,7 @@ function RenderNumberedListBlock(props: { items: { number: number, depth: number
         <View {...{ dataSet: { lmcBlock: 'list' } }} style={style.listContainer}>
             {props.items.map((item, index) => (
                 <View key={index} style={{ flexDirection: 'row', alignItems: 'flex-start', paddingLeft: item.depth * 16 }}>
-                    <Text {...{ dataSet: { lmcListText: 'marker' } }} selectable={false} style={[listStyle, { marginRight: 8, marginTop: 1 }]}>{item.number}.</Text>
+                    <Text {...{ dataSet: { lmcListText: 'marker' } }} selectable={false} style={[listStyle, { marginRight: 8 }]}>{item.number}.</Text>
                     <Text {...{ dataSet: { lmcListText: 'body' } }} selectable={props.selectable} style={[listStyle, { flex: 1, minWidth: 0 }]}><RenderSpans spans={item.spans} baseStyle={listStyle} selectable={props.selectable} onLinkPress={props.onLinkPress} /></Text>
                 </View>
             ))}
@@ -618,7 +618,7 @@ const style = StyleSheet.create((theme) => ({
     text: {
         ...Typography.default(),
         fontSize: conversationFontSize(16),
-        lineHeight: conversationLineHeight(25),
+        lineHeight: conversationLineHeight(24),
         marginTop: 8,
         marginBottom: 10,
         color: theme.colors.text,
@@ -784,7 +784,7 @@ const style = StyleSheet.create((theme) => ({
         ...Typography.mono(),
         color: theme.colors.text,
         fontSize: conversationFontSize(14),
-        lineHeight: conversationLineHeight(20),
+        lineHeight: conversationLineHeight(21),
     },
     horizontalRule: {
         height: 1,
@@ -812,7 +812,7 @@ const style = StyleSheet.create((theme) => ({
     imageCaption: {
         ...Typography.default(),
         fontSize: conversationFontSize(14),
-        lineHeight: conversationLineHeight(20),
+        lineHeight: conversationLineHeight(21),
         color: theme.colors.textSecondary,
     },
     copyButtonContainer: {
