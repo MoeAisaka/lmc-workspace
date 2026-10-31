@@ -14,7 +14,10 @@ This folder documents how LMC works internally, with a focus on protocol, backen
 - dev-environments.md: Local `environments/data/` workflow, lab-rat project provisioning, `env:cli` passthrough behavior, and daemon usage.
 - session-protocol.md: Unified encrypted chat event protocol.
 - session-protocol-claude.md: Claude-specific session-protocol flow (local vs remote launchers, dedupe/restarts).
-- plans/provider-envelope-redesign.md: Proposed replacement for the current provider/session envelope design.
+- model-discovery.md: Dynamic model, effort, and mode discovery across engines.
+- reliable-agent-mail.md: Durable session-to-session messaging and controller/worker mail delivery.
+- engine-no-progress.md: Turn stall detection, live tool-process checks, and OS dialog diagnostics.
+- account-quota.md: Optional single-source quota dashboard connector and ring/card calculations.
 - permission-resolution.md: State-based permission mode resolution across app and CLI (including sandbox behavior).
 - lmc-wire.md: Shared wire schemas/types package and migration notes.
 - voice-architecture.md: ElevenLabs voice assistant integration, session routing, context batching, and VAD detection.

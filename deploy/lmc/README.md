@@ -110,8 +110,9 @@ export LMC_WEBAPP_URL="$LMC_SERVER_URL"
 lmc auth login
 lmc daemon start
 # or start an engine directly
+lmc
 lmc codex
-lmc claude
+lmc agy
 ```
 
 Sign in through the browser and approve the link the CLI opens, or paste the same centre's

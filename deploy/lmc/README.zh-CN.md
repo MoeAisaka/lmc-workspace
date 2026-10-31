@@ -1,6 +1,6 @@
-# LMC 自托管候选版
+# 部署 LMC 自托管中心
 
-基于 Happy 71ec0d7。WebUI 与设备 Agent 连接同一中心，中心使用 MySQL 8.4；不需要 Happy 官方账号或手机 App。此候选版尚未替换现有生产入口。
+Web 客户端与所有设备 Agent 连接同一个基于 MySQL 8.4 的中心服务；不需要托管账号或绑定手机 App。
 
 ## 一条命令起中心
 
@@ -70,19 +70,22 @@ export LMC_WEBAPP_URL="$LMC_SERVER_URL"
 lmc auth login
 lmc daemon start
 # 或直接启动引擎
+lmc
 lmc codex
-lmc claude
+lmc agy
 ```
 
-在浏览器登录并批准 CLI 打开的链接。也可在账号设置中粘贴同一中心的配对链接。不要复制 Happy 的 access.key、settings.json、设备身份或私人会话目录。其他引擎适配接口保留。
+在浏览器登录并批准 CLI 打开的链接，也可在账号设置中粘贴同一中心的配对链接。不要复制 Happy 的 `access.key`、`settings.json`、设备身份或私人会话目录。
 
-## 更新与回退
+## 更新、回退与反向代理
 
-重复执行 `deploy/lmc/up.sh <同一个源>` 即可更新：Web 包先导出到 `web-next`，确认产出 `index.html` 后才替换 `web`，随后重建中心镜像、执行迁移、重启中心。失败的导出不会留下半个包。中心重启期间连接会短暂中断。Agent 更新应等待其活动回合结束。
+重复执行 `deploy/lmc/up.sh <同一个源>` 即可更新：Web 包先导出到 `web-next`，确认产出 `index.html` 后才替换 `web`，随后重建中心镜像、执行迁移、重启中心。失败的导出不会留下半成品静态包。中心重启期间连接会短暂中断；更新设备 Agent 时建议等待活动回合自然结束。
 
-候选回退只停止本候选的中心、Agent 和 `lmc-center` Compose 项目；`docker compose stop` 保留卷。不要 `down -v`，不要终止 Happy 进程，不改现有公网入口。
+如需停止服务并保留数据卷，执行 `docker compose stop`，**切勿执行 `down -v`**。
 
-历史迁移须另行执行：清点旧账号与加密方式 → 在获得授权后导出必要数据 → 转换 ID/seq/版本/归属并校验数量及密文可解 → 双端只读核验 → 停写切换 → 保留旧入口回退。当前初始化脚本不迁移历史，不接管生产。
+### 受信反向代理
+
+登录限流依赖真实客户端 IP。默认仅回环代理（`127.0.0.1/32,::1/128`）提供的转发地址会被采信；若反向代理运行在容器网络中，请在 `.env` 中将 `LMC_TRUSTED_PROXIES` 设为实际代理 IP 或 CIDR（逗号分隔）。请勿填写全网通配 CIDR，并确保反向代理会覆盖来自不可信客户端的 `X-Forwarded-*` 头。
 
 ---
 
