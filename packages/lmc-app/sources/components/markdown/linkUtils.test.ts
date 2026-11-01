@@ -43,8 +43,17 @@ describe('parseFileReference', () => {
         expect(parseFileReference('two words.md')).toBeNull();
     });
 
-    it('reads a file:// target as the path it wraps', () => {
+    it('reads a file:// target as the path it wraps, including spaces, %20, and #L line anchors', () => {
         expect(parseFileReference('file:///tmp/out.log')).toEqual({ path: '/tmp/out.log', line: null });
+        expect(parseFileReference('file:///Volumes/Work/Agent%20Project/src/a.ts#L10-L25')).toEqual({
+            path: '/Volumes/Work/Agent Project/src/a.ts',
+            line: 10,
+        });
+        expect(parseFileReference('file:///Volumes/Work/Agent Workspace/AGENTS.md#L5')).toEqual({
+            path: '/Volumes/Work/Agent Workspace/AGENTS.md',
+            line: 5,
+        });
+        expect(parseFileReference('sources/a.ts#L42-L50')).toEqual({ path: 'sources/a.ts', line: 42 });
     });
 });
 

@@ -26,4 +26,35 @@ describe('parseMarkdownSpans file links', () => {
         const spans = parseMarkdownSpans('见 src/a.ts 第二段', false);
         expect(spans.map((span) => span.text).join('')).toBe('见 src/a.ts 第二段');
     });
+
+    it('recursively parses inline code inside markdown links without exposing raw backticks', () => {
+        const spans = parseMarkdownSpans('请查看 [`libraryLifecycle`](file:///Volumes/Work/Agent%20Workspace/src/lifecycle.ts#L5-L12)', false);
+        expect(spans).toEqual([
+            { styles: [], text: '请查看 ', url: null },
+            {
+                styles: ['code'],
+                text: 'libraryLifecycle',
+                url: 'file:///Volumes/Work/Agent%20Workspace/src/lifecycle.ts#L5-L12',
+            },
+        ]);
+    });
+
+    it('recursively parses inline code and links nested inside bold, italic, and strikethrough', () => {
+        const spans = parseMarkdownSpans('**方案 A（含 `game_expansions` 与 [设计稿](https://example.com/a_(b))）** ~~旧版~~', false);
+        expect(spans).toEqual([
+            { styles: ['bold'], text: '方案 A（含 ', url: null },
+            { styles: ['bold', 'code'], text: 'game_expansions', url: null },
+            { styles: ['bold'], text: ' 与 ', url: null },
+            { styles: ['bold'], text: '设计稿', url: 'https://example.com/a_(b)' },
+            { styles: ['bold'], text: '）', url: null },
+            { styles: [], text: ' ', url: null },
+            { styles: ['strikethrough'], text: '旧版', url: null },
+        ]);
+    });
+
+    it('preserves snake_case identifiers and arithmetic asterisks as literal text', () => {
+        expect(parseMarkdownSpans('字段 is_completed_at 与 game_play_plans，尺寸 3 * 4 = 12', false)).toEqual([
+            { styles: [], text: '字段 is_completed_at 与 game_play_plans，尺寸 3 * 4 = 12', url: null },
+        ]);
+    });
 });

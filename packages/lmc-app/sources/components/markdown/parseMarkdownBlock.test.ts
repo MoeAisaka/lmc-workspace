@@ -121,4 +121,59 @@ describe('parseMarkdownBlock - table parsing', () => {
         expect(tableBlocks).toHaveLength(1);
         expect(textBlocks).toHaveLength(1);
     });
+
+    it('does not split table cells on pipes inside inline code or escaped pipes, and parses alignments', () => {
+        const md = [
+            '| 字段 | 类型 | 备注 |',
+            '|:---|:---:|---:|',
+            '| `play_status` | `\'BACKLOG\' | \'PLAYING\'` | 含转义 \\| 竖线 |',
+        ].join('\n');
+
+        const blocks = parseMarkdown(md);
+        expect(blocks).toHaveLength(1);
+        expect(blocks[0]).toEqual({
+            type: 'table',
+            alignments: ['left', 'center', 'right'],
+            headers: [spans('字段'), spans('类型'), spans('备注')],
+            rows: [[
+                [{ styles: ['code'], text: 'play_status', url: null }],
+                [{ styles: ['code'], text: "'BACKLOG' | 'PLAYING'", url: null }],
+                spans('含转义 | 竖线'),
+            ]],
+        });
+    });
+
+    it('preserves hierarchy when an ordered list nests unordered sub-items and task checkboxes', () => {
+        const md = [
+            '1. 第一步',
+            '   - 子项 A',
+            '   - [x] 已完成子项 B',
+            '2. 第二步',
+        ].join('\n');
+
+        const blocks = parseMarkdown(md);
+        expect(blocks).toEqual([
+            {
+                type: 'numbered-list',
+                items: [
+                    { number: 1, depth: 0, spans: spans('第一步') },
+                    { number: 0, depth: 1, bullet: true, spans: spans('子项 A') },
+                    { number: 0, depth: 1, bullet: true, checked: true, spans: spans('已完成子项 B') },
+                    { number: 2, depth: 0, spans: spans('第二步') },
+                ],
+            },
+        ]);
+    });
+
+    it('parses GitHub-style callout alerts separately from standard blockquotes', () => {
+        const blocks = parseMarkdown('> [!IMPORTANT] 核心约束\n> 归档终态不可直接排期');
+        expect(blocks).toEqual([
+            {
+                type: 'callout',
+                kind: 'important',
+                title: '核心约束',
+                content: '归档终态不可直接排期',
+            },
+        ]);
+    });
 });

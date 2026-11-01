@@ -409,9 +409,9 @@ const styles = StyleSheet.create((theme) => ({
   },
   userMessageBubble: {
     backgroundColor: theme.colors.userMessageBackground,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 16,
     marginBottom: 4,
     maxWidth: '100%',
   },

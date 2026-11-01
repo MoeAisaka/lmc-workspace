@@ -1,16 +1,87 @@
-import type { MarkdownBlock, MarkdownParseOptions, MarkdownSpan } from "./parseMarkdown";
+import type {
+    CalloutKind,
+    MarkdownBlock,
+    MarkdownListItem,
+    MarkdownNumberedListItem,
+    MarkdownParseOptions,
+    MarkdownSpan,
+    TableColumnAlignment,
+} from "./parseMarkdown";
 import { parseMarkdownSpans } from "./parseMarkdownSpans";
 import { parseMarkdownDetails } from './parseMarkdownDetails';
 import { parseFollowupDirective } from './parseFollowupDirective';
 import { parseInteractiveFence } from 'lmc-wire';
 
-// Split a pipe-delimited table row into cells, stripping only the leading/trailing
-// empty strings caused by outer pipes while preserving interior empty cells.
+/**
+ * Split a pipe-delimited table row into cells while respecting inline code spans
+ * (`` `a | b` ``) and backslash-escaped pipes (`\|`), stripping only outer pipes.
+ */
 function splitTableRow(line: string): string[] {
-    let cells = line.trim().split('|').map(cell => cell.trim());
-    if (cells.length > 0 && cells[0] === '') cells = cells.slice(1);
-    if (cells.length > 0 && cells[cells.length - 1] === '') cells = cells.slice(0, -1);
-    return cells;
+    const trimmed = line.trim();
+    const cells: string[] = [];
+    let current = '';
+    let i = 0;
+
+    while (i < trimmed.length) {
+        const ch = trimmed[i];
+        if (ch === '\\' && i + 1 < trimmed.length) {
+            if (trimmed[i + 1] === '|') {
+                current += '|';
+            } else {
+                current += '\\' + trimmed[i + 1];
+            }
+            i += 2;
+            continue;
+        }
+        if (ch === '`') {
+            let ticks = 0;
+            while (i + ticks < trimmed.length && trimmed[i + ticks] === '`') ticks++;
+            current += trimmed.slice(i, i + ticks);
+            i += ticks;
+            while (i < trimmed.length) {
+                if (trimmed[i] === '`') {
+                    let closeTicks = 0;
+                    while (i + closeTicks < trimmed.length && trimmed[i + closeTicks] === '`') closeTicks++;
+                    current += trimmed.slice(i, i + closeTicks);
+                    i += closeTicks;
+                    if (closeTicks === ticks) break;
+                } else {
+                    current += trimmed[i];
+                    i++;
+                }
+            }
+            continue;
+        }
+        if (ch === '|') {
+            cells.push(current.trim());
+            current = '';
+            i++;
+            continue;
+        }
+        current += ch;
+        i++;
+    }
+    cells.push(current.trim());
+
+    let result = cells;
+    if (result.length > 0 && trimmed.startsWith('|') && result[0] === '') result = result.slice(1);
+    if (result.length > 0 && trimmed.endsWith('|') && !trimmed.endsWith('\\|') && result[result.length - 1] === '') {
+        result = result.slice(0, -1);
+    }
+    return result;
+}
+
+function parseSeparatorAlignments(separatorLine: string): TableColumnAlignment[] | null {
+    const cells = splitTableRow(separatorLine);
+    if (cells.length === 0) return null;
+    const alignments: TableColumnAlignment[] = [];
+    for (const cell of cells) {
+        if (!/^:?[-=]{1,}:?$/.test(cell)) return null;
+        const left = cell.startsWith(':');
+        const right = cell.endsWith(':');
+        alignments.push(left && right ? 'center' : right ? 'right' : left ? 'left' : null);
+    }
+    return alignments;
 }
 
 function parseTable(lines: string[], startIndex: number): { table: MarkdownBlock | null; nextIndex: number } {
@@ -34,11 +105,8 @@ function parseTable(lines: string[], startIndex: number): { table: MarkdownBlock
         return { table: null, nextIndex: startIndex };
     }
 
-    // Validate that the second line is a separator containing dashes, which distinguishes tables from plain text
-    const separatorLine = tableLines[1].trim();
-    const isSeparator = /^[|\s\-:=]*$/.test(separatorLine) && separatorLine.includes('-');
-
-    if (!isSeparator) {
+    const alignments = parseSeparatorAlignments(tableLines[1].trim());
+    if (!alignments) {
         return { table: null, nextIndex: startIndex };
     }
 
@@ -49,7 +117,6 @@ function parseTable(lines: string[], startIndex: number): { table: MarkdownBlock
         return { table: null, nextIndex: startIndex };
     }
 
-    // Extract data rows from remaining lines (skipping the separator line)
     const rows: MarkdownSpan[][][] = [];
     for (let i = 2; i < tableLines.length; i++) {
         const rowCells = splitTableRow(tableLines[i])
@@ -59,40 +126,136 @@ function parseTable(lines: string[], startIndex: number): { table: MarkdownBlock
         }
     }
 
+    const hasExplicitAlignments = alignments.some(a => a !== null);
     const table: MarkdownBlock = {
         type: 'table',
         headers,
-        rows
+        rows,
+        ...(hasExplicitAlignments ? { alignments } : {}),
     };
 
     return { table, nextIndex: index };
 }
 
+type RawListEntry = {
+    kind: 'bullet' | 'ordered';
+    number: number;
+    indent: number;
+    checked?: boolean;
+    content: string;
+};
+
+function expandLeadingSpaces(line: string): number {
+    let cols = 0;
+    for (let i = 0; i < line.length; i++) {
+        if (line[i] === ' ') cols += 1;
+        else if (line[i] === '\t') cols += 4 - (cols % 4);
+        else break;
+    }
+    return cols;
+}
+
+function matchListMarker(line: string): RawListEntry | null {
+    const trimmed = line.trim();
+    if (!trimmed) return null;
+    // Do not mistake horizontal rules (`---`, `***`) for list items
+    if (/^(?:\*\s*){3,}$|^(?:-\s*){3,}$|^(?:_\s*){3,}$/.test(trimmed)) return null;
+
+    const indent = expandLeadingSpaces(line);
+    const orderedMatch = trimmed.match(/^(\d+)[.)]\s+(.*)$/);
+    if (orderedMatch) {
+        let rest = orderedMatch[2];
+        let checked: boolean | undefined;
+        const taskMatch = rest.match(/^\[([ xX])\]\s+(.*)$/);
+        if (taskMatch) {
+            checked = taskMatch[1].toLowerCase() === 'x';
+            rest = taskMatch[2];
+        }
+        return { kind: 'ordered', number: parseInt(orderedMatch[1], 10), indent, checked, content: rest };
+    }
+
+    const bulletMatch = trimmed.match(/^([-*+])\s+(.*)$/);
+    if (bulletMatch) {
+        let rest = bulletMatch[2];
+        let checked: boolean | undefined;
+        const taskMatch = rest.match(/^\[([ xX])\]\s+(.*)$/);
+        if (taskMatch) {
+            checked = taskMatch[1].toLowerCase() === 'x';
+            rest = taskMatch[2];
+        }
+        return { kind: 'bullet', number: 0, indent, checked, content: rest };
+    }
+
+    return null;
+}
+
+/**
+ * Compute clean nesting depths (`0, 1, 2...`) from arbitrary 2/3/4-space
+ * indentation using a parent-indent stack, so `1. Foo` followed by `   - Sub`
+ * always lands at `depth = 1` without gaps or flattening.
+ */
+function normalizeListDepths(indents: number[]): number[] {
+    const stack: number[] = [];
+    return indents.map((indent) => {
+        while (stack.length > 0 && indent < stack[stack.length - 1] - 1) {
+            stack.pop();
+        }
+        if (stack.length === 0) {
+            stack.push(indent);
+            return 0;
+        }
+        const top = stack[stack.length - 1];
+        if (indent > top + 1) {
+            stack.push(indent);
+            return stack.length - 1;
+        }
+        return stack.length - 1;
+    });
+}
+
+function isSpecialBlockStarter(line: string): boolean {
+    const trimmed = line.trim();
+    if (!trimmed) return true;
+    if (/^\s{0,3}#{1,6}\s+/.test(line)) return true;
+    if (/^(`{3,}|~{3,})/.test(trimmed)) return true;
+    if (/^>\s?/.test(trimmed)) return true;
+    if (/^(?:\*\s*){3,}$|^(?:-\s*){3,}$|^(?:_\s*){3,}$/.test(trimmed)) return true;
+    if (trimmed.startsWith('<options>') || trimmed.startsWith('<details')) return true;
+    if (/^!\[([^\]]*)\]\(([^)]+)\)$/.test(trimmed)) return true;
+    return false;
+}
+
+const CALLOUT_HEADER = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\](?:[ \t]+(.*))?$/i;
+
 export function parseMarkdownBlock(markdown: string, options: MarkdownParseOptions = {}) {
     const blocks: MarkdownBlock[] = [];
-    const lines = markdown.split('\n');
+    const lines = markdown.replace(/\r\n/g, '\n').split('\n');
     let index = 0;
+
     outer: while (index < lines.length) {
         const line = lines[index];
         index++;
 
-        // Headers
-        for (let i = 1; i <= 6; i++) {
-            if (line.startsWith(`${'#'.repeat(i)} `)) {
-                blocks.push({ type: 'header', level: i as 1 | 2 | 3 | 4 | 5 | 6, content: parseMarkdownSpans(line.slice(i + 1).trim(), true) });
-                continue outer;
-            }
+        // 1. ATX Headers (`#` .. `######`, allowing up to 3 leading spaces and optional closing `#`)
+        const headerMatch = line.match(/^\s{0,3}(#{1,6})\s+(.*?)(?:\s+#+\s*)?$/);
+        if (headerMatch) {
+            const level = headerMatch[1].length as 1 | 2 | 3 | 4 | 5 | 6;
+            blocks.push({
+                type: 'header',
+                level,
+                content: parseMarkdownSpans(headerMatch[2].trim(), true),
+            });
+            continue outer;
         }
 
-        // Trim
-        let trimmed = line.trim();
+        const trimmed = line.trim();
 
-        // Code block
+        // 2. Fenced Code / Mermaid / Interactive block
         const fence = trimmed.match(/^(`{3,}|~{3,})(.*)$/);
         if (fence) {
             const language = fence[2].trim() || null;
             const closingFence = new RegExp(`^${fence[1][0]}{${fence[1].length},}\\s*$`);
-            let content = [];
+            const content: string[] = [];
             let closed = false;
             while (index < lines.length) {
                 const nextLine = lines[index];
@@ -106,7 +269,6 @@ export function parseMarkdownBlock(markdown: string, options: MarkdownParseOptio
             }
             const contentString = content.join('\n');
 
-            // Detect mermaid diagram language and route to appropriate block type
             const interactive = parseInteractiveFence(language);
             if (interactive) {
                 blocks.push({ type: 'interactive', ...interactive, html: contentString, closed });
@@ -118,28 +280,36 @@ export function parseMarkdownBlock(markdown: string, options: MarkdownParseOptio
             continue;
         }
 
+        // 3. HTML `<details>` disclosure block
         const details = parseMarkdownDetails(lines, index - 1);
         if (details) {
             blocks.push(details.block);
             index = details.nextIndex;
             if (details.trailing.trim()) {
-                // Preserve text following a same-line closing tag.
                 lines[--index] = details.trailing;
             }
             continue;
         }
 
-        // Keep quoted paragraphs and lists together, including nested quotes.
-        // This runs after fenced code, where a leading > is literal text.
+        // 4. Blockquote & GitHub Callout (`> [!NOTE]`, `> [!TIP]`, etc.)
         if (/^>\s?/.test(trimmed)) {
             const quoted = [trimmed.replace(/^>\s?/, '')];
             while (index < lines.length && /^\s*>/.test(lines[index])) {
                 quoted.push(lines[index++].trimStart().replace(/^>\s?/, ''));
             }
-            blocks.push({ type: 'quote', content: quoted.join('\n') });
+            const alertMatch = quoted[0]?.trim().match(CALLOUT_HEADER);
+            if (alertMatch) {
+                const kind = alertMatch[1].toLowerCase() as CalloutKind;
+                const title = alertMatch[2]?.trim() || null;
+                const body = quoted.slice(1).join('\n').replace(/^\n+/, '');
+                blocks.push({ type: 'callout', kind, title, content: body });
+            } else {
+                blocks.push({ type: 'quote', content: quoted.join('\n') });
+            }
             continue;
         }
 
+        // 5. Follow-up directives
         const followup = options.followups ? parseFollowupDirective(line) : null;
         if (followup) {
             const previous = blocks.at(-1);
@@ -148,22 +318,21 @@ export function parseMarkdownBlock(markdown: string, options: MarkdownParseOptio
             continue;
         }
 
-        // Horizontal rule
-        if (trimmed === '---') {
+        // 6. Horizontal rule (`---`, `***`, `___`, `- - -`)
+        if (/^(?:\*\s*){3,}$|^(?:-\s*){3,}$|^(?:_\s*){3,}$/.test(trimmed)) {
             blocks.push({ type: 'horizontal-rule' });
             continue;
         }
 
-        // Options block
+        // 7. Explicit `<options>` block
         if (trimmed.startsWith('<options>')) {
-            let items: string[] = [];
+            const items: string[] = [];
             while (index < lines.length) {
                 const nextLine = lines[index];
                 if (nextLine.trim() === '</options>') {
                     index++;
                     break;
                 }
-                // Extract content from <option> tags
                 const optionMatch = nextLine.match(/<option>(.*?)<\/option>/);
                 if (optionMatch) {
                     items.push(optionMatch[1]);
@@ -176,54 +345,93 @@ export function parseMarkdownBlock(markdown: string, options: MarkdownParseOptio
             continue;
         }
 
-        // Image block
-        const imageMatch = trimmed.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
-        if (imageMatch) {
+        // 8. Standalone image block
+        const imageMatch = trimmed.match(/^!\[([^\]]*)\]\((.+)\)$/);
+        if (imageMatch && !imageMatch[2].includes('](')) {
             blocks.push({ type: 'image', alt: imageMatch[1], url: imageMatch[2].trim() });
             continue;
         }
 
-        // If it is a numbered list
-        const numberedListMatch = trimmed.match(/^(\d+)\.\s+/);
-        if (numberedListMatch) {
-            const indent = line.length - line.trimStart().length;
-            let allLines = [{ number: parseInt(numberedListMatch[1]), indent, content: trimmed.slice(numberedListMatch[0].length) }];
+        // 9. Unified ordered + unordered + nested + task list collector
+        const firstListEntry = matchListMarker(line);
+        if (firstListEntry) {
+            const entries: RawListEntry[] = [firstListEntry];
             while (index < lines.length) {
                 const nextRaw = lines[index];
                 if (options.followups && parseFollowupDirective(nextRaw)) break;
-                const nextTrimmed = nextRaw.trim();
-                const nextMatch = nextTrimmed.match(/^(\d+)\.\s+/);
-                if (!nextMatch) break;
-                const nextIndent = nextRaw.length - nextRaw.trimStart().length;
-                allLines.push({ number: parseInt(nextMatch[1]), indent: nextIndent, content: nextTrimmed.slice(nextMatch[0].length) });
-                index++;
+
+                // Allow a single blank line inside a list if immediately followed by another list item
+                if (nextRaw.trim() === '') {
+                    const afterBlank = index + 1 < lines.length ? lines[index + 1] : '';
+                    if (afterBlank && !(options.followups && parseFollowupDirective(afterBlank)) && matchListMarker(afterBlank)) {
+                        index++;
+                        continue;
+                    }
+                    break;
+                }
+
+                const nextEntry = matchListMarker(nextRaw);
+                if (nextEntry) {
+                    entries.push(nextEntry);
+                    index++;
+                    continue;
+                }
+
+                // Indented paragraph continuation line belonging to the last list item
+                const nextIndent = expandLeadingSpaces(nextRaw);
+                const lastEntry = entries[entries.length - 1];
+                if (nextIndent >= lastEntry.indent + 2 && !isSpecialBlockStarter(nextRaw) && !nextRaw.includes('|')) {
+                    lastEntry.content += ' ' + nextRaw.trim();
+                    index++;
+                    continue;
+                }
+
+                break;
             }
-            const baseIndent = allLines[0].indent;
-            blocks.push({ type: 'numbered-list', items: allLines.map((l) => ({ number: l.number, depth: Math.floor((l.indent - baseIndent) / 2), spans: parseMarkdownSpans(l.content, false) })) });
+
+            const depths = normalizeListDepths(entries.map(e => e.indent));
+            const hasOrdered = entries.some(e => e.kind === 'ordered');
+            const hasBullet = entries.some(e => e.kind === 'bullet');
+
+            if (!hasOrdered) {
+                const items: MarkdownListItem[] = entries.map((entry, idx) => ({
+                    depth: depths[idx],
+                    spans: parseMarkdownSpans(entry.content, false),
+                    ...(entry.checked !== undefined ? { checked: entry.checked } : {}),
+                }));
+                blocks.push({ type: 'list', items });
+            } else if (!hasBullet) {
+                const items: MarkdownNumberedListItem[] = entries.map((entry, idx) => ({
+                    number: entry.number,
+                    depth: depths[idx],
+                    spans: parseMarkdownSpans(entry.content, false),
+                    ...(entry.checked !== undefined ? { checked: entry.checked } : {}),
+                }));
+                blocks.push({ type: 'numbered-list', items });
+            } else if (entries[0].kind === 'ordered') {
+                // Mixed ordered outer list with bullet sub-items (e.g. `1.` -> `   - `)
+                const items: MarkdownNumberedListItem[] = entries.map((entry, idx) => ({
+                    number: entry.number,
+                    depth: depths[idx],
+                    spans: parseMarkdownSpans(entry.content, false),
+                    ...(entry.checked !== undefined ? { checked: entry.checked } : {}),
+                    ...(entry.kind === 'bullet' ? { bullet: true } : {}),
+                }));
+                blocks.push({ type: 'numbered-list', items });
+            } else {
+                // Mixed bullet outer list with ordered sub-items (e.g. `- ` -> `  1. `)
+                const items: MarkdownListItem[] = entries.map((entry, idx) => ({
+                    depth: depths[idx],
+                    spans: parseMarkdownSpans(entry.content, false),
+                    ...(entry.checked !== undefined ? { checked: entry.checked } : {}),
+                    ...(entry.kind === 'ordered' ? { number: entry.number } : {}),
+                }));
+                blocks.push({ type: 'list', items });
+            }
             continue;
         }
 
-        // If it is a list
-        const listMatch = trimmed.match(/^([-*+])\s+/);
-        if (listMatch) {
-            const indent = line.length - line.trimStart().length;
-            let allLines = [{ indent, content: trimmed.slice(listMatch[0].length) }];
-            while (index < lines.length) {
-                const nextRaw = lines[index];
-                if (options.followups && parseFollowupDirective(nextRaw)) break;
-                const nextTrimmed = nextRaw.trim();
-                const nextMatch = nextTrimmed.match(/^([-*+])\s+/);
-                if (!nextMatch) break;
-                const nextIndent = nextRaw.length - nextRaw.trimStart().length;
-                allLines.push({ indent: nextIndent, content: nextTrimmed.slice(nextMatch[0].length) });
-                index++;
-            }
-            const baseIndent = allLines[0].indent;
-            blocks.push({ type: 'list', items: allLines.map((l) => ({ depth: Math.floor((l.indent - baseIndent) / 2), spans: parseMarkdownSpans(l.content, false) })) });
-            continue;
-        }
-
-        // Check for table
+        // 10. Table
         if (trimmed.includes('|') && !trimmed.startsWith('```')) {
             const { table, nextIndex } = parseTable(lines, index - 1);
             if (table) {
@@ -233,7 +441,7 @@ export function parseMarkdownBlock(markdown: string, options: MarkdownParseOptio
             }
         }
 
-        // Fallback
+        // 11. Paragraph text
         if (trimmed.length > 0) {
             blocks.push({ type: 'text', content: parseMarkdownSpans(trimmed, false) });
         }

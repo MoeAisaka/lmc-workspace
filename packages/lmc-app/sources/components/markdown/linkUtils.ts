@@ -15,46 +15,85 @@ export function isHttpMarkdownLink(url: string): boolean {
  */
 export interface FileReference {
     path: string;
-    /** From a `file.ts:42` suffix; the position is not part of the name. */
+    /** From a `file.ts:42` or `file.ts#L42-L50` suffix; the position is not part of the name. */
     line: number | null;
 }
 
-/** Everything a path may contain: no whitespace, no CJK sentence punctuation. */
+/** Everything a prose-scanned path may contain: no whitespace, no CJK sentence punctuation. */
 const PATH_CHARACTER = '[^\\s<>"\'`|*?，。；：！？、（）【】「」『』]';
 const CANDIDATE = new RegExp(`${PATH_CHARACTER}*\\/${PATH_CHARACTER}*`, 'g');
+const HASH_LINE_SUFFIX = /#L(\d+)(?:C\d+)?(?:-L?\d+(?:C\d+)?)?$/i;
 const POSITION_SUFFIX = /:(\d+)(?::\d+)?$/;
 // An extension starts with a letter, so a version (v1.2.3) is not a filename.
 const FILE_EXTENSION = /\.[A-Za-z][A-Za-z0-9]{0,11}$/;
 const OTHER_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 const TRAILING_PUNCTUATION = '.,;:!?)]}>\'"';
 
+function safeDecodePath(value: string): string {
+    if (!value.includes('%')) return value;
+    try {
+        return decodeURIComponent(value);
+    } catch {
+        return value;
+    }
+}
+
 /**
  * Reads a link target as a file, or returns null when it is anything else.
  *
  * Deliberately strict about naming a file: a target without an extension is a
  * heading anchor, a directory, or prose, and opening those fails in a way the
- * reader cannot act on.
+ * reader cannot act on. Explicit `file://` URIs and absolute paths may contain
+ * spaces (or `%20` percent-encoding) as produced by macOS/Windows workspaces,
+ * and IDE `#L10-L20` line anchors are extracted alongside `:42` suffixes.
  */
 export function parseFileReference(target: string): FileReference | null {
     let path = target.trim();
     if (!path) return null;
-    if (/^file:\/\//i.test(path)) path = path.slice('file://'.length);
-    else if (OTHER_SCHEME.test(path)) return null;
+
+    let isExplicitFileScheme = false;
+    if (/^file:\/\//i.test(path)) {
+        isExplicitFileScheme = true;
+        path = path.slice('file://'.length);
+        // Handle Windows file:///C:/...
+        if (/^\/[A-Za-z]:\//.test(path)) {
+            path = path.slice(1);
+        }
+    } else if (OTHER_SCHEME.test(path)) {
+        return null;
+    }
 
     let line: number | null = null;
+    const hashLine = path.match(HASH_LINE_SUFFIX);
+    if (hashLine) {
+        line = Number(hashLine[1]);
+        path = path.slice(0, hashLine.index);
+    } else if (path.includes('#')) {
+        // Non-line fragment anchor (e.g. #anchor or page.md#section) is not a file line ref
+        return null;
+    }
+
+    if (isExplicitFileScheme || path.startsWith('/') || path.startsWith('~/') || path.startsWith('./') || path.startsWith('../')) {
+        path = safeDecodePath(path);
+    }
+
     const position = path.match(POSITION_SUFFIX);
     if (position) {
-        line = Number(position[1]);
+        if (line === null) line = Number(position[1]);
         path = path.slice(0, position.index);
     }
-    if (!path || /\s/.test(path)) return null;
 
-    const name = path.slice(path.lastIndexOf('/') + 1);
-    if (!FILE_EXTENSION.test(name)) return null;
+    if (!path || /[\r\n\t]/.test(path)) return null;
+    const allowSpaces = isExplicitFileScheme || path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path);
+    if (!allowSpaces && /\s/.test(path)) return null;
+
+    const slashIndex = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+    const name = path.slice(slashIndex + 1);
+    if (!name || !FILE_EXTENSION.test(name)) return null;
     return { path, line };
 }
 
-/** Drops the sentence's punctuation, keeping a `:42` that belongs to the path. */
+/** Drops the sentence's punctuation, keeping a `:42` or `#L42` that belongs to the path. */
 function trimTrailingPunctuation(token: string): string {
     let end = token.length;
     while (end > 0 && TRAILING_PUNCTUATION.includes(token[end - 1])) end -= 1;

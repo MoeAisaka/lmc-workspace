@@ -39,7 +39,7 @@ export function inferQuestionOptions(blocks: MarkdownBlock[]): MarkdownBlock[] {
 
     const entries = (blocks.slice(start) as ListBlock[]).flatMap(block => block.items);
     if (entries.length < 2 || entries.length > 4) return blocks;
-    if (entries.some(item => item.depth !== 0 || item.spans.some(span => span.url || span.styles.includes('code')))) return blocks;
+    if (entries.some(item => item.depth !== 0 || item.checked !== undefined || item.spans.some(span => span.url || span.styles.includes('code')))) return blocks;
     const labels = entries.map(item => item.spans.map(span => span.text).join('').trim());
     if (labels.some(label => !label || label.length > 80 || /^[>\[]/.test(label) || /[\n。！？；;]/.test(label))) return blocks;
     if (new Set(labels).size !== labels.length) return blocks;
