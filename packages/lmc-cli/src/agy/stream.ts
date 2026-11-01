@@ -57,6 +57,7 @@ export class AgyStream {
   private initSeen = false;
   private resultStatus: string | null = null;
   private resultError: string | null = null;
+  private resultFinishedReason: string | null = null;
   private resultResponse = '';
   private readonly usageSteps = new Set<number>();
   private readonly tools = new Map<string, boolean>();
@@ -76,6 +77,10 @@ export class AgyStream {
 
   getResultError(): string | null {
     return this.resultError;
+  }
+
+  getFinishedReason(): string | null {
+    return this.resultFinishedReason;
   }
 
   push(chunk: string): void {
@@ -163,6 +168,10 @@ export class AgyStream {
       if (result.usage && typeof result.usage === 'object') this.emit({ type: 'token-count', engine: 'agy', usage: result.usage });
       this.resultStatus = typeof result.status === 'string' ? result.status : null;
       this.resultError = typeof result.error === 'string' && result.error.trim() ? result.error.trim() : null;
+      this.resultFinishedReason =
+        typeof result.finished_reason === 'string' && result.finished_reason.trim()
+          ? result.finished_reason.trim()
+          : null;
       this.resultResponse = typeof result.response === 'string' ? result.response : '';
       this.ended = true;
     }

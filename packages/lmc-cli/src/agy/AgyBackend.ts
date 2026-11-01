@@ -23,7 +23,7 @@ import type {
   SessionId,
   StartSessionResult,
 } from '@/agent/core/AgentBackend';
-import { resolveAgyBin, AGY_PRINT_TIMEOUT } from './constants';
+import { resolveAgyBin, resolveAgyPrintTimeout } from './constants';
 import { buildAgyArgs } from './cliArgs';
 import { AgyStream, isInvalidArgumentAgyError, isTransientAgyAuthError } from './stream';
 import {
@@ -35,9 +35,47 @@ import {
 export type SpawnFn = typeof spawn;
 
 const MAX_STDERR_BUFFER = 16 * 1024;
+const STDERR_HEAD_BYTES = 4 * 1024;
 const DEFAULT_AUTH_RETRY_DELAY_MS = 3_500;
+const DEFAULT_MAX_BG_WAKEUP_RETRIES = 3;
+/** Max signed 32-bit integer accepted by Node's `setTimeout` without overflowing to 1ms. */
+export const MAX_SAFE_NODE_TIMEOUT_MS = 2_147_483_647;
 const AGY_AUTH_RETRY_PROMPT = '[System: Previous generation was interrupted by a transient OAuth token refresh (HTTP 401). Continue and complete the response to the latest user request from the current state without repeating already completed work.]';
 const AGY_MEDIA_REPAIR_RETRY_PROMPT = '[System: Previous generation failed with HTTP 400 INVALID_ARGUMENT because a corrupted or truncated image file had been read into conversation history. The corrupted media payload has been sanitized in-place. Continue and complete the response to the latest user request without re-reading corrupted image files.]';
+const AGY_BG_WAKEUP_RETRY_PROMPT = '[System: The previous Antigravity CLI print window closed while background task(s) or a long-running turn were still active. Check the latest task logs/state in the workspace and continue or wrap up the current user request without repeating already completed work.]';
+
+export function appendBoundedStderr(current: string, chunk: string, maxChars: number = MAX_STDERR_BUFFER): string {
+  if (!chunk) return current;
+  const combined = current + chunk;
+  if (combined.length <= maxChars) return combined;
+  const marker = '\n...\n';
+  const headLen = Math.min(STDERR_HEAD_BYTES, Math.floor((maxChars - marker.length) / 2));
+  const tailLen = Math.max(0, maxChars - headLen - marker.length);
+  return combined.slice(0, headLen) + marker + combined.slice(combined.length - tailLen);
+}
+
+/**
+ * Extract the count of active non-daemon background tasks killed when `agy --print` exits.
+ *
+ * Matches `terminating N background task(s) on exit` and
+ * `terminating N background task(s) and M daemon task(s) on exit`, while deliberately
+ * ignoring `terminating M daemon task(s) on exit` (standing daemons cleaned up normally).
+ */
+export function extractTerminatedBackgroundTaskCount(stderrText: string): number {
+  if (!stderrText.trim()) return 0;
+  let terminated = 0;
+  for (const rawLine of stderrText.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    const match = /^terminating\s+(\d+)\s+background task\(s\)(?:\s+and\s+\d+\s+daemon task\(s\))?\s+on exit$/i.exec(line);
+    if (match) {
+      const count = Number(match[1]);
+      if (Number.isFinite(count) && count > terminated) {
+        terminated = count;
+      }
+    }
+  }
+  return terminated;
+}
 
 export function extractAgyStderrError(stderrText: string): string | null {
   if (!stderrText.trim()) return null;
@@ -68,6 +106,8 @@ export interface AgyBackendOptions {
   printTimeout?: string;
   /** Backoff before a single retry on transient OAuth 401 token refresh race. */
   authRetryDelayMs?: number;
+  /** Max automatic wakeup continuations when a CLI print window closes with active background tasks. */
+  maxBackgroundWakeupRetries?: number;
   /** Optional logger. */
   log?: (msg: string) => void;
   /** Injectable spawn (defaults to node's child_process.spawn). */
@@ -80,19 +120,65 @@ export interface AgyBackendOptions {
   repairConversationMedia?: (conversationId: string) => AgyConversationMediaRepairResult;
 }
 
-/** Parse an agy duration string ("10m", "30s", "1h") to milliseconds; 0/0s disables the watchdog, other invalid strings default to 10m. */
+/**
+ * Parse an agy Go duration string ("10m", "30s", "168h", "1h30m", "500ms") to milliseconds;
+ * 0/0s/0m/0h disables the outer watchdog, and malformed strings default to 10m.
+ */
 export function parsePrintTimeoutMs(value: string): number | null {
   const trimmed = value.trim();
   if (trimmed === '0') return null;
-  const m = /^(\d+)\s*(s|m|h)$/.exec(trimmed);
-  if (!m) return 10 * 60_000;
-  const n = Number(m[1]);
-  if (n === 0) return null;
-  return m[2] === 'h' ? n * 3_600_000 : m[2] === 'm' ? n * 60_000 : n * 1_000;
+  if (!/^(?:\d+(?:\.\d+)?\s*(?:ms|s|m|h)\s*)+$/.test(trimmed)) return 10 * 60_000;
+  let totalMs = 0;
+  const partRe = /(\d+(?:\.\d+)?)\s*(ms|s|m|h)/g;
+  let match: RegExpExecArray | null;
+  while ((match = partRe.exec(trimmed)) !== null) {
+    const n = Number(match[1]);
+    const unit = match[2];
+    const mult = unit === 'h' ? 3_600_000 : unit === 'm' ? 60_000 : unit === 's' ? 1_000 : 1;
+    totalMs += n * mult;
+  }
+  const rounded = Math.round(totalMs);
+  return rounded <= 0 ? null : rounded;
+}
+
+/**
+ * Arm a timeout that safely spans durations exceeding Node's 32-bit signed `setTimeout`
+ * limit (`2_147_483_647` ms ≈ 24.85 days) without overflowing to 1ms.
+ */
+function armSafeTimeout(onExpire: () => void, totalMs: number): () => void {
+  let cancelled = false;
+  let activeTimer: ReturnType<typeof setTimeout> | null = null;
+  const scheduleSlice = (remainingMs: number) => {
+    if (cancelled) return;
+    if (remainingMs <= MAX_SAFE_NODE_TIMEOUT_MS) {
+      activeTimer = setTimeout(() => {
+        activeTimer = null;
+        if (!cancelled) onExpire();
+      }, Math.max(0, remainingMs));
+      return;
+    }
+    activeTimer = setTimeout(() => {
+      activeTimer = null;
+      scheduleSlice(remainingMs - MAX_SAFE_NODE_TIMEOUT_MS);
+    }, MAX_SAFE_NODE_TIMEOUT_MS);
+  };
+  scheduleSlice(totalMs);
+  return () => {
+    cancelled = true;
+    if (activeTimer !== null) {
+      clearTimeout(activeTimer);
+      activeTimer = null;
+    }
+  };
 }
 
 type AttemptOutcome =
-  | { ok: true }
+  | {
+      ok: true;
+      stderrError: string | null;
+      terminatedBackgroundTasks: number;
+      finishedReason: string | null;
+    }
   | {
       ok: false;
       detail: string;
@@ -100,6 +186,8 @@ type AttemptOutcome =
       stderrError: string | null;
       exitCode: number | null;
       sawInit: boolean;
+      terminatedBackgroundTasks: number;
+      finishedReason: string | null;
       fatalSpawnError?: Error;
     };
 
@@ -107,7 +195,9 @@ export class AgyBackend implements AgentBackend {
   private readonly handlers = new Set<AgentMessageHandler>();
   private readonly cwd: string;
   private readonly printTimeout: string;
+  private readonly hasExplicitPrintTimeout: boolean;
   private readonly authRetryDelayMs: number;
+  private readonly maxBackgroundWakeupRetries: number;
   private readonly log: (msg: string) => void;
   private readonly spawnFn: SpawnFn;
   private readonly onConversationId?: (id: string) => void;
@@ -125,8 +215,12 @@ export class AgyBackend implements AgentBackend {
     this.cwd = opts.cwd;
     this.permissionMode = opts.permissionMode;
     this.model = opts.model;
-    this.printTimeout = opts.printTimeout ?? AGY_PRINT_TIMEOUT;
+    this.hasExplicitPrintTimeout =
+      opts.printTimeout !== undefined || Boolean(process.env.LMC_AGY_PRINT_TIMEOUT?.trim());
+    this.printTimeout = resolveAgyPrintTimeout(opts.printTimeout);
     this.authRetryDelayMs = opts.authRetryDelayMs ?? DEFAULT_AUTH_RETRY_DELAY_MS;
+    this.maxBackgroundWakeupRetries =
+      opts.maxBackgroundWakeupRetries ?? DEFAULT_MAX_BG_WAKEUP_RETRIES;
     this.log = opts.log ?? (() => {});
     this.spawnFn = opts.spawnFn ?? spawn;
     this.conversationId = opts.conversationId ?? null;
@@ -161,22 +255,65 @@ export class AgyBackend implements AgentBackend {
     this.emit({ type: 'status', status: 'running' });
 
     let currentPrompt = prompt;
-    for (let attempt = 0; attempt < 2; attempt++) {
+    let authRetried = false;
+    let mediaRepairRetried = false;
+    let bgWakeupContinuationsUsed = 0;
+
+    while (true) {
       const outcome = await this.runSingleAttempt(currentPrompt);
+      const hitDefaultPrintWindowLimit =
+        !this.hasExplicitPrintTimeout &&
+        (outcome.finishedReason === 'print_timeout' ||
+          /^\[agy\]\s*print timeout\b/i.test(outcome.stderrError ?? ''));
+
       if (outcome.ok) {
+        if (
+          !this.cancelled &&
+          this.conversationId &&
+          outcome.finishedReason !== 'interrupted' &&
+          (outcome.terminatedBackgroundTasks > 0 || hitDefaultPrintWindowLimit) &&
+          bgWakeupContinuationsUsed < this.maxBackgroundWakeupRetries
+        ) {
+          bgWakeupContinuationsUsed += 1;
+          authRetried = false;
+          this.log(
+            `agy print window ended before background completion (terminatedBackgroundTasks=${outcome.terminatedBackgroundTasks}, finishedReason=${outcome.finishedReason ?? 'none'}); auto-waking conversation ${this.conversationId} (${bgWakeupContinuationsUsed}/${this.maxBackgroundWakeupRetries})`,
+          );
+          currentPrompt = AGY_BG_WAKEUP_RETRY_PROMPT;
+          continue;
+        }
         this.emit({ type: 'status', status: 'idle' });
         return;
       }
+
       if (outcome.fatalSpawnError) {
         this.emit({ type: 'status', status: 'error', detail: outcome.detail });
         throw outcome.fatalSpawnError;
       }
+
       if (
-        attempt === 0 &&
+        !this.cancelled &&
+        this.conversationId &&
+        outcome.finishedReason !== 'interrupted' &&
+        hitDefaultPrintWindowLimit &&
+        bgWakeupContinuationsUsed < this.maxBackgroundWakeupRetries
+      ) {
+        bgWakeupContinuationsUsed += 1;
+        authRetried = false;
+        this.log(
+          `agy default print window (${this.printTimeout}) rolled over on conversation ${this.conversationId}; continuing automatically (${bgWakeupContinuationsUsed}/${this.maxBackgroundWakeupRetries})`,
+        );
+        currentPrompt = AGY_BG_WAKEUP_RETRY_PROMPT;
+        continue;
+      }
+
+      if (
+        !authRetried &&
         !this.cancelled &&
         (outcome.exitCode !== 0 || outcome.stderrError !== null) &&
         isTransientAgyAuthError(outcome.rawTurnError)
       ) {
+        authRetried = true;
         this.log('agy hit transient OAuth 401 during turn; waiting for token refresh and retrying once');
         await this.waitForAuthRetry();
         if (this.cancelled) {
@@ -184,25 +321,28 @@ export class AgyBackend implements AgentBackend {
           this.emit({ type: 'status', status: 'error', detail });
           throw new Error(detail);
         }
-        currentPrompt = outcome.sawInit && this.conversationId ? AGY_AUTH_RETRY_PROMPT : prompt;
+        currentPrompt = outcome.sawInit && this.conversationId ? AGY_AUTH_RETRY_PROMPT : currentPrompt;
         continue;
       }
+
       if (
-        attempt === 0 &&
+        !mediaRepairRetried &&
         !this.cancelled &&
         this.conversationId &&
         (outcome.exitCode !== 0 || outcome.stderrError !== null) &&
         isInvalidArgumentAgyError(outcome.rawTurnError)
       ) {
+        mediaRepairRetried = true;
         const repair = this.repairConversationMedia(this.conversationId);
         if (repair.repairedCount > 0) {
           this.log(
             `agy hit INVALID_ARGUMENT 400 from ${repair.repairedCount} corrupted media blob(s) in conversation ${this.conversationId} (steps: ${repair.repairedSteps.join(',')}); repaired in-place and retrying once`,
           );
-          currentPrompt = outcome.sawInit ? AGY_MEDIA_REPAIR_RETRY_PROMPT : prompt;
+          currentPrompt = outcome.sawInit ? AGY_MEDIA_REPAIR_RETRY_PROMPT : currentPrompt;
           continue;
         }
       }
+
       this.emit({ type: 'status', status: 'error', detail: outcome.detail });
       throw new Error(outcome.detail);
     }
@@ -242,12 +382,12 @@ export class AgyBackend implements AgentBackend {
         }
       }, this.conversationId);
       const timeoutMs = parsePrintTimeoutMs(this.printTimeout);
-      const watchdog = timeoutMs !== null ? setTimeout(() => {
+      const cancelWatchdog = timeoutMs !== null ? armSafeTimeout(() => {
         this.log(`agy turn exceeded ${this.printTimeout}; cancelling this CLI turn`);
         child.kill('SIGTERM');
       }, timeoutMs + 30_000) : null;
       const cleanup = () => {
-        if (watchdog) clearTimeout(watchdog);
+        if (cancelWatchdog) cancelWatchdog();
         if (this.child === child) {
           this.child = null;
         }
@@ -269,9 +409,7 @@ export class AgyBackend implements AgentBackend {
           loggedDiagnostic = true;
           this.log('Antigravity CLI wrote diagnostic output; inspect it locally if the turn fails');
         }
-        if (stderrBuf.length < MAX_STDERR_BUFFER) {
-          stderrBuf += chunk.slice(0, MAX_STDERR_BUFFER - stderrBuf.length);
-        }
+        stderrBuf = appendBoundedStderr(stderrBuf, chunk);
       });
 
       child.on('error', (err: Error) => {
@@ -288,6 +426,8 @@ export class AgyBackend implements AgentBackend {
           stderrError: null,
           exitCode: null,
           sawInit: stream.didInit,
+          terminatedBackgroundTasks: 0,
+          finishedReason: stream.getFinishedReason(),
           fatalSpawnError: err,
         });
       });
@@ -297,6 +437,7 @@ export class AgyBackend implements AgentBackend {
         settled = true;
         cleanup();
         const stderrError = extractAgyStderrError(stderrBuf);
+        const terminatedBackgroundTasks = extractTerminatedBackgroundTaskCount(stderrBuf);
         if (!protocolError && (code === 0 || stderrError !== null || stream.hasEnded)) {
           try {
             stream.finish({
@@ -310,8 +451,14 @@ export class AgyBackend implements AgentBackend {
             protocolError = error instanceof Error ? error : new Error('Incomplete Antigravity stream');
           }
         }
+        const finishedReason = stream.getFinishedReason();
         if (code === 0 && !protocolError) {
-          resolve({ ok: true });
+          resolve({
+            ok: true,
+            stderrError,
+            terminatedBackgroundTasks,
+            finishedReason,
+          });
         } else {
           const detail = protocolError?.message ?? `agy exited with code ${code ?? 'null'}; check Google login and model access in the native CLI`;
           resolve({
@@ -321,6 +468,8 @@ export class AgyBackend implements AgentBackend {
             stderrError,
             exitCode: code,
             sawInit: stream.didInit,
+            terminatedBackgroundTasks,
+            finishedReason,
           });
         }
       });

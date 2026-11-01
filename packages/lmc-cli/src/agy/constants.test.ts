@@ -1,6 +1,6 @@
 import { execSync } from 'node:child_process';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { findAgyBin, resolveAgyBin } from './constants';
+import { AGY_PRINT_TIMEOUT, findAgyBin, resolveAgyBin, resolveAgyPrintTimeout } from './constants';
 
 vi.mock('node:child_process', () => ({ execSync: vi.fn() }));
 
@@ -44,5 +44,24 @@ describe('resolveAgyBin', () => {
       expect.stringMatching(/^(where|command -v) agy$/),
       { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true, encoding: 'utf8' },
     );
+  });
+
+  it('uses an explicit multi-day --print-timeout (168h) instead of 0 to avoid agy 30m background-wait fallback', () => {
+    expect(AGY_PRINT_TIMEOUT).toBe('168h');
+    const origTimeout = process.env.LMC_AGY_PRINT_TIMEOUT;
+    try {
+      delete process.env.LMC_AGY_PRINT_TIMEOUT;
+      expect(resolveAgyPrintTimeout()).toBe('168h');
+      expect(resolveAgyPrintTimeout('48h')).toBe('48h');
+      process.env.LMC_AGY_PRINT_TIMEOUT = '72h';
+      expect(resolveAgyPrintTimeout()).toBe('72h');
+      expect(resolveAgyPrintTimeout('10m')).toBe('10m');
+    } finally {
+      if (origTimeout === undefined) {
+        delete process.env.LMC_AGY_PRINT_TIMEOUT;
+      } else {
+        process.env.LMC_AGY_PRINT_TIMEOUT = origTimeout;
+      }
+    }
   });
 });

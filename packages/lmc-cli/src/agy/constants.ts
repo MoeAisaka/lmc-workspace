@@ -72,8 +72,29 @@ export const AGY_MODELS = ['default'] as const;
  */
 export const DEFAULT_AGY_MODEL = 'default';
 
-/** Timeout passed to `agy --print-timeout` for a single print turn (0 = wait until turn completes). */
-export const AGY_PRINT_TIMEOUT = '0';
+/**
+ * Default timeout passed to `agy --print-timeout` for a single print turn.
+ *
+ * Do NOT set this to `'0'`: in `agy` 1.4.x (`printmode.waitForIdle` /
+ * `pollResponse`), `--print-timeout 0` (`<= 0`) leaves active model streaming
+ * unbounded, but falls back to a hardcoded `30m0s` inactivity cap when waiting
+ * for async background tasks (`run_command`, subagents, scheduled timers) —
+ * killing running background tasks at 30 minutes and exiting `0` without
+ * delivering a reactive wakeup. Passing an explicit positive Go duration
+ * (`'168h'` = 7 days) sets both the single-turn window and
+ * `WaitForConversationFullyIdle` inactivity timeout to 7 days.
+ */
+export const AGY_PRINT_TIMEOUT = '168h';
+
+/**
+ * Resolve the effective `--print-timeout` value, honoring an explicit option
+ * first, then `LMC_AGY_PRINT_TIMEOUT` from the environment, then `AGY_PRINT_TIMEOUT`.
+ */
+export function resolveAgyPrintTimeout(explicit?: string): string {
+  if (explicit !== undefined) return explicit;
+  const fromEnv = process.env.LMC_AGY_PRINT_TIMEOUT?.trim();
+  return fromEnv ? fromEnv : AGY_PRINT_TIMEOUT;
+}
 
 /**
  * Path to agy's per-workspace conversation cache. agy records the most recent
