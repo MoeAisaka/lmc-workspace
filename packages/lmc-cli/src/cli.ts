@@ -629,6 +629,11 @@ ${chalk.bold('To clean up runaway processes:')} Use ${chalk.cyan('lmc doctor cle
       } else if (arg === '--effort') {
         // The selected SDK owns its effort vocabulary; do not freeze future values here.
         options.effort = z.string().min(1).max(64).parse(args[++i]) as StartOptions['effort']
+      } else if (arg === '--fast-mode') {
+        const rawFast = args[++i]
+        if (rawFast === 'true' || rawFast === '1') options.fastMode = true
+        else if (rawFast === 'false' || rawFast === '0') options.fastMode = false
+        else throw new Error(`Invalid --fast-mode value: ${String(rawFast)}`)
       } else if (arg === '--started-by') {
         options.startedBy = args[++i] as 'daemon' | 'terminal'
       } else if (arg === '--js-runtime') {

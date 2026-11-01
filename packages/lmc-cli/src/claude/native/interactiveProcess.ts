@@ -19,7 +19,7 @@ export function nativeTransportAvailable(): boolean {
 export type NativeHook = { event: string; sessionId: string; toolName?: string; toolInput?: unknown; toolUseId?: string; requestId?: string };
 export async function startNativeInteractiveProcess(options: {
     executable: string; cwd: string; sessionId: string; resume: boolean;
-    args?: string[]; env?: NodeJS.ProcessEnv;
+    args?: string[]; env?: NodeJS.ProcessEnv; fastMode?: boolean;
     onHook: (hook: NativeHook, signal: AbortSignal) => void | object | Promise<void | object>; onScreen?: () => void;
     onOutput?: () => void;
 }) {
@@ -56,7 +56,9 @@ export async function startNativeInteractiveProcess(options: {
     const hook = [{ hooks: [{ ...command, timeout: 5 }] }];
     const settings = join(directory, 'settings.json');
     const permissionHook = [{ hooks: [{ ...command, timeout: 600, onFailure: 'block' }] }];
-    await writeFile(settings, JSON.stringify({ hooks: {
+    await writeFile(settings, JSON.stringify({
+        ...(options.fastMode !== undefined ? { fastMode: options.fastMode } : {}),
+        hooks: {
         ...Object.fromEntries(['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'Stop', 'StopFailure'].map(name => [name, hook])),
         PreToolUse: [{ ...permissionHook[0], matcher: '.*' }],
         PermissionRequest: permissionHook,

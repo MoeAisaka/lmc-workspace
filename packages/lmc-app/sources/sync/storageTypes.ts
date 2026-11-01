@@ -292,6 +292,8 @@ export const MetadataSchema = z.object({
     permissionModeSource: z.enum(['ambient', 'explicit']).optional(),
     modelMode: z.string().nullish(),
     effortLevel: z.string().nullish(),
+    fastMode: z.boolean().nullish(),
+    codexServiceTier: z.enum(['fast', 'default']).optional(),
     // Passthrough so read-modify-write metadata updates from this app never
     // drop fields written by newer CLI or app versions.
 }).passthrough().transform((metadata) => {
@@ -493,6 +495,7 @@ export interface SessionAgentModesPatch {
     permissionMode?: string | null;
     modelMode?: string | null;
     effortLevel?: string | null;
+    fastMode?: boolean | null;
 }
 
 export interface Session {
@@ -524,6 +527,7 @@ export interface Session {
     permissionMode?: string | null; // Permission pick; local mirror of synced metadata.permissionMode (#1492)
     modelMode?: string | null; // Model pick; local mirror of synced metadata.modelMode (#1492)
     effortLevel?: string | null; // Effort pick; local mirror of synced metadata.effortLevel (#1492)
+    fastMode?: boolean | null; // Fast mode pick; local mirror of synced metadata.fastMode
     lastMessageSentAt?: number; // Local timestamp of last user-sent message, not synced to server; used for activity-based sort
     // IMPORTANT: latestUsage is extracted from reducerState.latestUsage after message processing.
     // We store it directly on Session to ensure it's available immediately on load.

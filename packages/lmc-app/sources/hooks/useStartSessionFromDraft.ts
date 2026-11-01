@@ -1,5 +1,5 @@
 import { machineModelMetadata } from '@/sync/modelCatalogMetadata';
-import { getAvailableModels, getCatalogDefaultEffort } from '@/components/modelModeOptions';
+import { getAvailableModels, getCatalogDefaultEffort, supportsModelFastMode } from '@/components/modelModeOptions';
 import { assertModelEffort, UnsupportedCodexEffortError } from '@/components/modelModeOptions';
 import * as React from 'react';
 import { useAllMachines, useSessions, useSetting } from '@/sync/storage';
@@ -349,6 +349,11 @@ export function useStartSessionFromDraft() {
                 spawnDirectory = worktreeSelection;
             }
 
+            const launchFastMode = !rigCreation
+                && !agentChanged
+                && draft.fastMode === true
+                && supportsModelFastMode(agentType, model.key, machineModelMetadata(machine.metadata));
+
             const spawn = async (approvedNewDirectoryCreation = false): Promise<string | null> => {
                 const spawnOptions = rigCreation
                     ? {
@@ -375,6 +380,7 @@ export function useStartSessionFromDraft() {
                             : undefined,
                         modelMode: model.key !== 'default' ? model.key : undefined,
                         effortLevel: effort?.key,
+                        ...(launchFastMode ? { fastMode: true } : {}),
                     };
                 let result = await machineSpawnNewSession(spawnOptions);
                 let pendingResults = 0;
@@ -444,6 +450,7 @@ export function useStartSessionFromDraft() {
                     permissionMode: permission.key,
                     modelMode: model.key,
                     effortLevel: effort?.key ?? null,
+                    ...(launchFastMode ? { fastMode: true } : {}),
                 });
             }
 

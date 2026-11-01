@@ -129,6 +129,7 @@ export interface SpawnSessionOptions {
     permissionMode?: string;
     modelMode?: string;
     effortLevel?: string;
+    fastMode?: boolean;
     codexServiceTier?: CodexServiceTier; codexContextLimits?: CodexContextLimits;
     environmentVariables?: Record<string, string>;
     token?: string;

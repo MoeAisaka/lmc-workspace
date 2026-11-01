@@ -1,24 +1,43 @@
 import type { PermissionMode } from '@/components/modelModeOptions';
-import type { SwitchableEngine } from './engineSwitch';
 
 /**
  * The permission modes as a scale, loosest last.
  *
- * The composer shows permission as a slider, which needs an order — and the
- * order it needs is not the one `PERMISSION_RANKS` gives. That one ranks modes
- * by how often they are picked, so the everyday choice is easiest to reach; a
- * slider is read as "how far am I letting it go", and a pick order slid along
- * that axis would put the escape hatch next to the safety net.
- *
- * These are ordered by how much the engine may do before it asks. The two
- * engines are listed so their notches line up: each pair is one `PERMISSION_INTENT`
- * entry, so the knob stays where it was when a session changes engine — the
- * same position means the same thing on both sides.
+ * Every CLI's modes are ordered strictly by how much the engine may do before
+ * it asks — from read-only / plan-first on the left to full autonomy on the
+ * right. Claude and Codex keep their 5 notches aligned 1:1 with
+ * `PERMISSION_INTENT` so switching engine leaves the knob at the same position;
+ * Antigravity, OpenClaw, Gemini and Rig map onto the same cautious-to-autonomous
+ * progression so every CLI uses a stepped slider rather than a dropdown list.
  */
-const SCALES: Record<Exclude<SwitchableEngine, 'agy'>, readonly string[]> = {
+const SCALES: Record<string, readonly string[]> = {
     claude: ['plan', 'default', 'auto', 'acceptEdits', 'bypassPermissions'],
     codex: ['read-only', 'default', 'auto', 'safe-yolo', 'yolo'],
+    agy: ['plan', 'default', 'auto', 'acceptEdits', 'bypassPermissions'],
+    openclaw: ['default', 'bypassPermissions'],
+    gemini: ['plan', 'default', 'yolo'],
+    rig: [
+        'read_only',
+        'read-only',
+        'plan',
+        'ask',
+        'default',
+        'auto',
+        'acceptEdits',
+        'workspace_write',
+        'safe-yolo',
+        'full_access',
+        'bypassPermissions',
+        'yolo',
+    ],
 };
+
+const FULL_AUTONOMY_KEYS = new Set(['bypassPermissions', 'yolo', 'full_access']);
+
+/** True when the mode key represents unrestricted / never-ask autonomy. */
+export function isFullAutonomyPermissionKey(key: string | null | undefined): boolean {
+    return Boolean(key && FULL_AUTONOMY_KEYS.has(key));
+}
 
 /**
  * The modes to show on the slider, in scale order.
@@ -36,8 +55,8 @@ export function permissionScale(
     flavor: string | null | undefined,
     available: PermissionMode[],
 ): PermissionMode[] | null {
-    if (flavor !== 'claude' && flavor !== 'codex') return null;
-    const order = SCALES[flavor];
+    if (!flavor || available.length < 2) return null;
+    const order = SCALES[flavor] ?? SCALES.rig;
     const scaled = order
         .map((key) => available.find((mode) => mode.key === key))
         .filter((mode): mode is PermissionMode => mode != null);

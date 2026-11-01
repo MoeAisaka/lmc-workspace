@@ -22,7 +22,8 @@ export function appendDaemonSpawnModeArgs(
   if (agent !== 'claude' && agent !== 'codex' && agent !== 'agy') return;
   if (agent === 'codex') assertCodexModelEffort(options.modelMode, options.effortLevel);
 
-  const tierArgs = agent === 'codex' ? codexServiceTierArgs(options.codexServiceTier) : [];
+  const effectiveCodexTier = options.codexServiceTier ?? (typeof options.fastMode === 'boolean' ? (options.fastMode ? 'fast' : 'default') : undefined);
+  const tierArgs = agent === 'codex' ? codexServiceTierArgs(effectiveCodexTier) : [];
   const contextArgs = agent === 'codex' ? codexContextLimitArgs(options.codexContextLimits) : [];
 
   if (shouldForwardDaemonPermissionMode(agent, options.permissionMode)) {
@@ -33,6 +34,9 @@ export function appendDaemonSpawnModeArgs(
   }
   if (options.effortLevel) {
     args.push('--effort', options.effortLevel);
+  }
+  if (agent === 'claude' && typeof options.fastMode === 'boolean') {
+    args.push('--fast-mode', options.fastMode ? 'true' : 'false');
   }
   args.push(...contextArgs, ...tierArgs);
 }

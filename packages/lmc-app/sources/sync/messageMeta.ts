@@ -3,7 +3,7 @@ import { withModelCatalogs } from './modelCatalogMetadata';
 import { assertAntigravityProtocol } from './antigravityCompatibility';
 import { normalizePermissionModeForEngine } from 'lmc-wire';
 import type { MachineMetadata } from './storageTypes';
-import { getCatalogDefaultEffort, resolveAgyCatalogDefaultEffort } from '@/components/modelModeOptions';
+import { getCatalogDefaultEffort, resolveAgyCatalogDefaultEffort, supportsModelFastMode } from '@/components/modelModeOptions';
 import type { Session } from './storageTypes';
 import type { Settings } from './settings';
 import { getAgentDefaultOverride, resolveAgentDefaultConfig, retirePermissionMode } from './agentDefaults';
@@ -23,6 +23,7 @@ export type MessageModeMeta = {
     model?: string | null;
     modelProviderId?: string;
     effort?: string | null;
+    fastMode?: boolean | null;
 };
 
 /**
@@ -49,7 +50,7 @@ export class UnsupportedPermissionModeError extends Error {
 }
 
 export function resolveMessageModeMeta(
-    session: Pick<Session, 'permissionMode' | 'modelMode' | 'metadata' | 'effortLevel'>,
+    session: Pick<Session, 'permissionMode' | 'modelMode' | 'metadata' | 'effortLevel'> & { fastMode?: boolean | null },
     settings?: Pick<Settings, 'agentDefaultOverrides'>,
     machine?: MachineMetadata | null,
 ): MessageModeMeta {
@@ -125,6 +126,12 @@ export function resolveMessageModeMeta(
         const defaultEffort = getCatalogDefaultEffort(flavor, meta.model, session.metadata, defaults.effortLevel);
         meta.effort = foreign ? defaultEffort : (session.effortLevel ?? defaultEffort);
         assertCodexModelEffort(meta.model, meta.effort, session.metadata?.modelCatalogs);
+        const codexFastPick = session.fastMode !== undefined ? session.fastMode : session.metadata?.fastMode;
+        if (codexFastPick === true && supportsModelFastMode(flavor, meta.model ?? modelMode, session.metadata)) {
+            meta.fastMode = true;
+        } else if (codexFastPick === false) {
+            meta.fastMode = false;
+        }
         return meta;
     }
 
@@ -165,6 +172,15 @@ export function resolveMessageModeMeta(
         // Native variant IDs already encode effort. Existing agy adapters accept
         // --model, so this also works in sessions created before discovery shipped.
         meta.effort = null;
+    }
+    const fastPick = session.fastMode !== undefined ? session.fastMode : session.metadata?.fastMode;
+    if (flavor === 'claude') {
+        const canFast = supportsModelFastMode(flavor, meta.model ?? modelMode, session.metadata);
+        if (fastPick === true && canFast) {
+            meta.fastMode = true;
+        } else if (fastPick === false || (fastPick === true && !canFast && session.metadata?.fastMode === true)) {
+            meta.fastMode = false;
+        }
     }
     return meta;
 }

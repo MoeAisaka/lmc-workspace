@@ -63,13 +63,15 @@ describe('worker config', () => {
         const metadata = { flavor: 'codex', permissionMode: 'auto', modelMode: 'gpt-6-astra', effortLevel: 'medium' };
         const stop = watchSessionConfiguration(Object.assign(events, { getMetadata: () => metadata, sendSessionEvent: vi.fn() }) as any, 'codex', patch => {
             state.resolve({ ...(patch.permissionMode ? { permissionMode: patch.permissionMode } : {}),
-                ...(patch.modelMode !== undefined ? { model: patch.modelMode } : {}), ...(patch.effortLevel !== undefined ? { effort: patch.effortLevel as any } : {}) });
+                ...(patch.modelMode !== undefined ? { model: patch.modelMode } : {}), ...(patch.effortLevel !== undefined ? { effort: patch.effortLevel as any } : {}),
+                ...(patch.fastMode !== undefined ? { fastMode: patch.fastMode } : {}) });
         });
         state.resolve({ model: 'custom-endpoint', effort: 'high' });
-        events.emit('metadata', { ...metadata, permissionMode: 'yolo' });
+        events.emit('metadata', { ...metadata, permissionMode: 'yolo', fastMode: true });
         expect(state.currentPermissionMode).toBe('yolo');
         expect(state.currentModel).toBe('custom-endpoint');
         expect(state.currentEffort).toBe('high');
+        expect(state.currentFastMode).toBe(true);
         stop();
         events.emit('metadata', { ...metadata, permissionMode: 'default' });
         expect(state.currentPermissionMode).toBe('yolo');

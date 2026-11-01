@@ -93,6 +93,9 @@ interface AgentInputProps {
     modelMode?: ModelMode | null;
     availableModels?: ModelMode[];
     onModelModeChange?: (mode: ModelMode) => void;
+    fastMode?: boolean;
+    fastModeSupported?: boolean;
+    onFastModeChange?: (enabled: boolean) => void;
     effortLevel?: EffortLevel | null;
     availableEffortLevels?: EffortLevel[];
     onEffortLevelChange?: (level: EffortLevel) => void;
@@ -1014,6 +1017,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     const availableEffortLevels = props.availableEffortLevels ?? [];
     const modelLabel = props.modelMode?.name ?? t('agentInput.model.title');
     const effortLabel = props.effortLevel?.name;
+    const fastActive = Boolean(props.fastMode) && Boolean(props.fastModeSupported);
     const canOpenModelPicker = availableModels.length > 0 && !!props.onModelModeChange;
     // Which engine is answering, for the chip's mark. The chip is the only
     // thing on screen that could say so — after a handoff the transcript above
@@ -1423,6 +1427,23 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                 },
             });
         }
+        if (props.fastModeSupported && props.onFastModeChange) {
+            groups.push({
+                key: 'fast',
+                label: t('localFeatures.fastMode'),
+                title: t('localFeatures.fastMode'),
+                systemImage: 'bolt.fill',
+                options: [
+                    { key: 'off', label: t('localFeatures.defaultLabel') },
+                    { key: 'on', label: `⚡ ${t('localFeatures.fastMode')}` },
+                ],
+                selectedKey: fastActive ? 'on' : 'off',
+                onSelect: (key) => {
+                    hapticsLight();
+                    props.onFastModeChange?.(key === 'on');
+                },
+            });
+        }
         if (availableEffortLevels.length > 0 && props.onEffortLevelChange) {
             groups.push({
                 key: 'effort',
@@ -1440,15 +1461,21 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             });
         }
         return groups;
-    }, [availableEffortLevels, availableModels, props.agentType, props.effortLevel?.key, props.metadata, props.modelMode?.key, props.onEffortLevelChange, props.onEngineSwitch, props.onModelModeChange]);
+    }, [availableEffortLevels, availableModels, fastActive, props.agentType, props.effortLevel?.key, props.fastModeSupported, props.metadata, props.modelMode?.key, props.onEffortLevelChange, props.onEngineSwitch, props.onFastModeChange, props.onModelModeChange]);
 
     const modelSettingsGroup = modelSettingsGroups.find((group) => group.key === 'model');
+    const fastSettingsGroup = modelSettingsGroups.find((group) => group.key === 'fast');
     const effortSettingsGroup = modelSettingsGroups.find((group) => group.key === 'effort');
 
     const renderModelValue = () => (
-        <Text style={styles.mobileModeText} numberOfLines={1}>
-            {modelLabel}
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, minWidth: 0, flexShrink: 1 }}>
+            <Text style={styles.mobileModeText} numberOfLines={1}>
+                {modelLabel}
+            </Text>
+            {fastActive && (
+                <Ionicons name="flash" size={12} color={theme.dark ? '#FBBF24' : '#D97706'} />
+            )}
+        </View>
     );
 
     const renderEffortValue = () => (
@@ -1588,7 +1615,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                 accessibilityLabel={t('lmc.common.modelAndPermissions')}
                                 onPress={props.onPermissionModeChange || canOpenModelPicker ? handleSettingsPress : props.onAgentClick}
                                 hitSlop={{ top: 5, bottom: 10, left: 0, right: 0 }}
-                                style={(p) => [styles.lmcChip, { maxWidth: 360, opacity: p.pressed ? 0.7 : 1 }]}
+                                style={(p) => [styles.lmcChip, { maxWidth: 380, opacity: p.pressed ? 0.7 : 1 }]}
                             >
                                 {chipEngineIcon ?? <Ionicons name="sparkles-outline" size={14} color={theme.colors.text} />}
                                 <Text numberOfLines={1} style={styles.lmcChipText}>
@@ -1600,6 +1627,13 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                         props.onPermissionModeChange ? permissionShortLabel : null,
                                     ].filter(Boolean).join(' · ')}
                                 </Text>
+                                {fastActive && (
+                                    <Ionicons
+                                        name="flash"
+                                        size={12.5}
+                                        color={theme.dark ? '#FBBF24' : '#D97706'}
+                                    />
+                                )}
                                 {(props.onPermissionModeChange || canOpenModelPicker) && <Ionicons name="chevron-down" size={13} color={theme.colors.textSecondary} />}
                             </Pressable>
                         )}
@@ -1687,6 +1721,9 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
             modelMode={props.modelMode ?? null}
             availableModels={availableModels}
             onModelModeChange={props.onModelModeChange}
+            fastMode={fastActive}
+            fastModeSupported={props.fastModeSupported}
+            onFastModeChange={props.onFastModeChange}
             effortLevel={props.effortLevel ?? null}
             availableEffortLevels={availableEffortLevels}
             onEffortLevelChange={props.onEffortLevelChange}
@@ -1709,9 +1746,6 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                     <View style={styles.overlayBackdrop} />
                 </TouchableWithoutFeedback>
             )}
-            {/* box-none: the band is as wide as the composer but the menu is
-                not, and the empty half of it should not swallow a press meant
-                for the transcript behind it. */}
             <View
                 pointerEvents="box-none"
                 style={[
@@ -1719,16 +1753,8 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                     { paddingHorizontal: screenWidth > 700 ? 16 : 8, alignItems: 'flex-start' },
                 ]}
             >
-                {/* A menu anchored to the chip that opened it, not a sheet
-                    spanning the composer: at wide-mode widths the full-width
-                    panel read as a dialog rather than a picker.
-
-                    The click-away ref belongs on the card, not on the band: a
-                    press beside the card is a press outside the menu, and the
-                    drag it was widened for begins inside the card anyway —
-                    pointerdown is what closes, and that already happened. */}
-                <View ref={pickerPanelRef} style={{ width: 300, maxWidth: '100%' }}>
-                    <FloatingOverlay maxHeight={440} keyboardShouldPersistTaps="always">
+                <View ref={pickerPanelRef} style={{ width: 332, maxWidth: '100%' }}>
+                    <FloatingOverlay maxHeight={480} keyboardShouldPersistTaps="always">
                         {settingsPanel}
                         <View style={{ height: 6 }} />
                     </FloatingOverlay>
@@ -1947,6 +1973,13 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                     {composerSummary ? (
                                         <Text style={styles.mobileModeText} numberOfLines={1}>{composerSummary}</Text>
                                     ) : renderPermissionValue()}
+                                    {fastActive && (
+                                        <Ionicons
+                                            name="flash"
+                                            size={12}
+                                            color={theme.dark ? '#FBBF24' : '#D97706'}
+                                        />
+                                    )}
                                     <Ionicons name="chevron-down" size={13} color={theme.colors.textSecondary} />
                                 </BubblePressable>
                             )
@@ -1961,8 +1994,8 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                 {useNativeSettingsMenus && modelSettingsGroup ? (
                                     <NativeSettingsMenu
                                         accessibilityLabel={t('agentInput.model.title')}
-                                        groups={[modelSettingsGroup]}
-                                        flat
+                                        groups={[modelSettingsGroup, ...(fastSettingsGroup ? [fastSettingsGroup] : [])]}
+                                        flat={!fastSettingsGroup}
                                         triggerLabel={modelLabel}
                                         triggerAlignment="trailing"
                                         style={styles.mobileModelMenuFrame}

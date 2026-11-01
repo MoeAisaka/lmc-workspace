@@ -218,7 +218,15 @@ export const localFeatureEnglish = {
     "newWorktree": "New worktree",
     "noWorktree": "No worktree",
     "createNew": "Create new",
-    "mainWorkspace": "Main"
+    "mainWorkspace": "Main",
+    "fastMode": "Fast mode",
+    "fastModeActive": "Fast output active",
+    "fastModeClaudeHint": "Faster output · higher quota usage",
+    "fastModeCodexHint": "Priority speed tier · higher quota usage",
+    "fastModeUnsupported": "Unavailable for the current model",
+    "fastModeUnsupportedEngine": "Unavailable for this CLI",
+    "permissionResetDefault": "Reset to default",
+    "permissionUsingDefault": "Default"
 };
 
 export const localFeatureZhHans = {
@@ -441,7 +449,15 @@ export const localFeatureZhHans = {
     "newWorktree": "新建工作树",
     "noWorktree": "不使用工作树",
     "createNew": "新建",
-    "mainWorkspace": "主工作区"
+    "mainWorkspace": "主工作区",
+    "fastMode": "极速模式",
+    "fastModeActive": "极速推理已开启",
+    "fastModeClaudeHint": "更快输出 · 消耗更高额度",
+    "fastModeCodexHint": "优先速度档位 · 额度消耗更高",
+    "fastModeUnsupported": "当前模型不支持极速模式",
+    "fastModeUnsupportedEngine": "当前 CLI 不支持极速模式",
+    "permissionResetDefault": "恢复默认",
+    "permissionUsingDefault": "默认"
 };
 
 export const localFeatureZhHant = {
@@ -663,5 +679,13 @@ export const localFeatureZhHant = {
     "newWorktree": "新增工作樹",
     "noWorktree": "不使用工作樹",
     "createNew": "新增",
-    "mainWorkspace": "主工作區"
+    "mainWorkspace": "主工作區",
+    "fastMode": "極速模式",
+    "fastModeActive": "極速推理已開啟",
+    "fastModeClaudeHint": "更快輸出 · 消耗更高額度",
+    "fastModeCodexHint": "優先速度檔位 · 額度消耗更高",
+    "fastModeUnsupported": "目前模型不支援極速模式",
+    "fastModeUnsupportedEngine": "目前 CLI 不支援極速模式",
+    "permissionResetDefault": "恢復預設",
+    "permissionUsingDefault": "預設"
 };

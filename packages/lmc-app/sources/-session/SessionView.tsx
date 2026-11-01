@@ -39,6 +39,7 @@ import {
     getEffortLevelsForModel,
     getRigCurrentModelOptionKey,
     resolveCurrentOption,
+    supportsModelFastMode,
     EffortLevel,
 } from '@/components/modelModeOptions';
 import { getSuggestions } from '@/components/autocomplete/suggestions';
@@ -1042,6 +1043,12 @@ export function SessionViewLoaded({
         }
     }, [machineId, cliVersion, acknowledgedCliVersions]);
 
+    const fastModeSupported = React.useMemo(
+        () => !isRig && supportsModelFastMode(flavor, modelKey, catalogMetadata),
+        [isRig, flavor, modelKey, catalogMetadata],
+    );
+    const fastMode = Boolean(session.fastMode) && fastModeSupported;
+
     // Function to update permission mode
     const updatePermissionMode = React.useCallback((mode: PermissionMode) => {
         sessionSetAgentModes(sessionId, { permissionMode: mode.key });
@@ -1052,13 +1059,19 @@ export function SessionViewLoaded({
         const currentEffortSupported = session.effortLevel
             ? nextEffortLevels.some((level) => level.key === session.effortLevel)
             : true;
+        const nextSupportsFast = supportsModelFastMode(flavor, mode.key, catalogMetadata);
         sessionSetAgentModes(sessionId, {
             modelMode: mode.key,
+            ...(session.fastMode && !nextSupportsFast ? { fastMode: false } : {}),
             ...(flavor === 'agy'
                 ? { effortLevel: null }
                 : ((isRig || flavor !== 'codex' || nextEffortLevels.length === 0) && !currentEffortSupported ? { effortLevel: mode.defaultThinkingLevel ?? null } : {})),
         });
-    }, [sessionId, flavor, isRig, catalogMetadata, session.effortLevel]);
+    }, [sessionId, flavor, isRig, catalogMetadata, session.effortLevel, session.fastMode]);
+
+    const updateFastMode = React.useCallback((enabled: boolean) => {
+        sessionSetAgentModes(sessionId, { fastMode: enabled });
+    }, [sessionId]);
 
     const updateEffortLevel = React.useCallback((level: EffortLevel) => {
         sessionSetAgentModes(sessionId, { effortLevel: level.key });
@@ -1362,6 +1375,9 @@ export function SessionViewLoaded({
                 modelMode={modelMode}
                 availableModels={availableModels}
                 onModelModeChange={isRigModelSelectionEnabled(session.metadata) ? updateModelMode : undefined}
+                fastMode={fastMode}
+                fastModeSupported={fastModeSupported}
+                onFastModeChange={!isRig ? updateFastMode : undefined}
                 effortLevel={effortLevel}
                 availableEffortLevels={availableEffortLevels}
                 onEffortLevelChange={isRigReasoningSelectionEnabled(session.metadata) ? updateEffortLevel : undefined}

@@ -25,7 +25,7 @@ export class Session {
     /** JavaScript runtime to use for spawning Claude Code (default: 'node') */
     readonly jsRuntime: JsRuntime;
 
-    getRefreshSettings: () => { model?: string; effort?: string; permissionMode?: string } = () => ({});
+    getRefreshSettings: () => { model?: string; effort?: string; permissionMode?: string; fastMode?: boolean } = () => ({});
     getNativeMode: () => EnhancedMode = () => ({});
     /** Runs only for a consumed user turn, never for a steer or a queued preview. */
     prepareGoalMessage?: (input: ClaudeGoalMessage, commands: string[]) => Promise<ClaudeGoalMessage>;

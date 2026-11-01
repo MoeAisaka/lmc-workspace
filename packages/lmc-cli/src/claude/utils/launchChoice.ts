@@ -9,7 +9,7 @@
  * a second engine restart. Absence in the first snapshot is not an instruction;
  * a later change to unset is.
  */
-export function resolveSessionChoice<T extends string>(input: {
+export function resolveSessionChoice<T extends string | boolean>(input: {
     initial: boolean; launched: T | undefined; current: T | undefined; picked: T | null | undefined | '';
 }): T | undefined {
     if (input.picked === undefined) return input.current;

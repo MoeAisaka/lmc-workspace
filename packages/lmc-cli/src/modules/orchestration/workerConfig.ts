@@ -27,9 +27,9 @@ export class WorkerConfigValidationError extends Error {}
 export function watchSessionConfiguration(
     session: Pick<ApiSessionClient, 'on' | 'off' | 'getMetadata' | 'sendSessionEvent'> & Partial<Pick<ApiSessionClient, 'requestHubDecision'>>,
     engine: 'claude' | 'codex' | 'agy',
-    apply: (metadata: Pick<Metadata, 'modelMode' | 'effortLevel' | 'permissionMode'>) => void | Promise<void>,
+    apply: (metadata: Pick<Metadata, 'modelMode' | 'effortLevel' | 'permissionMode' | 'fastMode'>) => void | Promise<void>,
 ): () => void {
-    const keys = ['modelMode', 'effortLevel', 'permissionMode'] as const;
+    const keys = ['modelMode', 'effortLevel', 'permissionMode', 'fastMode'] as const;
     let previous: Pick<Metadata, typeof keys[number]> | undefined;
     let previousWorker = false;
     let previousWasWorker = false;
@@ -53,7 +53,7 @@ export function watchSessionConfiguration(
             metadata.permissionMode = engine === 'codex' ? 'auto' : 'default';
         }
         previousWasWorker = isWorkerNow;
-        const entries: Array<[typeof keys[number], string | null | undefined]> = keys
+        const entries: Array<[typeof keys[number], Metadata[typeof keys[number]]]> = keys
             .filter(key => metadata[key] !== previous?.[key]).map(key => [key, metadata[key]]);
         const worker = metadata.orchestration?.role === 'worker' ? metadata.orchestration.hub : undefined;
         const binding = JSON.stringify([worker?.sessionId, worker?.boundAt, worker?.autonomy, metadata.permissionModeSource]);
@@ -63,18 +63,18 @@ export function watchSessionConfiguration(
         previousWorker = worker?.autonomy === true;
         previousBinding = binding;
         const before = { ...previous };
-        previous = Object.fromEntries(keys.map(key => [key, metadata[key]]));
+        previous = Object.fromEntries(keys.map(key => [key, metadata[key]])) as Pick<Metadata, typeof keys[number]>;
         if (entries.length === 0) return;
         const applyingRevision = ++revision;
         for (const [key] of entries) fieldRevision.set(key, applyingRevision);
-        const patch = Object.fromEntries(entries);
+        const patch = Object.fromEntries(entries) as Pick<Metadata, typeof keys[number]>;
         const failed = () => {
             if (stopped) return;
             const failedEntries = entries.filter(([key]) => fieldRevision.get(key) === applyingRevision);
             if (failedEntries.length === 0) return;
             // Retry a failed field on the next accepted metadata event, without
             // replaying unrelated old model picks or spinning in a retry loop.
-            for (const [key] of failedEntries) if (previous) previous[key as typeof keys[number]] = before[key as typeof keys[number]];
+            for (const [key] of failedEntries) if (previous) (previous as Record<string, unknown>)[key] = before[key as typeof keys[number]];
             session.sendSessionEvent({ type: 'message', message: '[configuration] Settings could not be applied to the active engine. No model turn was started; retry the configuration after resolving the engine error.' });
             const failedPatch = Object.fromEntries(failedEntries);
             void session.requestHubDecision?.('configuration:' + JSON.stringify(failedPatch), 'runtime configuration failure', failedPatch);

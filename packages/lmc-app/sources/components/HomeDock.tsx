@@ -22,6 +22,9 @@ import Animated, {
     type SharedValue,
 } from 'react-native-reanimated';
 import { MobileGlassSurface } from './MobileGlass';
+import { StopSlider } from './lmc/StopSlider';
+import { isFullAutonomyPermissionKey, permissionScale, permissionScaleIndex } from '@/sync/permissionScale';
+import { hapticsLight } from './haptics';
 import { BubblePressable } from './BubblePressable';
 import { NativeOptionsPicker } from './NativeOptionsPicker';
 import { NativeSettingsMenu, type NativeSettingsMenuGroup, type NativeSettingsMenuProps } from './NativeSettingsMenu';
@@ -1494,6 +1497,12 @@ export const HomeDock = React.memo(({
     // Only reached with a page selected: `sheetVisible` gates the whole sheet.
     const renderSettingsSheet = (page: PickerPage) => {
         const config = getPickerConfig(page);
+        const sheetPermissionScale = page === 'permission'
+            ? permissionScale(resolvedAgentType, config.options)
+            : null;
+        const sheetPermissionScaleIndex = sheetPermissionScale
+            ? permissionScaleIndex(sheetPermissionScale, config.selectedKey)
+            : -1;
         return (
             <View style={styles.settingsStack}>
                 <MobileGlassSurface
@@ -1515,6 +1524,26 @@ export const HomeDock = React.memo(({
                             {config.title}
                         </Text>
                     </View>
+                    {sheetPermissionScale && sheetPermissionScaleIndex >= 0 ? (
+                        <View style={{ paddingHorizontal: 14, paddingBottom: 14, paddingTop: 4 }}>
+                            <StopSlider
+                                title={t('agentInput.permissionMode.panelTitle')}
+                                valueLabel={sheetPermissionScale[sheetPermissionScaleIndex]?.name ?? ''}
+                                description={sheetPermissionScale[sheetPermissionScaleIndex]?.description}
+                                stepLabels={sheetPermissionScale.map((mode) => getPermissionModeShortLabel(mode) ?? mode.name)}
+                                tone="permission"
+                                cautionAtEnd={isFullAutonomyPermissionKey(sheetPermissionScale[sheetPermissionScale.length - 1]?.key)}
+                                count={sheetPermissionScale.length}
+                                index={sheetPermissionScaleIndex}
+                                onChange={(idx) => {
+                                    const picked = sheetPermissionScale[idx];
+                                    if (!picked) return;
+                                    hapticsLight();
+                                    config.onSelect(picked.key);
+                                }}
+                            />
+                        </View>
+                    ) : (
                     <ScrollView style={styles.optionList} keyboardShouldPersistTaps="always">
                         {config.options.map((option) => {
                             const selectable = isHomeDockOptionSelectable(option.disabled);
@@ -1553,6 +1582,7 @@ export const HomeDock = React.memo(({
                             );
                         })}
                     </ScrollView>
+                    )}
                 </MobileGlassSurface>
             </View>
         );

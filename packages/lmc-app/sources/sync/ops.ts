@@ -178,6 +178,7 @@ export interface SpawnSessionOptions {
     permissionMode?: string;
     modelMode?: string;
     effortLevel?: string;
+    fastMode?: boolean;
     /** Stable idempotency key required by Rig's machine RPC. */
     clientRequestId?: string;
     /** Start the session bound as this hub's worker, with this title (【duty】name). */
@@ -265,7 +266,7 @@ export interface ResumeSessionOptions {
  */
 export async function machineSpawnNewSession(options: SpawnSessionOptions): Promise<SpawnSessionResult> {
 
-    const { machineId, directory, approvedNewDirectoryCreation = false, token, agent, permissionMode, modelMode, effortLevel, clientRequestId, providerId, modelId, effort, happyAgentTarget, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId, isSideChat, hubSessionId, title } = options;
+    const { machineId, directory, approvedNewDirectoryCreation = false, token, agent, permissionMode, modelMode, effortLevel, fastMode, clientRequestId, providerId, modelId, effort, happyAgentTarget, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId, isSideChat, hubSessionId, title } = options;
 
     try {
         if (agent === 'rig' && !clientRequestId) {
@@ -283,6 +284,7 @@ export async function machineSpawnNewSession(options: SpawnSessionOptions): Prom
             permissionMode?: string,
             modelMode?: string,
             effortLevel?: string,
+            fastMode?: boolean,
             clientRequestId?: string,
             providerId?: string,
             modelId?: string,
@@ -333,7 +335,7 @@ export async function machineSpawnNewSession(options: SpawnSessionOptions): Prom
                 ...(modelId ? { modelId } : {}),
                 ...((effort ?? effortLevel) ? { effort: effort ?? effortLevel } : {}),
             }
-            : { type: 'spawn-in-directory', directory, approvedNewDirectoryCreation, token, agent, permissionMode, modelMode, effortLevel, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId, isSideChat, hubSessionId, title };
+            : { type: 'spawn-in-directory', directory, approvedNewDirectoryCreation, token, agent, permissionMode, modelMode, effortLevel, ...(fastMode !== undefined ? { fastMode } : {}), resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId, isSideChat, hubSessionId, title };
         const result = await apiSocket.machineRPC<unknown, SpawnRequest>(
             machineId,
             'spawn-happy-session',
@@ -852,7 +854,7 @@ export function sessionSetAgentModes(sessionId: string, patch: SessionAgentModes
     // synced metadata: a local-only value (e.g. the EnterPlanMode auto-switch
     // writes the mirror without metadata) must still be pushed when the user
     // picks it explicitly, or other devices never see it.
-    const isChanged = (value: string | null, field: keyof SessionAgentModesPatch): boolean => {
+    const isChanged = (value: string | boolean | null, field: keyof SessionAgentModesPatch): boolean => {
         const mirror = session?.[field] ?? null;
         const metaRaw = session?.metadata?.[field];
         const meta = metaRaw === undefined ? null : (metaRaw ?? null);
@@ -867,6 +869,9 @@ export function sessionSetAgentModes(sessionId: string, patch: SessionAgentModes
     }
     if (patch.effortLevel !== undefined && isChanged(patch.effortLevel, 'effortLevel')) {
         changed.effortLevel = patch.effortLevel;
+    }
+    if (patch.fastMode !== undefined && isChanged(patch.fastMode, 'fastMode')) {
+        changed.fastMode = patch.fastMode;
     }
     if (Object.keys(changed).length === 0) {
         return;

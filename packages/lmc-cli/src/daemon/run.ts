@@ -769,7 +769,7 @@ export async function startDaemon(): Promise<void> {
       }
     };
 
-    const resumeSession = async (happySessionId: string, options?: { model?: string; permissionMode?: string; receiveSeq?: number; effort?: string; codexServiceTier?: CodexServiceTier; codexContextLimits?: CodexContextLimits }, canStart: () => boolean = () => true): Promise<SpawnSessionResult> => {
+    const resumeSession = async (happySessionId: string, options?: { model?: string; permissionMode?: string; receiveSeq?: number; effort?: string; fastMode?: boolean; codexServiceTier?: CodexServiceTier; codexContextLimits?: CodexContextLimits; engine?: 'claude' | 'codex' | 'agy' }, canStart: () => boolean = () => true): Promise<SpawnSessionResult> => {
       // Resume is idempotent: one live process per session, always.
       const live = findLiveSession(happySessionId);
       if (live) {
@@ -867,7 +867,8 @@ export async function startDaemon(): Promise<void> {
           launch.args.push('--permission-mode', resumePermissionMode);
         }
 
-        if (target === 'codex') launch.args.push(...codexContextLimitArgs(options?.codexContextLimits), ...codexServiceTierArgs(options?.codexServiceTier));
+        if (target === 'claude' && typeof options?.fastMode === 'boolean') launch.args.push('--fast-mode', options.fastMode ? 'true' : 'false');
+        if (target === 'codex') launch.args.push(...codexContextLimitArgs(options?.codexContextLimits), ...codexServiceTierArgs(options?.codexServiceTier ?? (typeof options?.fastMode === 'boolean' ? (options.fastMode ? 'fast' : 'default') : undefined)));
 
         await fs.access(launch.cwd);
 

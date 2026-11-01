@@ -23,6 +23,7 @@ interface NewSessionDraftState {
     permissionMode: PermissionModeKey | null;
     modelMode: string | null;
     effortLevel: string | null;
+    fastMode: boolean | null;
     sessionType: NewSessionSessionType;
     worktreeKey: string | null;
 
@@ -42,6 +43,7 @@ interface NewSessionDraftState {
     setPermissionMode: (mode: PermissionModeKey) => void;
     setModelMode: (mode: string) => void;
     setEffortLevel: (level: string | null) => void;
+    setFastMode: (fastMode: boolean | null) => void;
     setSessionType: (type: NewSessionSessionType) => void;
     setWorktreeKey: (key: string | null) => void;
 }
@@ -55,6 +57,7 @@ function persist(state: NewSessionDraftState) {
         permissionMode: state.permissionMode,
         modelMode: state.modelMode,
         effortLevel: state.effortLevel,
+        fastMode: state.fastMode,
         sessionType: state.sessionType,
         worktreeKey: state.worktreeKey,
         updatedAt: Date.now(),
@@ -74,6 +77,7 @@ export const useNewSessionDraft = create<NewSessionDraftState>()((set, get) => (
     permissionMode: initial?.permissionMode ?? null,
     modelMode: initial?.modelMode ?? null,
     effortLevel: initial?.effortLevel ?? null,
+    fastMode: initial?.fastMode ?? null,
     sessionType: initial?.sessionType ?? 'simple',
     worktreeKey: initial?.worktreeKey ?? null,
 
@@ -86,6 +90,7 @@ export const useNewSessionDraft = create<NewSessionDraftState>()((set, get) => (
     setPermissionMode: (mode) => { set({ permissionMode: mode }); persist(get()); },
     setModelMode: (mode) => { set({ modelMode: mode }); persist(get()); },
     setEffortLevel: (level) => { set({ effortLevel: level }); persist(get()); },
+    setFastMode: (fastMode) => { set({ fastMode }); persist(get()); },
     setSessionType: (type) => { set({ sessionType: type }); persist(get()); },
     setWorktreeKey: (key) => { set({ worktreeKey: key }); persist(get()); },
 }));

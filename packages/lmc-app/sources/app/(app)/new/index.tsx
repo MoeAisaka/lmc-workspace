@@ -1,9 +1,13 @@
 import { CreationPicker } from '@/components/lmc/CreationPicker';
+import { StopSlider } from '@/components/lmc/StopSlider';
 import { creationPath, creationPermission } from '@/utils/lmc/newSessionDefaults';
 import { Text } from '@/components/StyledText';
 import { SharedDeviceEntry } from '@/components/lmc/SharedDevicesDialog';
 import { machineModelMetadata } from '@/sync/modelCatalogMetadata';
-import { getAvailableModels, getCatalogDefaultEffort } from '@/components/modelModeOptions';
+import { getAvailableModels, getCatalogDefaultEffort, supportsModelFastMode } from '@/components/modelModeOptions';
+import { getPermissionModeShortLabel } from '@/utils/permissionModeLabels';
+import { isFullAutonomyPermissionKey, permissionScale, permissionScaleIndex } from '@/sync/permissionScale';
+import { hapticsLight } from '@/components/haptics';
 import React from 'react';
 import { View, Platform, Pressable, Modal as RNModal, TouchableWithoutFeedback, Animated, TextInput, ScrollView, LayoutAnimation, ActivityIndicator, TextInputSelectionChangeEventData, NativeSyntheticEvent, Image as RNImage, Keyboard, useWindowDimensions } from 'react-native';
 import { GlassView } from 'expo-glass-effect';
@@ -772,6 +776,8 @@ function NewSessionScreen() {
         setPermissionMode: s.setPermissionMode,
         modelMode: s.modelMode,
         setModelMode: s.setModelMode,
+        fastMode: s.fastMode,
+        setFastMode: s.setFastMode,
         effortLevel: s.effortLevel,
         setEffortLevel: s.setEffortLevel,
         sessionType: s.sessionType,
@@ -1173,6 +1179,29 @@ function NewSessionScreen() {
     const currentPermission = creationPermission(permissionModes) ?? resolveSelectedOption(permissionModes, permissionIndex);
     const currentEffort = preserveCodexEffortSelection(selectedAgent, draft.effortLevel ?? effectiveEffortDefault, resolveSelectedOption(effortLevels, effortIndex));
     const permissionStyle = resolvePermissionStyle(currentPermission);
+    const creationPermissionScale = React.useMemo(
+        () => permissionScale(selectedAgent, permissionModes),
+        [selectedAgent, permissionModes],
+    );
+    const creationPermissionScaleIndex = creationPermissionScale
+        ? permissionScaleIndex(creationPermissionScale, currentPermission?.key)
+        : -1;
+    const creationFastSupported = React.useMemo(
+        () => !rigCreation && supportsModelFastMode(
+            selectedAgent,
+            currentModelKey,
+            machineModelMetadata(selectedChoice?.lmcMachine?.metadata),
+        ),
+        [rigCreation, selectedAgent, currentModelKey, selectedChoice],
+    );
+    const creationFastActive = Boolean(draft.fastMode) && creationFastSupported;
+    const selectPermissionByKey = React.useCallback((modeKey: string) => {
+        const next = permissionModes.findIndex((mode) => mode.key === modeKey);
+        if (next >= 0) {
+            setPermissionIndex(next);
+            draft.setPermissionMode(permissionModes[next]?.key ?? 'default');
+        }
+    }, [draft.setPermissionMode, permissionModes]);
     const composerSettingsItems = React.useMemo(() => {
         const items: Array<{
             key: ComposerSettingPickerType;
@@ -1522,6 +1551,7 @@ function NewSessionScreen() {
                         : undefined,
                     modelMode: currentModelKey !== 'default' ? currentModelKey : undefined,
                     effortLevel: currentEffort?.key,
+                    ...(creationFastActive ? { fastMode: true } : {}),
                 };
             let result = await machineSpawnNewSession(spawnOptions);
             let pendingResults = 0;
@@ -1551,6 +1581,7 @@ function NewSessionScreen() {
                             permissionMode: permissionKey,
                             modelMode: currentModelKey,
                             effortLevel: currentEffortKey,
+                            ...(creationFastActive ? { fastMode: true } : {}),
                         });
                     }
 
@@ -1603,7 +1634,7 @@ function NewSessionScreen() {
         } finally {
             if (isMountedRef.current) setIsSpawning(false);
         }
-    }, [agentWorkspaces, clearImages, allMachines, selectedChoice, canPickWorktree, currentEffort?.key, currentModelKey, currentPermission?.key, effectiveAgentDefaults.effortLevel, effectiveAgentDefaults.modelMode, effectiveAgentDefaults.permissionMode, navigateToSession, picksWorkspaces, router, selectedAgent, selectedMachineId, selectedPath, selectedProjectId, worktreeKey]);
+    }, [agentWorkspaces, clearImages, allMachines, selectedChoice, canPickWorktree, creationFastActive, currentEffort?.key, currentModelKey, currentPermission?.key, effectiveAgentDefaults.effortLevel, effectiveAgentDefaults.modelMode, effectiveAgentDefaults.permissionMode, navigateToSession, picksWorkspaces, router, selectedAgent, selectedMachineId, selectedPath, selectedProjectId, worktreeKey]);
 
     const canSend = selectedMachineId && selectedMachine && isMachineOnline(selectedMachine) && !isSpawning;
     React.useEffect(() => {
@@ -1666,8 +1697,48 @@ function NewSessionScreen() {
             return null;
         }
 
+        const renderPermissionSliderPopover = (withBack?: () => void) => (
+            creationPermissionScale && creationPermissionScaleIndex >= 0 ? (
+                <View style={{ paddingHorizontal: 10, paddingVertical: 10 }}>
+                    {withBack && (
+                        <Pressable
+                            accessibilityRole="button"
+                            onPress={withBack}
+                            style={({ pressed }) => [
+                                { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 6, paddingVertical: 6, borderRadius: 8 },
+                                pressed && { backgroundColor: theme.colors.surfacePressed },
+                            ]}
+                        >
+                            <Ionicons name="chevron-back" size={15} color={theme.colors.textSecondary} />
+                            <Text style={{ fontSize: 13, color: theme.colors.text, ...Typography.default('semiBold') }}>
+                                {t('settings.title')}
+                            </Text>
+                        </Pressable>
+                    )}
+                    <StopSlider
+                        title={t('agentInput.permissionMode.panelTitle')}
+                        valueLabel={currentPermission?.name ?? ''}
+                        description={currentPermission?.description}
+                        stepLabels={creationPermissionScale.map((mode) => getPermissionModeShortLabel(mode) ?? mode.name)}
+                        tone="permission"
+                        cautionAtEnd={isFullAutonomyPermissionKey(creationPermissionScale[creationPermissionScale.length - 1]?.key)}
+                        count={creationPermissionScale.length}
+                        index={creationPermissionScaleIndex}
+                        onChange={(idx) => {
+                            const picked = creationPermissionScale[idx];
+                            if (!picked) return;
+                            hapticsLight();
+                            selectPermissionByKey(picked.key);
+                        }}
+                    />
+                </View>
+            ) : null
+        );
+
         const content = type === 'settings' ? (
-            composerSettingsPage && composerSettingsPickerData ? (
+            composerSettingsPage === 'permission' && creationPermissionScale && creationPermissionScaleIndex >= 0 ? (
+                renderPermissionSliderPopover(() => setComposerSettingsPage(null))
+            ) : composerSettingsPage && composerSettingsPickerData ? (
                 <ComposerSettingsPickerContent
                     {...composerSettingsPickerData}
                     onBack={() => setComposerSettingsPage(null)}
@@ -1679,6 +1750,8 @@ function NewSessionScreen() {
                     onSelect={(page) => setComposerSettingsPage(page)}
                 />
             )
+        ) : type === 'permission' && creationPermissionScale && creationPermissionScaleIndex >= 0 ? (
+            renderPermissionSliderPopover()
         ) : type === 'path' ? (
             <PathPickerContent
                 title="Project"
@@ -1707,10 +1780,15 @@ function NewSessionScreen() {
         composerSettingsItems,
         composerSettingsPage,
         composerSettingsPickerData,
+        creationPermissionScale,
+        creationPermissionScaleIndex,
+        currentPermission?.description,
+        currentPermission?.name,
         handleComposerSettingsPickerSelect,
         handlePickerSelect,
         pathItems,
         pickerData,
+        selectPermissionByKey,
         selectedHomeDir,
         selectedPath,
         setSelectedPath,
@@ -1911,9 +1989,68 @@ function NewSessionScreen() {
             </View>)}
         </View>
     );
+    const creationPermissionCard = showPermission && creationPermissionScale && creationPermissionScaleIndex >= 0 ? (
+        <View style={styles.creationPermissionCard}>
+            <StopSlider
+                compact
+                leadingIcon={<Ionicons name={permissionStyle?.icon ?? 'shield-checkmark-outline'} size={16} color={theme.colors.textSecondary} />}
+                title={t('agentInput.permissionMode.panelTitle')}
+                valueLabel={currentPermission?.name ?? ''}
+                description={currentPermission?.description}
+                stepLabels={creationPermissionScale.map((mode) => getPermissionModeShortLabel(mode) ?? mode.name)}
+                tone="permission"
+                cautionAtEnd={isFullAutonomyPermissionKey(creationPermissionScale[creationPermissionScale.length - 1]?.key)}
+                disabled={isOffline}
+                headerRight={creationFastSupported ? (
+                    <Pressable
+                        accessibilityRole="switch"
+                        accessibilityLabel={t('localFeatures.fastMode')}
+                        accessibilityState={{ checked: creationFastActive, disabled: isOffline }}
+                        disabled={isOffline}
+                        onPress={() => {
+                            hapticsLight();
+                            draft.setFastMode(!creationFastActive);
+                        }}
+                        style={({ pressed }) => [
+                            styles.creationFastPill,
+                            creationFastActive && {
+                                backgroundColor: theme.dark ? 'rgba(245, 158, 11, 0.18)' : 'rgba(245, 158, 11, 0.13)',
+                                borderColor: theme.dark ? 'rgba(245, 158, 11, 0.42)' : 'rgba(217, 119, 6, 0.34)',
+                            },
+                            pressed && { opacity: 0.72 },
+                        ]}
+                    >
+                        <Ionicons
+                            name={creationFastActive ? 'flash' : 'flash-outline'}
+                            size={12}
+                            color={creationFastActive ? (theme.dark ? '#FBBF24' : '#D97706') : theme.colors.textSecondary}
+                        />
+                        <Text
+                            style={[
+                                styles.creationFastPillText,
+                                creationFastActive && { color: theme.dark ? '#FBBF24' : '#D97706' },
+                            ]}
+                        >
+                            {t('localFeatures.fastMode')}
+                        </Text>
+                    </Pressable>
+                ) : undefined}
+                count={creationPermissionScale.length}
+                index={creationPermissionScaleIndex}
+                onChange={(idx) => {
+                    const picked = creationPermissionScale[idx];
+                    if (!picked) return;
+                    hapticsLight();
+                    selectPermissionByKey(picked.key);
+                }}
+            />
+        </View>
+    ) : null;
+
     const webTargetArea = (
         <View style={styles.targetArea}>
             {creationChoices}
+            {creationPermissionCard}
 
             {isOffline && (
                 <View style={styles.offlineHelp}>
@@ -2074,7 +2211,28 @@ function NewSessionScreen() {
                                     {renderActivePickerPopover('model')}
                                     {renderActivePickerPopover('effort')}
 
-                                    {showPermission && (
+                                    {showPermission && creationPermissionScale && creationPermissionScaleIndex >= 0 ? (
+                                        <View style={{ paddingHorizontal: 10, paddingVertical: 6 }}>
+                                            <StopSlider
+                                                compact
+                                                leadingIcon={<Ionicons name={permissionStyle?.icon ?? 'shield-outline'} size={15} color={theme.colors.textSecondary} />}
+                                                title={t('agentInput.permissionMode.panelTitle')}
+                                                valueLabel={currentPermission?.name ?? ''}
+                                                description={currentPermission?.description}
+                                                stepLabels={creationPermissionScale.map((mode) => getPermissionModeShortLabel(mode) ?? mode.name)}
+                                                tone="permission"
+                                                cautionAtEnd={isFullAutonomyPermissionKey(creationPermissionScale[creationPermissionScale.length - 1]?.key)}
+                                                count={creationPermissionScale.length}
+                                                index={creationPermissionScaleIndex}
+                                                onChange={(idx) => {
+                                                    const picked = creationPermissionScale[idx];
+                                                    if (!picked) return;
+                                                    hapticsLight();
+                                                    selectPermissionByKey(picked.key);
+                                                }}
+                                            />
+                                        </View>
+                                    ) : showPermission ? (
                                         <BubblePressable
                                             scaleFeedback={false}
                                             style={(p) => [styles.configRow, p.pressed && styles.configRowPressed]}
@@ -2090,7 +2248,7 @@ function NewSessionScreen() {
                                             </Text>
                                             <Ionicons name="chevron-down" size={13} color={theme.colors.textSecondary} />
                                         </BubblePressable>
-                                    )}
+                                    ) : null}
                                     {renderActivePickerPopover('permission')}
                                 </>
                             )}
@@ -2610,6 +2768,35 @@ const styles = StyleSheet.create((theme) => ({
     },
     targetRowGroup: {
         gap: 8,
+    },
+    creationPermissionCard: {
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+        backgroundColor: theme.colors.surface,
+    },
+    creationFastPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 999,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.divider,
+        backgroundColor: theme.colors.surfaceHighest,
+        ...Platform.select({
+            web: { cursor: 'pointer', userSelect: 'none' } as any,
+            default: {},
+        }),
+    },
+    creationFastPillText: {
+        fontSize: 11,
+        lineHeight: 15,
+        color: theme.colors.textSecondary,
+        ...Typography.default('semiBold'),
     },
     targetRow: {
         height: 58,

@@ -9,6 +9,7 @@ export const DiscoveredModelSchema = z.object({
     efforts: z.array(z.string().min(1).max(64)).max(32).optional(),
     effortModels: z.record(z.string().max(64), z.string().min(1).max(256)).optional(),
     defaultEffort: z.string().max(64).optional(),
+    supportsFastMode: z.boolean().optional(),
     isDefault: z.boolean().optional(),
 });
 export const EngineModelCatalogSchema = z.object({

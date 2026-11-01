@@ -25,7 +25,7 @@ export type SwitchableEngine = 'claude' | 'codex' | 'agy';
  * but coming back as the other engine on a new native thread. Absent, this is
  * the ordinary refresh that keeps the engine it has.
  */
-export type SessionRefreshOptions = { receiveSeq?: number; model?: string; effort?: string; permissionMode?: string; codexContextLimits?: CodexContextLimits; codexServiceTier?: CodexServiceTier; engine?: SwitchableEngine };
+export type SessionRefreshOptions = { receiveSeq?: number; model?: string; effort?: string; permissionMode?: string; fastMode?: boolean; codexContextLimits?: CodexContextLimits; codexServiceTier?: CodexServiceTier; engine?: SwitchableEngine };
 /** Older Antigravity runners report their last executed model during refresh. */
 export function preserveAgyRefreshSelection(options: SessionRefreshOptions, metadata: Metadata): SessionRefreshOptions {
     if (options.engine !== undefined || metadata.flavor !== 'agy') return options;

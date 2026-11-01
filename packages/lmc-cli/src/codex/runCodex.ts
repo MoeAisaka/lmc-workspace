@@ -229,6 +229,7 @@ export async function runCodex(opts: {
     metadata.sessionConfigState = process.env.HAPPY_REFRESH_RECEIVE_SEQ !== undefined ? 'verifying' : 'applied';
     metadata.sessionConfigError = undefined;
     metadata.codexServiceTier = serviceTier;
+    if (serviceTier !== undefined) metadata.fastMode = serviceTier === 'fast';
     metadata.codexContextLimits = contextLimits;
 
     const skillCommands = await discoverCodexSkillCommands();
@@ -359,14 +360,20 @@ export async function runCodex(opts: {
         permissionMode: initialPermissionMode,
         model: opts.model ?? DEFAULT_CODEX_MODEL,
         effort: initialEffort,
+        fastMode: serviceTier === 'fast' ? true : serviceTier === 'default' ? false : undefined,
     });
     attachConfiguration = nextSession => {
         stopWatchingConfiguration?.();
         stopWatchingConfiguration = watchSessionConfiguration(nextSession, 'codex', metadata => {
+            if (metadata.fastMode !== undefined) {
+                serviceTier = metadata.fastMode === null ? undefined : (metadata.fastMode ? 'fast' : 'default');
+                client?.setDefaultServiceTier(serviceTier);
+            }
             remoteModeState.resolve({
                 ...(metadata.permissionMode ? { permissionMode: metadata.permissionMode } : {}),
                 ...(metadata.modelMode !== undefined ? { model: metadata.modelMode } : {}),
                 ...(metadata.effortLevel !== undefined ? { effort: metadata.effortLevel as ReasoningEffort } : {}),
+                ...(metadata.fastMode !== undefined ? { fastMode: metadata.fastMode } : {}),
             });
             permissionHandler?.onPolicyChange(remoteModeState.currentPermissionMode, hubCodexApprovalDenied(session.getMetadata(), activeTurnIsHub));
         });
@@ -376,8 +383,8 @@ export async function runCodex(opts: {
         && mode.permissionMode === remoteModeState.currentPermissionMode
         && activeTurnIsHub === isHub(session.getMetadata());
     const steerAcceptedMessage = (mode: EnhancedMode) => {
-        const modelChanged = activeTurnMode && (activeTurnMode.model !== mode.model || activeTurnMode.effort !== mode.effort
-            || activeTurnMode.model !== remoteModeState.currentModel || activeTurnMode.effort !== remoteModeState.currentEffort);
+        const modelChanged = activeTurnMode && (activeTurnMode.model !== mode.model || activeTurnMode.effort !== mode.effort || activeTurnMode.fastMode !== mode.fastMode
+            || activeTurnMode.model !== remoteModeState.currentModel || activeTurnMode.effort !== remoteModeState.currentEffort || activeTurnMode.fastMode !== remoteModeState.currentFastMode);
         return modelChanged
             ? 'Codex 已接收补充回复，将使用本回合的模型与思考层级处理；新设置仍已保存，将在下一轮生效。'
             : 'Codex 已接收补充回复，将在当前工作中处理。';
@@ -439,6 +446,7 @@ export async function runCodex(opts: {
             model: modeResolution.model,
             appendSystemPrompt: messageAppendSystemPrompt,
             effort: modeResolution.effort,
+            fastMode: modeResolution.fastMode,
         };
         const intent = readMessageIntent(message.meta);
         const queueKey = message.localKey;
@@ -461,7 +469,7 @@ export async function runCodex(opts: {
         const steerEligible = canSteerMode(enhancedMode)
             // Preserve legacy automatic steering only with unchanged model
             // preferences. Deferral is chosen by the explicit Steer action.
-            && (intent === 'steer' || (activeTurnMode?.model === enhancedMode.model && activeTurnMode?.effort === enhancedMode.effort))
+            && (intent === 'steer' || (activeTurnMode?.model === enhancedMode.model && activeTurnMode?.effort === enhancedMode.effort && activeTurnMode?.fastMode === enhancedMode.fastMode))
             && messageQueue.size() === 0
             && (attachmentsForThisMessage.length === 0 || intent === 'steer')
             && (message.content.text.trim().length > 0 || attachmentsForThisMessage.length > 0)
@@ -1363,7 +1371,8 @@ export async function runCodex(opts: {
                                 : await prepareDaemonSessionRefresh(session.sessionId, process.pid, {
                                     receiveSeq, model: remoteModeState.currentModel, effort: remoteModeState.currentEffort,
                                     permissionMode: remoteModeState.currentPermissionMode,
-                                    codexContextLimits: config.contextLimits, codexServiceTier: config.serviceTier,
+                                    codexContextLimits: config.contextLimits,
+                                    codexServiceTier: remoteModeState.currentFastMode !== undefined ? (remoteModeState.currentFastMode ? 'fast' : 'default') : config.serviceTier,
                                 });
                             if (prepared.error) throw tagRefreshError(new Error(prepared.error), 'relaunch');
                             } catch (error) { refreshHandoff = false; switchTarget = undefined; handoffPort.disarm(); session.resumeIncomingMessagesFrom(receiveSeq); throw error; }
@@ -1478,6 +1487,10 @@ export async function runCodex(opts: {
                 let activeThreadId = client.threadId;
                 const turnMcpServers = mcpServersForRole();
                 const turnToolsKey = JSON.stringify(turnMcpServers.happy.tools);
+                if (message.mode.fastMode !== undefined) {
+                    serviceTier = message.mode.fastMode ? 'fast' : 'default';
+                    client.setDefaultServiceTier(serviceTier);
+                }
                 if (!client.hasActiveThread() || !activeThreadId) {
                     const startedThread = await client.startThread({
                         model: message.mode.model,
@@ -1551,6 +1564,7 @@ export async function runCodex(opts: {
                     approvalPolicy: executionPolicy.approvalPolicy,
                     sandbox: executionPolicy.sandbox,
                     effort: message.mode.effort,
+                    ...(message.mode.fastMode !== undefined ? { serviceTier: message.mode.fastMode ? 'fast' : 'default' } : {}),
                     extraInputItems: imageInputs.inputItems,
                     onStarted: () => goalLock.inLock(() => createCodexAutomaticGoal(automaticGoalText, {
                         policy: automaticGoals,

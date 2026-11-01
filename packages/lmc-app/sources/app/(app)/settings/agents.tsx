@@ -1,10 +1,15 @@
 import { openMachineDetails } from '@/components/lmc/MachineDialog';
 import * as React from 'react';
+import { Platform, Pressable, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useUnistyles } from 'react-native-unistyles';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
+import { Text } from '@/components/StyledText';
+import { Typography } from '@/constants/Typography';
+import { useFlatSettings } from '@/components/lmc/settings/flatSettings';
+import { StopSlider } from '@/components/lmc/StopSlider';
 import {
     getEffortLevelsForModel,
     getAvailableModels,
@@ -12,6 +17,9 @@ import {
     getHardcodedPermissionModes,
     type ModeOption,
 } from '@/components/modelModeOptions';
+import { getPermissionModeShortLabel } from '@/utils/permissionModeLabels';
+import { isFullAutonomyPermissionKey, permissionScale, permissionScaleIndex } from '@/sync/permissionScale';
+import { hapticsLight } from '@/components/haptics';
 import { useAllMachines, useSettingMutable } from '@/sync/storage';
 import {
     agentKeys,
@@ -62,6 +70,113 @@ function optionName(options: ModeOption[], key: string | null | undefined): stri
     return options.find((option) => option.key === key)?.name ?? key;
 }
 
+function PermissionDefaultSliderItem(props: {
+    agent: AgentKey;
+    title: string;
+    scale: ModeOption[];
+    selectedIndex: number;
+    hasOverride: boolean;
+    onSelect: (modeKey: string) => void;
+    onReset: () => void;
+    showDivider?: boolean;
+}) {
+    const { theme } = useUnistyles();
+    const flat = useFlatSettings();
+    const activeMode = props.scale[props.selectedIndex] ?? props.scale[0];
+
+    return (
+        <View
+            style={[
+                sliderRowStyles.wrapper,
+                flat && sliderRowStyles.wrapperFlat,
+                props.showDivider && {
+                    borderBottomWidth: StyleSheet.hairlineWidth,
+                    borderBottomColor: theme.colors.divider,
+                },
+            ]}
+        >
+            <StopSlider
+                compact
+                title={props.title}
+                leadingIcon={<Ionicons name="shield-checkmark-outline" size={20} color="#5856D6" />}
+                valueLabel={activeMode?.name ?? ''}
+                description={activeMode?.description}
+                stepLabels={props.scale.map((mode) => getPermissionModeShortLabel(mode) ?? mode.name)}
+                tone="permission"
+                cautionAtEnd={isFullAutonomyPermissionKey(props.scale[props.scale.length - 1]?.key)}
+                headerRight={props.hasOverride ? (
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={t('localFeatures.permissionResetDefault')}
+                        onPress={() => {
+                            hapticsLight();
+                            props.onReset();
+                        }}
+                        hitSlop={6}
+                        style={({ pressed }) => [
+                            sliderRowStyles.resetPill,
+                            { backgroundColor: theme.colors.surfaceHighest },
+                            pressed && { opacity: 0.7 },
+                        ]}
+                    >
+                        <Ionicons name="refresh" size={11} color={theme.colors.textSecondary} />
+                        <Text style={sliderRowStyles.resetPillText}>
+                            {t('localFeatures.permissionResetDefault')}
+                        </Text>
+                    </Pressable>
+                ) : (
+                    <Text style={sliderRowStyles.defaultTag}>
+                        {t('localFeatures.permissionUsingDefault')}
+                    </Text>
+                )}
+                count={props.scale.length}
+                index={props.selectedIndex}
+                onChange={(nextIdx) => {
+                    const picked = props.scale[nextIdx];
+                    if (!picked) return;
+                    hapticsLight();
+                    props.onSelect(picked.key);
+                }}
+            />
+        </View>
+    );
+}
+
+const sliderRowStyles = StyleSheet.create((theme) => ({
+    wrapper: {
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+    },
+    wrapperFlat: {
+        paddingHorizontal: 0,
+        paddingVertical: 12,
+    },
+    resetPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 3,
+        paddingHorizontal: 7,
+        paddingVertical: 2.5,
+        borderRadius: 999,
+        ...Platform.select({
+            web: { cursor: 'pointer', userSelect: 'none' } as any,
+            default: {},
+        }),
+    },
+    resetPillText: {
+        fontSize: 11,
+        lineHeight: 15,
+        color: theme.colors.textSecondary,
+        ...Typography.default('semiBold'),
+    },
+    defaultTag: {
+        fontSize: 11,
+        lineHeight: 15,
+        color: theme.colors.textSecondary,
+        ...Typography.default(),
+    },
+}));
+
 export default function AgentsSettingsScreen({ onNavigate }: { onNavigate?: () => void } = {}) {
     const { theme } = useUnistyles();
     const router = useRouter();
@@ -107,6 +222,26 @@ export default function AgentsSettingsScreen({ onNavigate }: { onNavigate?: () =
         const effectiveValue = effectiveDefaults[config.field] ?? (config.field === 'effortLevel' ? getCatalogDefaultEffort(agent, effectiveDefaults.modelMode, catalogMetadata, null) ?? null : null);
         const overrideValue = getAgentDefaultOverrideValue(agentDefaultOverrides, agent, config.field);
         const hasOverride = hasAgentDefaultOverride(agentDefaultOverrides, agent, config.field);
+
+        if (config.field === 'permissionMode') {
+            const scale = permissionScale(agent, config.options);
+            const scaleIdx = scale ? permissionScaleIndex(scale, effectiveValue) : -1;
+            if (scale && scale.length >= 2) {
+                return (
+                    <PermissionDefaultSliderItem
+                        key={`${agent}-${config.field}`}
+                        agent={agent}
+                        title={config.title}
+                        scale={scale}
+                        selectedIndex={scaleIdx >= 0 ? scaleIdx : 0}
+                        hasOverride={hasOverride}
+                        onSelect={(modeKey) => updateOverride(agent, 'permissionMode', modeKey)}
+                        onReset={() => updateOverride(agent, 'permissionMode', null)}
+                    />
+                );
+            }
+        }
+
         const offersCustomModel = agent === 'codex' && config.field === 'modelMode';
         const isCustomCodexModel = offersCustomModel
             && Boolean(overrideValue)

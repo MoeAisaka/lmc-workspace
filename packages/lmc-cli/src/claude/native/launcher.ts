@@ -107,7 +107,7 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
     // child has fixed startup permissions, so native boundaries must include them.
     const runtimeHash = (mode: EnhancedMode) => hashObject(nativeRuntimeMode(mode));
     const policyHash = (mode: EnhancedMode) => {
-        const { model: _model, effort: _effort, fallbackModel: _fallback, ...policy } = nativeRuntimeMode(mode);
+        const { model: _model, effort: _effort, fallbackModel: _fallback, fastMode: _fastMode, ...policy } = nativeRuntimeMode(mode);
         return hashObject(policy);
     };
     let chain = Promise.resolve();
@@ -420,7 +420,7 @@ export async function claudeNativeLauncher(session: Session): Promise<'switch' |
         args.push('--mcp-config', JSON.stringify({ mcpServers }));
         const allowedTools = [...session.allowedTools ?? [], ...settings.allowedTools ?? []];
         if (allowedTools.length) args.push('--allowedTools', allowedTools.join(','));
-        process = await startNativeInteractiveProcess({ executable: claudeExecutable(), cwd: session.path, sessionId: id, resume, args, env: session.claudeEnvVars,
+        process = await startNativeInteractiveProcess({ executable: claudeExecutable(), cwd: session.path, sessionId: id, resume, args, env: session.claudeEnvVars, fastMode: settings.fastMode,
             onScreen: schedule,
             onOutput: () => progress.progress(),
             onHook: async (hook, signal) => {

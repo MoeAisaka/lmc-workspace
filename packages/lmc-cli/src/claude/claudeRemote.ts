@@ -33,7 +33,10 @@ export async function claudeRemote(opts: {
     signal?: AbortSignal,
     canCallTool: (toolName: string, input: unknown, mode: EnhancedMode, options: CanCallToolOptions) => Promise<PermissionResult>,
     /** Called when the Query object is ready — allows permission handler to call setPermissionMode */
-    onQueryReady?: (query: { setPermissionMode: (mode: string) => Promise<void> }) => void,
+    onQueryReady?: (query: {
+        setPermissionMode: (mode: string) => Promise<void>;
+        setFastMode?: (fastMode: boolean | null | undefined) => Promise<void>;
+    }) => void,
     /** Path to temporary settings file with SessionStart hook (required for session tracking) */
     hookSettingsPath: string,
     /** JavaScript runtime to use for spawning Claude Code (default: 'node') */
@@ -173,6 +176,20 @@ export async function claudeRemote(opts: {
         options: sdkOptions,
     });
 
+    let appliedFastMode: boolean | null | undefined = undefined;
+    const applyFastMode = async (nextFastMode: boolean | null | undefined) => {
+        if (nextFastMode === appliedFastMode) return;
+        if (nextFastMode === undefined && appliedFastMode === undefined) return;
+        const fn = (response as any).applyFlagSettings;
+        if (typeof fn !== 'function') return;
+        try {
+            await fn.call(response, { fastMode: nextFastMode ?? null });
+            appliedFastMode = nextFastMode;
+        } catch (err) {
+            logger.debug('[claudeRemote] applyFlagSettings(fastMode) unavailable:', err);
+        }
+    };
+
     let goalCommands: string[] = [];
     if (opts.prepareGoalMessage && typeof response.initializationResult === 'function') {
         try {
@@ -190,6 +207,9 @@ export async function claudeRemote(opts: {
             return input;
         }
     };
+    if (initial.mode.fastMode !== undefined) {
+        await applyFastMode(initial.mode.fastMode);
+    }
     const preparedInitial = await prepare(initial);
     messages.push({ type: 'user', parent_tool_use_id: null, message: { role: 'user', content: preparedInitial.message } });
 
@@ -197,6 +217,7 @@ export async function claudeRemote(opts: {
     if (opts.onQueryReady) {
         opts.onQueryReady({
             setPermissionMode: (mode: string) => response.setPermissionMode(mode as any),
+            setFastMode: applyFastMode,
         });
     }
 
@@ -402,6 +423,7 @@ export async function claudeRemote(opts: {
                         messages.end();
                     } else {
                         mode = next.mode;
+                        await applyFastMode(next.mode.fastMode);
                         updateThinking(true);
                         const prepared = await prepare(next);
                         messages.push({ type: 'user', parent_tool_use_id: null, message: { role: 'user', content: prepared.message } });

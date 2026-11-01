@@ -36,6 +36,7 @@ export type ModelMode = ModeOption & {
     providerKind?: string;
     contextWindow?: number;
     serviceTiers?: string[];
+    supportsFastMode?: boolean;
     thinkingLevels?: string[];
     defaultThinkingLevel?: string | null;
     unavailable?: boolean;
@@ -143,14 +144,14 @@ export function getGeminiPermissionModes(translate: Translate): PermissionMode[]
 export function getClaudeModelModes(): ModelMode[] {
     return [
         // Fallback only: a device that publishes its catalog replaces this list.
-        { key: 'claude-opus-5-5', name: 'Opus 5.5', description: null },
-        { key: 'claude-fable-5-1', name: 'Fable 5.1', description: null },
-        { key: 'claude-sonnet-5-5', name: 'Sonnet 5.5', description: null },
-        { key: 'claude-haiku-5-5', name: 'Haiku 5.5', description: null },
-        { key: 'claude-fable-5', name: 'Fable 5', description: null },
-        { key: 'claude-opus-5', name: 'Opus 5', description: null },
-        { key: 'claude-opus-5[1m]', name: 'Opus 5 [1M]', description: '1M context' },
-        { key: 'claude-sonnet-5', name: 'Sonnet 5', description: null },
+        { key: 'claude-opus-5-5', name: 'Opus 5.5', description: null, supportsFastMode: true },
+        { key: 'claude-fable-5-1', name: 'Fable 5.1', description: null, supportsFastMode: false },
+        { key: 'claude-sonnet-5-5', name: 'Sonnet 5.5', description: null, supportsFastMode: false },
+        { key: 'claude-haiku-5-5', name: 'Haiku 5.5', description: null, supportsFastMode: false },
+        { key: 'claude-fable-5', name: 'Fable 5', description: null, supportsFastMode: false },
+        { key: 'claude-opus-5', name: 'Opus 5', description: null, supportsFastMode: true },
+        { key: 'claude-opus-5[1m]', name: 'Opus 5 [1M]', description: '1M context', supportsFastMode: true },
+        { key: 'claude-sonnet-5', name: 'Sonnet 5', description: null, supportsFastMode: false },
     ];
 }
 
@@ -165,14 +166,51 @@ export function getClaudeModelModes(): ModelMode[] {
 export function getCodexModelModes(): ModelMode[] {
     return [
         // Fallback only: a device that publishes its catalog replaces this list.
-        { key: 'gpt-6.1-sol', name: 'GPT-6.1 Sol', description: null },
-        { key: 'gpt-6-astra', name: 'GPT-6 Astra', description: null },
-        { key: 'gpt-6-sol', name: 'GPT-6 Sol', description: null },
-        { key: 'gpt-6-luna', name: 'GPT-6 Luna', description: null },
-        { key: 'gpt-5.6-sol', name: 'GPT-5.6 Sol', description: null },
-        { key: 'gpt-5.6-terra', name: 'GPT-5.6 Terra', description: null },
-        { key: 'gpt-5.6-luna', name: 'GPT-5.6 Luna', description: null },
+        { key: 'gpt-6.1-sol', name: 'GPT-6.1 Sol', description: null, supportsFastMode: true },
+        { key: 'gpt-6-astra', name: 'GPT-6 Astra', description: null, supportsFastMode: true },
+        { key: 'gpt-6-sol', name: 'GPT-6 Sol', description: null, supportsFastMode: true },
+        { key: 'gpt-6-luna', name: 'GPT-6 Luna', description: null, supportsFastMode: true },
+        { key: 'gpt-5.6-sol', name: 'GPT-5.6 Sol', description: null, supportsFastMode: true },
+        { key: 'gpt-5.6-terra', name: 'GPT-5.6 Terra', description: null, supportsFastMode: true },
+        { key: 'gpt-5.6-luna', name: 'GPT-5.6 Luna', description: null, supportsFastMode: true },
     ];
+}
+
+function inferFallbackFastModeSupport(flavor: AgentFlavor, modelKey: string | null | undefined): boolean {
+    if (flavor === 'codex') {
+        return true;
+    }
+    if (flavor === 'claude') {
+        const effective = (!modelKey || modelKey === 'default') ? getDefaultModelKey('claude') : modelKey;
+        return /^claude-opus-/i.test(effective) || effective === 'opus';
+    }
+    return false;
+}
+
+export function supportsModelFastMode(
+    flavor: AgentFlavor,
+    modelKey: string | null | undefined,
+    metadata?: Metadata | null,
+): boolean {
+    if (isRigMetadataV1(metadata)) {
+        const targetKey = modelKey ?? getRigSelectedModelKey(metadata);
+        return Boolean(getRigModels(metadata).find((model) => model.key === targetKey)?.serviceTiers?.includes('fast'));
+    }
+    if (flavor !== 'claude' && flavor !== 'codex') {
+        return false;
+    }
+    const catalog = metadata?.modelCatalogs?.[flavor];
+    if (catalog?.source === 'poe') {
+        return false;
+    }
+    const effectiveKey = (!modelKey || modelKey === 'default')
+        ? (catalog?.models.find((m) => m.isDefault)?.id ?? getDefaultModelKey(flavor))
+        : modelKey;
+    const discovered = findCatalogModel(catalog, effectiveKey);
+    if (discovered?.supportsFastMode !== undefined) {
+        return discovered.supportsFastMode;
+    }
+    return inferFallbackFastModeSupport(flavor, effectiveKey);
 }
 
 /**
@@ -406,6 +444,7 @@ export function getAvailableModels(
             providerKind: model.providerKind,
             contextWindow: model.contextWindow,
             serviceTiers: model.serviceTiers,
+            supportsFastMode: Boolean(model.serviceTiers?.includes('fast')),
             thinkingLevels: model.thinkingLevels,
             defaultThinkingLevel: model.defaultThinkingLevel,
         }));
@@ -446,12 +485,32 @@ export function getAvailableModels(
     }
     const catalog = flavor === 'claude' || flavor === 'codex' ? metadata?.modelCatalogs?.[flavor] : undefined;
     if (catalog?.models.length) {
-        const models = catalog.models.map(model => ({ key: model.id, name: catalogModelName(model), description: model.description ?? null }));
+        const resolveSupportsFast = (model: { id: string; supportsFastMode?: boolean }) => (
+            catalog.source === 'poe' ? false : (model.supportsFastMode ?? inferFallbackFastModeSupport(flavor, model.id))
+        );
+        const models: ModelMode[] = catalog.models.map(model => ({
+            key: model.id,
+            name: catalogModelName(model),
+            description: model.description ?? null,
+            supportsFastMode: resolveSupportsFast(model),
+        }));
         if (selectedKey && selectedKey !== 'default' && !isForeignModelKey(selectedKey, flavor) && !models.some(model => model.key === selectedKey)) {
             const selected = findCatalogModel(catalog, selectedKey);
-            models.push({key: selectedKey, name: selected ? catalogModelName(selected) : selectedKey, description: selected?.description ?? null});
+            models.push({
+                key: selectedKey,
+                name: selected ? catalogModelName(selected) : selectedKey,
+                description: selected?.description ?? null,
+                supportsFastMode: selected ? resolveSupportsFast(selected) : inferFallbackFastModeSupport(flavor, selectedKey),
+            });
         }
-        if (selectedKey === 'default') models.push({ key: 'default', name: translate('localFeatures.defaultLabel'), description: null });
+        if (selectedKey === 'default') {
+            models.push({
+                key: 'default',
+                name: translate('localFeatures.defaultLabel'),
+                description: null,
+                supportsFastMode: supportsModelFastMode(flavor, 'default', metadata),
+            });
+        }
         return models;
     }
     const metadataModels = mapMetadataOptions(metadata?.models);

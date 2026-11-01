@@ -259,6 +259,7 @@ export const MessageMetaSchema = z.object({
   allowedTools: z.array(z.string()).nullable().optional(), // Allowed tools for this message (null = reset)
   disallowedTools: z.array(z.string()).nullable().optional(), // Disallowed tools for this message (null = reset)
   effort: z.string().nullable().optional(), // Effort level for this message (null = reset). happy-app sends this key; without it Zod strips the value before runClaude reads it.
+  fastMode: z.boolean().nullable().optional(), // Fast mode override for this message (null = reset).
   // What to do with a message that arrives while the engine is busy. Absent
   // from older apps, which keep the pre-intent behaviour.
   intent: z.enum(['queue', 'steer', 'interrupt']).optional(),
@@ -424,6 +425,7 @@ export type Metadata = {
   permissionModeSource?: 'ambient' | 'explicit';
   modelMode?: string | null;
   effortLevel?: string | null;
+  fastMode?: boolean | null;
   agentBuild?: string;
   claudeNativeActive?: boolean;
   engineRuntime?: {engine:string;version:string;packageVersion?:string;source:string;path:string};

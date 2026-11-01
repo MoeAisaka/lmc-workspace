@@ -71,6 +71,7 @@ export interface StartOptions {
     model?: string
     permissionMode?: PermissionMode
     effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+    fastMode?: boolean
     startingMode?: 'local' | 'remote'
     shouldStartDaemon?: boolean
     claudeEnvVars?: Record<string, string>
@@ -185,6 +186,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         dangerouslySkipPermissions,
         ...(options.model ? { modelMode: options.model } : {}),
         ...(options.effort ? { effortLevel: options.effort } : {}),
+        ...(options.fastMode !== undefined ? { fastMode: options.fastMode } : {}),
         ...(initialPermissionMode ? { permissionMode: initialPermissionMode } : {}),
         permissionModeSource: initialPermissionMode ? 'explicit' : 'ambient',
         ...workerBirthFromEnv(),
@@ -643,6 +645,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     let currentAllowedTools: string[] | undefined = undefined; // Track current allowed tools
     let currentDisallowedTools: string[] | undefined = undefined; // Track current disallowed tools
     let currentEffort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined = options.effort ?? cachedDefaultEffort('claude', options.model, DEFAULT_CLAUDE_EFFORT) as typeof options.effort; // Track current Claude effort (thinking depth)
+    let currentFastMode: boolean | undefined = options.fastMode;
 
     // The watcher applies the current snapshot synchronously before it returns.
     let initialConfiguration = true;
@@ -656,6 +659,9 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         if (metadata.modelMode !== undefined) currentModel = resolveSessionChoice({ initial: initialConfiguration, launched: options.model, current: currentModel, picked: metadata.modelMode });
         if (metadata.effortLevel === null) currentEffort = resolveSessionChoice({ initial: initialConfiguration, launched: options.effort, current: currentEffort, picked: null });
         else if ((cachedModel('claude', currentModel)?.efforts ?? ['low', 'medium', 'high', 'xhigh', 'max']).includes(metadata.effortLevel ?? '')) currentEffort = metadata.effortLevel as typeof currentEffort;
+        if (metadata.fastMode !== undefined) {
+            currentFastMode = resolveSessionChoice({ initial: initialConfiguration, launched: options.fastMode, current: currentFastMode, picked: metadata.fastMode });
+        }
     });
     initialConfiguration = false;
 
@@ -684,6 +690,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
         // A hub keeps its hands off the code: no editing, no shell, no subagents.
         disallowedTools: hubDisallowedTools(session.getMetadata(), currentDisallowedTools),
         effort: currentEffort,
+        fastMode: cachedModel('claude', currentModel)?.supportsFastMode === false ? undefined : currentFastMode,
     });
 
     session.rpcHandlerManager.registerHandler('goal-action', async (params: unknown) => {
@@ -904,6 +911,12 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
             logger.debug(`[loop] User message received with no effort override, using current: ${currentEffort ?? 'default'}`);
         }
 
+        if (message.meta?.hasOwnProperty('fastMode')) {
+            const incomingFast = message.meta.fastMode;
+            currentFastMode = typeof incomingFast === 'boolean' ? incomingFast : undefined;
+            logger.debug(`[loop] Fast mode updated from user message: ${currentFastMode ?? 'reset to default'}`);
+        }
+
         // Check for special commands before processing
         const specialCommand = parseSpecialCommand(message.content.text);
 
@@ -1107,7 +1120,12 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
             });
             sessionInstance.getNativeMode = currentEnhancedMode;
             sessionInstance.onNativeTranscriptEvent = updateClaudeGoalState;
-            sessionInstance.getRefreshSettings = () => ({ model: currentModel, effort: currentEffort, permissionMode: currentPermissionMode });
+            sessionInstance.getRefreshSettings = () => ({
+                model: currentModel,
+                effort: currentEffort,
+                permissionMode: currentPermissionMode,
+                ...(currentFastMode !== undefined ? { fastMode: currentFastMode } : {}),
+            });
             sessionInstance.handoff = handoffPort;
             sessionInstance.onTurnFailure = (detail) => { void failures.onFailure(detail); };
             sessionInstance.onTurnUsage = (usage) => meter.add(usage);

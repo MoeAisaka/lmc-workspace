@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { Pressable, View } from 'react-native';
-import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { Platform, Pressable, View } from 'react-native';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
@@ -9,8 +9,8 @@ import { PickerMenuDivider, PickerMenuEmpty, PickerMenuRow, PickerMenuSectionHea
 import { StopSlider } from './StopSlider';
 import { ProviderIcon } from '@/components/ProviderIcon';
 import type { EffortLevel, ModelMode, PermissionMode } from '@/components/modelModeOptions';
-import { getPermissionModeMenuLabel } from '@/utils/permissionModeLabels';
-import { permissionScale, permissionScaleIndex } from '@/sync/permissionScale';
+import { getPermissionModeMenuLabel, getPermissionModeShortLabel } from '@/utils/permissionModeLabels';
+import { isFullAutonomyPermissionKey, permissionScale, permissionScaleIndex } from '@/sync/permissionScale';
 import { engineForModelKey, engineModelGroups, type EngineModelGroup } from '@/sync/engineModelCatalog';
 import type { SwitchableEngine } from '@/sync/engineSwitch';
 import type { Metadata } from '@/sync/storageTypes';
@@ -24,6 +24,7 @@ import { t } from '@/text';
  * subtree has to stay put under the pointer that is pressing it.
  */
 const DRILL = { duration: 160, easing: Easing.out(Easing.cubic) } as const;
+const FAST_SPRING = { damping: 20, stiffness: 320, mass: 0.6 } as const;
 
 function useDrillIn(from: number, trigger: unknown) {
     const progress = useSharedValue(1);
@@ -40,11 +41,9 @@ function useDrillIn(from: number, trigger: unknown) {
 /**
  * Everything about how the next message gets answered, in one panel.
  *
- * Model, effort and permission were three separate menus because they arrived
- * separately, not because they are three separate decisions — they are all
- * "how should this be answered", and two of them are the same shape: an ordered
- * scale. The model leads because it is the one that is picked rather than
- * adjusted, and it opens a list of its own rather than crowding this one.
+ * Model, Fast mode, effort and permission are all "how should this be answered",
+ * and effort + permission are ordered scales. The model leads because it is
+ * picked rather than adjusted, followed immediately by the Fast lightning switch.
  */
 
 export type ComposerModelPanelProps = {
@@ -53,6 +52,9 @@ export type ComposerModelPanelProps = {
     modelMode: ModelMode | null;
     availableModels: ModelMode[];
     onModelModeChange?: (model: ModelMode) => void;
+    fastMode?: boolean;
+    fastModeSupported?: boolean;
+    onFastModeChange?: (enabled: boolean) => void;
     effortLevel: EffortLevel | null;
     availableEffortLevels: EffortLevel[];
     onEffortLevelChange?: (level: EffortLevel) => void;
@@ -111,6 +113,9 @@ export function ComposerModelPanel(props: ComposerModelPanelProps) {
     const scale = permissionScale(props.flavor, props.availableModes);
     const scaleIndex = scale ? permissionScaleIndex(scale, props.permissionMode?.key) : -1;
     const canOpenModels = props.availableModels.length > 0 && !!props.onModelModeChange;
+    const showsFastRow = !!props.onFastModeChange;
+    const fastSupported = Boolean(props.fastModeSupported);
+    const fastActive = Boolean(props.fastMode) && fastSupported;
 
     return (
         <Animated.View style={panelStyle}>
@@ -121,9 +126,6 @@ export function ComposerModelPanel(props: ComposerModelPanelProps) {
                     onPress={() => { hapticsLight(); setShowingModels(true); }}
                     style={({ pressed }) => [styles.modelRow, pressed && { backgroundColor: theme.colors.surfacePressed }]}
                 >
-                    {/* A rig row names its provider; everywhere else the mark is
-                        the engine's own, matching the chip this panel opens from
-                        and the group headers it drills into. */}
                     {props.modelMode?.providerName
                         ? <ProviderIcon kind={props.modelMode.providerKind} size={14} />
                         : groups ? <ProviderIcon kind={groups[0].engine} size={14} /> : null}
@@ -134,14 +136,33 @@ export function ComposerModelPanel(props: ComposerModelPanelProps) {
                 </Pressable>
             )}
 
-            {props.availableEffortLevels.length > 1 && !!props.onEffortLevelChange && (
+            {showsFastRow && (
                 <>
                     {canOpenModels && <PickerMenuDivider />}
+                    <FastModeSwitchRow
+                        flavor={props.flavor}
+                        active={fastActive}
+                        supported={fastSupported}
+                        onToggle={() => {
+                            if (!fastSupported) return;
+                            hapticsLight();
+                            props.onFastModeChange?.(!fastActive);
+                        }}
+                    />
+                </>
+            )}
+
+            {props.availableEffortLevels.length > 1 && !!props.onEffortLevelChange && (
+                <>
+                    {(canOpenModels || showsFastRow) && <PickerMenuDivider />}
                     <StopSlider
                         title={t('agentInput.effort.panelTitle')}
                         valueLabel={props.effortLevel?.name ?? props.availableEffortLevels[0].name}
                         leftLabel={t('agentInput.effort.faster')}
                         rightLabel={t('agentInput.effort.smarter')}
+                        stepLabels={props.availableEffortLevels.length <= 6
+                            ? props.availableEffortLevels.map((level) => level.name)
+                            : undefined}
                         count={props.availableEffortLevels.length}
                         index={Math.max(0, props.availableEffortLevels.findIndex((level) => level.key === props.effortLevel?.key))}
                         onChange={(index) => { hapticsLight(); props.onEffortLevelChange?.(props.availableEffortLevels[index]); }}
@@ -158,15 +179,15 @@ export function ComposerModelPanel(props: ComposerModelPanelProps) {
                         description={scale[scaleIndex].description}
                         leftLabel={t('agentInput.permissionMode.stricter')}
                         rightLabel={t('agentInput.permissionMode.looser')}
+                        stepLabels={scale.map((mode) => getPermissionModeShortLabel(mode) ?? mode.name)}
+                        tone="permission"
+                        cautionAtEnd={isFullAutonomyPermissionKey(scale[scale.length - 1]?.key)}
                         count={scale.length}
                         index={scaleIndex}
                         onChange={(index) => { hapticsLight(); props.onPermissionModeChange?.(scale[index]); }}
                     />
                 </>
             ) : !!props.onPermissionModeChange && props.availableModes.length > 0 ? (
-                // Harnesses whose modes this scale cannot place keep the list
-                // they had: a slider ordered by guesswork would be worse than
-                // no slider on the one control where the order is the meaning.
                 <>
                     <PickerMenuDivider />
                     <PickerMenuTitle>{t('agentInput.permissionMode.panelTitle')}</PickerMenuTitle>
@@ -184,6 +205,133 @@ export function ComposerModelPanel(props: ComposerModelPanelProps) {
                 </>
             ) : null}
         </Animated.View>
+    );
+}
+
+function FastModeSwitchRow(props: {
+    flavor?: string | null;
+    active: boolean;
+    supported: boolean;
+    onToggle: () => void;
+}) {
+    const { theme } = useUnistyles();
+    const [hovered, setHovered] = React.useState(false);
+    const thumbX = useSharedValue(props.active ? 20 : 0);
+    const iconPulse = useSharedValue(1);
+
+    React.useEffect(() => {
+        thumbX.value = withSpring(props.active ? 20 : 0, FAST_SPRING);
+    }, [props.active, thumbX]);
+
+    const thumbStyle = useAnimatedStyle(() => ({
+        transform: [{ translateX: thumbX.value }],
+    }));
+
+    const medallionAnimStyle = useAnimatedStyle(() => ({
+        transform: [{ scale: iconPulse.value }],
+    }));
+
+    const subtitle = !props.supported
+        ? ((props.flavor === 'claude' || props.flavor === 'codex')
+            ? t('localFeatures.fastModeUnsupported')
+            : t('localFeatures.fastModeUnsupportedEngine'))
+        : props.active
+            ? t('localFeatures.fastModeActive')
+            : (props.flavor === 'codex'
+                ? t('localFeatures.fastModeCodexHint')
+                : t('localFeatures.fastModeClaudeHint'));
+
+    const amberColor = theme.dark ? '#FBBF24' : '#D97706';
+    const rowActiveBg = theme.dark ? 'rgba(245, 158, 11, 0.10)' : 'rgba(245, 158, 11, 0.08)';
+    const rowActiveBorder = theme.dark ? 'rgba(245, 158, 11, 0.28)' : 'rgba(217, 119, 6, 0.22)';
+    const medallionBg = props.active
+        ? (theme.dark ? 'rgba(251, 191, 36, 0.22)' : 'rgba(245, 158, 11, 0.18)')
+        : theme.colors.surfaceHighest;
+
+    const hoverProps = Platform.OS === 'web'
+        ? {
+            'aria-checked': props.active,
+            'aria-disabled': !props.supported ? true : undefined,
+            onHoverIn: () => setHovered(true),
+            onHoverOut: () => setHovered(false),
+        }
+        : {};
+
+    return (
+        <Pressable
+            accessibilityRole="switch"
+            accessibilityLabel={t('localFeatures.fastMode')}
+            accessibilityState={{ checked: props.active, disabled: !props.supported }}
+            disabled={!props.supported}
+            onPress={() => {
+                if (!props.supported) return;
+                iconPulse.value = 1.14;
+                iconPulse.value = withSpring(1, FAST_SPRING);
+                props.onToggle();
+            }}
+            {...hoverProps}
+            style={({ pressed }) => [
+                styles.fastRow,
+                props.active && {
+                    backgroundColor: rowActiveBg,
+                    borderColor: rowActiveBorder,
+                },
+                !props.active && (pressed || hovered) && props.supported && {
+                    backgroundColor: theme.colors.surfacePressed,
+                },
+                pressed && props.supported && { opacity: 0.86 },
+                !props.supported && styles.fastRowDisabled,
+            ]}
+        >
+            <Animated.View style={[styles.fastMedallion, { backgroundColor: medallionBg }, medallionAnimStyle]}>
+                <Ionicons
+                    name={props.active ? 'flash' : 'flash-outline'}
+                    size={15}
+                    color={props.active ? amberColor : theme.colors.textSecondary}
+                />
+            </Animated.View>
+            <View style={styles.fastTextCol}>
+                <View style={styles.fastTitleLine}>
+                    <Text style={styles.fastTitle} numberOfLines={1}>
+                        {t('localFeatures.fastMode')}
+                    </Text>
+                    {props.active && (
+                        <View style={[styles.fastActivePill, { backgroundColor: theme.dark ? 'rgba(251, 191, 36, 0.20)' : 'rgba(245, 158, 11, 0.15)' }]}>
+                            <Text style={[styles.fastActivePillText, { color: amberColor }]}>FAST</Text>
+                        </View>
+                    )}
+                </View>
+                <Text style={styles.fastSubtitle} numberOfLines={1}>
+                    {subtitle}
+                </Text>
+            </View>
+            <View
+                pointerEvents="none"
+                style={[
+                    styles.fastSwitchTrack,
+                    {
+                        backgroundColor: props.active
+                            ? (theme.dark ? '#F59E0B' : '#EA8C00')
+                            : theme.colors.surfaceHighest,
+                    },
+                    props.active && styles.fastSwitchTrackActive,
+                ]}
+            >
+                <Animated.View
+                    style={[
+                        styles.fastSwitchThumb,
+                        { backgroundColor: '#FFFFFF' },
+                        thumbStyle,
+                    ]}
+                >
+                    <Ionicons
+                        name={props.active ? 'flash' : 'flash-outline'}
+                        size={11}
+                        color={props.active ? '#D97706' : '#94A3B8'}
+                    />
+                </Animated.View>
+            </View>
+        </Pressable>
     );
 }
 
@@ -248,12 +396,18 @@ function ModelList(props: {
                         <PickerMenuRow
                             key={`${section.key}:${model.key}`}
                             label={model.name}
-                            // Engine catalogs contain paragraphs, not compact
-                            // badges. Reserve the row for the model name.
                             description={section.title ? undefined : model.description}
                             selected={props.selectedKey === model.key && (!props.groups || props.groups.find(g => g.engine === section.key)?.current === true)}
                             disabled={props.disabled || model.disabled}
                             leading={model.providerName ? <ProviderIcon kind={model.providerKind} size={13} /> : undefined}
+                            trailing={model.supportsFastMode ? (
+                                <Ionicons
+                                    name="flash-outline"
+                                    size={12}
+                                    color={theme.dark ? '#FBBF24' : '#D97706'}
+                                    style={{ opacity: 0.72 }}
+                                />
+                            ) : undefined}
                             onPress={() => props.onPick(model, props.groups ? section.key as SwitchableEngine : undefined)}
                         />
                     ))}
@@ -280,17 +434,101 @@ const styles = StyleSheet.create((theme) => ({
         marginTop: 2,
         borderRadius: 10,
     },
-    // One line box for both labels, so the engine name sits on the model's
-    // baseline instead of floating a pixel above it.
     modelName: { fontSize: 15, lineHeight: 22, color: theme.colors.text, ...Typography.default('semiBold') },
     modelEngine: { fontSize: 12, lineHeight: 22, color: theme.colors.textSecondary, flexShrink: 1, ...Typography.default() },
+    fastRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        minHeight: 46,
+        paddingHorizontal: 10,
+        paddingVertical: 7,
+        marginHorizontal: 6,
+        marginTop: 6,
+        borderRadius: 11,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: 'transparent',
+        ...Platform.select({
+            web: { cursor: 'pointer', userSelect: 'none' } as any,
+            default: {},
+        }),
+    },
+    fastRowDisabled: {
+        opacity: 0.55,
+        ...Platform.select({
+            web: { cursor: 'not-allowed' } as any,
+            default: {},
+        }),
+    },
+    fastMedallion: {
+        width: 28,
+        height: 28,
+        borderRadius: 9,
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+    },
+    fastTextCol: {
+        flex: 1,
+        minWidth: 0,
+        gap: 1,
+    },
+    fastTitleLine: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    fastTitle: {
+        fontSize: 13,
+        lineHeight: 18,
+        color: theme.colors.text,
+        ...Typography.default('semiBold'),
+    },
+    fastActivePill: {
+        paddingHorizontal: 5,
+        paddingVertical: 1,
+        borderRadius: 5,
+    },
+    fastActivePillText: {
+        fontSize: 9.5,
+        lineHeight: 12,
+        letterSpacing: 0.5,
+        ...Typography.default('semiBold'),
+    },
+    fastSubtitle: {
+        fontSize: 11,
+        lineHeight: 15,
+        color: theme.colors.textSecondary,
+        ...Typography.default(),
+    },
+    fastSwitchTrack: {
+        width: 46,
+        height: 26,
+        borderRadius: 13,
+        padding: 2,
+        justifyContent: 'center',
+        flexShrink: 0,
+    },
+    fastSwitchTrackActive: Platform.select({
+        web: { boxShadow: '0 0 10px rgba(245, 158, 11, 0.32)' } as any,
+        default: {},
+    }),
+    fastSwitchThumb: {
+        width: 22,
+        height: 22,
+        borderRadius: 11,
+        alignItems: 'center',
+        justifyContent: 'center',
+        ...Platform.select({
+            web: { boxShadow: '0 1px 4px rgba(0,0,0,0.18)' },
+            default: { shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 2 },
+        }),
+    },
     backRow: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 5,
         minHeight: 34,
-        // Six less than a row's 16, so the chevron's own optical weight puts
-        // the word "模型" on the same line as the labels under it.
         paddingLeft: 4,
         paddingRight: 10,
         marginHorizontal: 6,

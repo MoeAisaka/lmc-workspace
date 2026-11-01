@@ -19,9 +19,11 @@ export type CodexRemoteModeResolution = {
     permissionMode: PermissionMode;
     model: string | undefined;
     effort: ReasoningEffort | undefined;
+    fastMode: boolean | undefined;
     permission: Resolution<PermissionMode>;
     modelResolution: Resolution<string | undefined>;
     effortResolution: Resolution<ReasoningEffort | undefined>;
+    fastModeResolution: Resolution<boolean | undefined>;
 };
 
 /**
@@ -38,17 +40,20 @@ export class CodexRemoteModeState {
     currentPermissionModeExplicitlySet = false;
     currentModel: string | undefined;
     currentEffort: ReasoningEffort | undefined;
+    currentFastMode: boolean | undefined;
 
     constructor(options: {
         permissionMode: PermissionMode;
         model?: string;
         effort?: ReasoningEffort;
+        fastMode?: boolean;
     }) {
         assertCodexModelEffort(options.model, options.effort);
         this.initialPermissionMode = normalizePermissionModeForEngine('codex', options.permissionMode);
         this.currentPermissionMode = this.initialPermissionMode;
         this.currentModel = options.model;
         this.currentEffort = options.effort;
+        this.currentFastMode = options.fastMode;
     }
 
     resolve(meta: MessageMeta | undefined): CodexRemoteModeResolution {
@@ -105,13 +110,35 @@ export class CodexRemoteModeState {
             effortResolution = { kind: 'retained', value: this.currentEffort };
         }
 
+        let fastModeResolution: Resolution<boolean | undefined>;
+        if (meta !== undefined && Object.prototype.hasOwnProperty.call(meta, 'fastMode')) {
+            const incoming = meta?.fastMode;
+            if (incoming === null || incoming === undefined) {
+                this.currentFastMode = undefined;
+                fastModeResolution = { kind: 'updated', value: undefined };
+            } else if (typeof incoming === 'boolean') {
+                this.currentFastMode = incoming;
+                fastModeResolution = { kind: 'updated', value: this.currentFastMode };
+            } else {
+                fastModeResolution = {
+                    kind: 'ignored',
+                    incoming,
+                    value: this.currentFastMode,
+                };
+            }
+        } else {
+            fastModeResolution = { kind: 'retained', value: this.currentFastMode };
+        }
+
         return {
             permissionMode: this.currentPermissionMode,
             model: this.currentModel,
             effort: this.currentEffort,
+            fastMode: this.currentFastMode,
             permission,
             modelResolution,
             effortResolution,
+            fastModeResolution,
         };
     }
 

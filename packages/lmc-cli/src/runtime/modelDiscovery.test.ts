@@ -26,10 +26,12 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 describe('model discovery', () => {
     it('normalizes aliases and rejects malformed rows without dropping valid models', () => {
-        expect(normalizeModels('claude', [null, {}, { value: 'opus', resolvedModel: 'claude-next', displayName: 'Next', supportsEffort: false }, { value: 'default', resolvedModel: 'claude-next', displayName: 'Next', supportsEffort: false }])).toEqual([
-            { id: 'claude-next', name: 'Next', aliases: ['opus', 'default'], efforts: [] },
+        expect(normalizeModels('claude', [null, {}, { value: 'opus', resolvedModel: 'claude-next', displayName: 'Next', supportsEffort: false, supportsFastMode: true }, { value: 'default', resolvedModel: 'claude-next', displayName: 'Next', supportsEffort: false }])).toEqual([
+            { id: 'claude-next', name: 'Next', aliases: ['opus', 'default'], efforts: [], supportsFastMode: true },
         ]);
-        expect(normalizeModels('codex', [{model:'new', supportedReasoningEfforts:[null]}, {model:'valid', supportedReasoningEfforts:[{reasoningEffort:'future'}]}]).map(m=>m.id)).toEqual(['valid']);
+        expect(normalizeModels('codex', [{model:'new', supportedReasoningEfforts:[null]}, {model:'valid', supportedReasoningEfforts:[{reasoningEffort:'future'}], additionalSpeedTiers:['fast']}])).toMatchObject([
+            { id: 'valid', name: 'valid', efforts: ['future'], supportsFastMode: true },
+        ]);
     });
     it.each(['claude', 'codex'] as const)('discovers %s without a model turn and closes the discovery process', async engine => {
         expect((await discoverModels(engine))[0].efforts).toEqual(['future']);

@@ -42,6 +42,7 @@ export function startDaemonControlServer({
     typed.post('/prepare-session-refresh', { schema: { body: z.object({
       sessionId: z.string().min(1), pid: z.number().int().positive(),
       options: z.object({ receiveSeq: z.number().int().nonnegative().optional(), model: z.string().optional(), effort: z.string().optional(), permissionMode: z.string().optional(),
+        fastMode: z.boolean().optional(),
         codexServiceTier: z.enum(['fast','default']).optional(),
         codexContextLimits: z.object({ contextWindow: z.number().optional(), autoCompactTokenLimit: z.number().optional() }).optional(),
         engine: z.enum(['claude', 'codex', 'agy']).optional(),

@@ -144,9 +144,12 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
     // reset() moves any stale entries to completedRequests with status
     // 'canceled' so the UI reflects what actually happened.
     permissionHandler.reset('Previous CLI process exited before responding');
-    const stopWatchingConfiguration = watchSessionConfiguration(session.client, 'claude', metadata => {
-        if (metadata.permissionMode !== undefined) return permissionHandler.handleModeChange(normalizeRemotePermissionMode(metadata.permissionMode ?? undefined));
-        return undefined;
+    let activeSetFastMode: ((fastMode: boolean | null | undefined) => Promise<void>) | null = null;
+    const stopWatchingConfiguration = watchSessionConfiguration(session.client, 'claude', async metadata => {
+        if (metadata.permissionMode !== undefined) await permissionHandler.handleModeChange(normalizeRemotePermissionMode(metadata.permissionMode ?? undefined));
+        if (metadata.fastMode !== undefined && activeSetFastMode) {
+            await activeSetFastMode(session.getNativeMode().fastMode);
+        }
     });
 
     // Create outgoing message queue
@@ -528,6 +531,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                             safeIdle = false;
                             const latest = session.getRefreshSettings();
                             if (Object.prototype.hasOwnProperty.call(latest, 'permissionMode')) msg.mode = { ...msg.mode, permissionMode: normalizeRemotePermissionMode(latest.permissionMode) };
+                            msg.mode = { ...msg.mode, fastMode: session.getNativeMode().fastMode };
                             const boundary = decideQueryBoundary({ runningModeHash: modeHash, batchHash: msg.hash, isolate: !!msg.isolate, carried: !!carried, backgroundTasks: backgroundTasks.size });
                             if (boundary === 'restart') {
                                 logger.debug('[remote]: mode has changed, pending message');
@@ -623,6 +627,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
                         }));
                     },
                     onQueryReady: (q) => {
+                        activeSetFastMode = q.setFastMode ?? null;
                         permissionHandler.setPermissionModeUpdater(async (mode) => {
                             await q.setPermissionMode(mode);
                         });
@@ -695,6 +700,7 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
             } finally {
 
                 logger.debug('[remote]: launch finally');
+                activeSetFastMode = null;
                 safeIdle = true;
                 releaseForegroundTasks(backgroundTasks);
 

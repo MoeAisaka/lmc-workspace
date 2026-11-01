@@ -37,6 +37,7 @@ export function refreshSessionRuntimeMetadata(metadata: Metadata, launch: Metada
             agyConversationId: undefined,
             modelMode: launch.modelMode,
             effortLevel: launch.effortLevel,
+            fastMode: launch.fastMode,
         } : {}),
     };
 }

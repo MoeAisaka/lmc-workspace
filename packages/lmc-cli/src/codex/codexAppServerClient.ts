@@ -307,6 +307,10 @@ export class CodexAppServerClient {
     get processId(): number | undefined { return this.process?.pid; }
     setActivityHandler(handler: (() => void) | null): void { this.activityHandler = handler; }
 
+    setDefaultServiceTier(serviceTier?: CodexServiceTier): void {
+        this.serviceTier = validateCodexServiceTier(serviceTier);
+    }
+
     setRateLimitsHandler(handler: (value: unknown) => void): void {
         this.rateLimitsHandler = handler;
     }
@@ -1312,6 +1316,7 @@ export class CodexAppServerClient {
         approvalPolicy?: ApprovalPolicy;
         sandbox?: SandboxMode;
         effort?: ReasoningEffort;
+        serviceTier?: CodexServiceTier;
         extraInputItems?: InputItem[];
     }): Promise<void> {
         if (!this._threadId) {
@@ -1336,6 +1341,8 @@ export class CodexAppServerClient {
         if (opts?.approvalPolicy) params.approvalPolicy = opts.approvalPolicy;
         if (opts?.model) params.model = opts.model;
         if (opts?.effort) params.effort = opts.effort;
+        const effectiveServiceTier = validateCodexServiceTier(opts?.serviceTier);
+        if (effectiveServiceTier !== undefined) params.serviceTier = effectiveServiceTier;
 
         // Map sandbox mode to the camelCase policy format the server expects
         if (opts?.sandbox) {
@@ -1375,6 +1382,7 @@ export class CodexAppServerClient {
         approvalPolicy?: ApprovalPolicy;
         sandbox?: SandboxMode;
         effort?: ReasoningEffort;
+        serviceTier?: CodexServiceTier;
         extraInputItems?: InputItem[];
         turnTimeoutMs?: number;
         /** Best-effort side effect after native acceptance; failures do not discard the user turn. */

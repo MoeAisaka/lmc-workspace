@@ -27,6 +27,8 @@ export interface EnhancedMode {
     disallowedTools?: string[];
     /** Effort level passed through to the Claude Agent SDK as the `effort` option. */
     effort?: ClaudeEffort;
+    /** Fast mode toggle passed via Claude flag settings / interactive settings. */
+    fastMode?: boolean;
 }
 
 interface LoopOptions {

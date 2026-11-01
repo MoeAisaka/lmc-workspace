@@ -15,6 +15,7 @@ export const MessageMetaSchema = z.object({
   allowedTools: z.array(z.string()).nullable().optional(),
   disallowedTools: z.array(z.string()).nullable().optional(),
   effort: z.string().nullable().optional(),
+  fastMode: z.boolean().nullable().optional(),
   displayText: z.string().optional(),
   // What to do with a message that arrives while the engine is busy;
   // absent from older apps. See docs/plans/turn-queue-and-interrupt.md.

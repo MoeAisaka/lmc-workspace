@@ -75,3 +75,17 @@ it('forwards context limits and refuses invalid pairs atomically', () => {
   expect(() => appendDaemonSpawnModeArgs(args, { directory: '/repo', permissionMode: 'yolo', codexServiceTier: '2x' as any }, 'codex')).toThrow();
   expect(args).toEqual(['codex']);
  });
+
+ it('maps boolean fastMode onto Claude --fast-mode and Codex --service-tier while ignoring Antigravity', () => {
+  const claudeArgs: string[] = [];
+  appendDaemonSpawnModeArgs(claudeArgs, { directory: '/repo', fastMode: true }, 'claude');
+  expect(claudeArgs).toEqual(['--fast-mode', 'true']);
+
+  const codexArgs: string[] = [];
+  appendDaemonSpawnModeArgs(codexArgs, { directory: '/repo', fastMode: true }, 'codex');
+  expect(codexArgs).toEqual(['--service-tier', 'fast']);
+
+  const agyArgs: string[] = [];
+  appendDaemonSpawnModeArgs(agyArgs, { directory: '/repo', fastMode: true }, 'agy');
+  expect(agyArgs).toEqual([]);
+ });

@@ -581,6 +581,27 @@ export const storage = create<StorageState>()((set, get) => {
                     : resolveWorkerPermissionMode({ ...session.metadata, permissionMode: permissionBase }, session.metadata?.flavor ?? '') ?? null;
                 const resolvedModelMode = resolveModePick('modelMode');
                 const resolvedEffortLevel = resolveModePick('effortLevel');
+                const flavorSwitched = Boolean(
+                    prior?.metadata?.flavor
+                    && session.metadata?.flavor
+                    && prior.metadata.flavor !== session.metadata.flavor,
+                );
+                const resolvedFastMode: boolean | null = (() => {
+                    const existing = prior?.fastMode ?? null;
+                    if (isAgentModePushPending(session.id, 'fastMode')) {
+                        return existing;
+                    }
+                    if (session.metadata && session.metadata.fastMode !== undefined) {
+                        return session.metadata.fastMode ?? null;
+                    }
+                    if (flavorSwitched) {
+                        return null;
+                    }
+                    if (existing !== null) {
+                        return existing;
+                    }
+                    return session.metadata?.codexServiceTier === 'fast' ? true : null;
+                })();
 
                 // Local activity timestamp — preserve in-memory value, else restore from MMKV.
                 const resolvedLastMessageSentAt = state.sessions[session.id]?.lastMessageSentAt ?? savedLastMessageSentAt[session.id];
@@ -600,6 +621,7 @@ export const storage = create<StorageState>()((set, get) => {
                         : normalizePermissionModeForEngine(session.metadata?.flavor, resolvedPermissionMode),
                     modelMode: resolvedModelMode,
                     effortLevel: resolvedEffortLevel,
+                    fastMode: resolvedFastMode,
                     lastMessageSentAt: resolvedLastMessageSentAt,
                     thinking: resolvedThinking.thinking,
                     thinkingAt: resolvedThinking.thinkingAt,
@@ -1256,6 +1278,7 @@ export const storage = create<StorageState>()((set, get) => {
                         ...(patch.permissionMode !== undefined && { permissionMode: patch.permissionMode }),
                         ...(patch.modelMode !== undefined && { modelMode: patch.modelMode }),
                         ...(patch.effortLevel !== undefined && { effortLevel: patch.effortLevel }),
+                        ...(patch.fastMode !== undefined && { fastMode: patch.fastMode }),
                     }
                 }
             };

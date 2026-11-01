@@ -18,7 +18,7 @@ export function normalizePoeModels(raw: unknown): DiscoveredModel[] {
         const effort = Array.isArray(row.parameters) ? row.parameters.find((p: any) => p?.name === 'effort' || p?.name === 'output_effort') : undefined;
         const levels = Array.isArray(effort?.schema?.enum) ? effort.schema.enum.filter((s: string) => ['low', 'medium', 'high', 'xhigh', 'max'].includes(s)) : undefined;
         const parsed = DiscoveredModelSchema.safeParse({ id: row.id, name: row.metadata?.display_name ?? row.id,
-            efforts: levels, defaultEffort: levels?.includes(effort?.default_value) ? effort.default_value : undefined });
+            efforts: levels, defaultEffort: levels?.includes(effort?.default_value) ? effort.default_value : undefined, supportsFastMode: false });
         return parsed.success ? [parsed.data] : [];
     }).slice(0, 256);
 }
@@ -32,14 +32,20 @@ export function normalizeModels(engine: Engine, rows: unknown[]): DiscoveredMode
         const efforts = engine === 'claude'
             ? row.supportsEffort === false ? [] : row.supportedEffortLevels
             : Array.isArray(row.supportedReasoningEfforts) ? row.supportedReasoningEfforts.map((entry: any) => entry?.reasoningEffort) : undefined;
+        const supportsFastMode = engine === 'claude'
+            ? (typeof row.supportsFastMode === 'boolean' ? row.supportsFastMode : undefined)
+            : ((Array.isArray(row.additionalSpeedTiers) && row.additionalSpeedTiers.includes('fast'))
+                || (Array.isArray(row.serviceTiers) && row.serviceTiers.some((tier: any) => tier?.id === 'priority' || tier?.id === 'fast' || /^fast$/i.test(String(tier?.name ?? ''))))
+                || undefined);
         const parsed = DiscoveredModelSchema.safeParse({
             id, name: row.displayName ?? id, description: row.description,
             aliases: engine === 'claude' && row.value !== id ? [row.value] : undefined,
-            efforts, defaultEffort: row.defaultReasoningEffort, isDefault: row.isDefault,
+            efforts, defaultEffort: row.defaultReasoningEffort, supportsFastMode, isDefault: row.isDefault,
         });
         if (!parsed.success) continue;
         const previous = models.get(parsed.data.id);
         models.set(parsed.data.id, { ...parsed.data,
+            ...(previous?.supportsFastMode !== undefined && parsed.data.supportsFastMode === undefined ? { supportsFastMode: previous.supportsFastMode } : {}),
             aliases: [...new Set([...(previous?.aliases ?? []), ...(parsed.data.aliases ?? [])])],
         });
     }

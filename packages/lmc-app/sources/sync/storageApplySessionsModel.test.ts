@@ -392,4 +392,19 @@ describe('applySessions on a same-engine refresh', () => {
         expect(merged.effortLevel).toBe('medium');
         expect(resolveMessageModeMeta(merged).model).toBe('gpt-6-astra');
     });
+
+    it('mirrors fastMode and codexServiceTier across session updates and clears fastMode across engine switches', () => {
+        const id = 'fast-mode-sync';
+        storage.getState().applySessions([session({ ...CODEX_AFTER, codexServiceTier: 'fast' }, id)]);
+        expect(storage.getState().sessions[id].fastMode).toBe(true);
+
+        storage.getState().updateSessionAgentModes(id, { fastMode: false });
+        expect(storage.getState().sessions[id].fastMode).toBe(false);
+
+        const switched = mergeSwitch(
+            { ...CLAUDE_BEFORE, fastMode: true },
+            CODEX_AFTER,
+        );
+        expect(switched.fastMode).toBeNull();
+    });
 });

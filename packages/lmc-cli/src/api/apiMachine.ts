@@ -179,7 +179,7 @@ export class ApiMachineClient {
         // must not fail against a daemon that has not, and vice versa. Drop the
         // old registration only once every device runs a version that has this.
         const spawnSessionHandler = async (params: any) => {
-            const { directory, sessionId, machineId, approvedNewDirectoryCreation, agent, permissionMode, modelMode, effortLevel, codexServiceTier, codexContextLimits, environmentVariables, token, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId, isSideChat, hubSessionId, title } = params || {};
+            const { directory, sessionId, machineId, approvedNewDirectoryCreation, agent, permissionMode, modelMode, effortLevel, fastMode, codexServiceTier, codexContextLimits, environmentVariables, token, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId, isSideChat, hubSessionId, title } = params || {};
             logger.debug('[API MACHINE] Spawning session', spawnLogSummary(params ?? {}));
 
             if (!directory) {
@@ -188,7 +188,7 @@ export class ApiMachineClient {
 
             suppliedCredentialEngine({ agent, token, environmentVariables });
             if (agent === 'codex') { validateCodexServiceTier(codexServiceTier); validateCodexContextLimits(codexContextLimits); }
-            const result = await spawnSession({ directory, sessionId, machineId, approvedNewDirectoryCreation, agent, permissionMode, modelMode, effortLevel, codexServiceTier, codexContextLimits, environmentVariables, token, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId, isSideChat, hubSessionId: typeof hubSessionId === 'string' ? hubSessionId : undefined, title: typeof title === 'string' ? title : undefined });
+            const result = await spawnSession({ directory, sessionId, machineId, approvedNewDirectoryCreation, agent, permissionMode, modelMode, effortLevel, fastMode: typeof fastMode === 'boolean' ? fastMode : undefined, codexServiceTier, codexContextLimits, environmentVariables, token, resumeClaudeSessionId, resumeCodexThreadId, parentSessionId, forkedFromMessageId, isSideChat, hubSessionId: typeof hubSessionId === 'string' ? hubSessionId : undefined, title: typeof title === 'string' ? title : undefined });
 
             switch (result.type) {
                 case 'success':

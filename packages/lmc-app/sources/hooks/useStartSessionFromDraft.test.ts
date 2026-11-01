@@ -111,6 +111,10 @@ vi.mock('@/components/modelModeOptions', async (importOriginal) => ({
         { key: 'yolo', name: 'YOLO' },
         { key: 'bypassPermissions', name: 'YOLO' },
     ],
+    getAvailableModels: () => [
+        { key: 'default', name: 'Default' },
+        { key: 'opus', name: 'Opus' },
+    ],
     getHardcodedModelModes: () => [
         { key: 'default', name: 'Default' },
         { key: 'opus', name: 'Opus' },

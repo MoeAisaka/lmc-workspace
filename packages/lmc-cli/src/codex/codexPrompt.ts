@@ -12,6 +12,8 @@ export interface CodexEnhancedMode {
     appendSystemPrompt?: string;
     /** Reasoning effort passed through to Codex's sendTurnAndWait. */
     effort?: ReasoningEffort;
+    /** Fast mode toggle mapped to Codex turn/start serviceTier ('fast' | 'default'). */
+    fastMode?: boolean;
 }
 
 export function hashCodexEnhancedMode(mode: CodexEnhancedMode, purpose: 'queue' | 'steer' = 'queue'): string {
@@ -26,6 +28,7 @@ export function hashCodexEnhancedMode(mode: CodexEnhancedMode, purpose: 'queue' 
         // full prompt in queue grouping, but never use it to reject a steer.
         appendSystemPrompt: purpose === 'queue' ? mode.appendSystemPrompt : undefined,
         effort: purpose === 'queue' ? mode.effort : undefined,
+        fastMode: purpose === 'queue' ? mode.fastMode : undefined,
     });
 }
 

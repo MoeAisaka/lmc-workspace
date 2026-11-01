@@ -418,3 +418,43 @@ describe('Antigravity native effort variants', () => {
         expect(resolveMessageModeMeta(session, { agentDefaultOverrides: { agy: { effortLevel: 'medium' } } }, machine)).toMatchObject({ model: 'gemini-4-argon-medium', effort: null });
     });
 });
+
+describe('resolveMessageModeMeta fastMode gating', () => {
+    it('forwards fastMode=true for Claude Opus and Codex models, and drops or disables it on unsupported models', () => {
+        const opusMeta = resolveMessageModeMeta({
+            permissionMode: 'default',
+            modelMode: 'claude-opus-4-6',
+            effortLevel: 'high',
+            fastMode: true,
+            metadata: { flavor: 'claude' },
+        } as any);
+        expect(opusMeta.fastMode).toBe(true);
+
+        const codexMeta = resolveMessageModeMeta({
+            permissionMode: 'auto',
+            modelMode: 'gpt-5.4',
+            effortLevel: 'medium',
+            fastMode: true,
+            metadata: { flavor: 'codex' },
+        } as any);
+        expect(codexMeta.fastMode).toBe(true);
+
+        const sonnetMeta = resolveMessageModeMeta({
+            permissionMode: 'default',
+            modelMode: 'claude-sonnet-4-6',
+            effortLevel: 'high',
+            fastMode: true,
+            metadata: { flavor: 'claude', fastMode: true },
+        } as any);
+        expect(sonnetMeta.fastMode).toBe(false);
+
+        const agyMeta = resolveMessageModeMeta({
+            permissionMode: 'default',
+            modelMode: 'gemini-3-flash-preview',
+            effortLevel: null,
+            fastMode: true,
+            metadata: { flavor: 'agy', version: '1.2.141' },
+        } as any);
+        expect(agyMeta.fastMode).toBeUndefined();
+    });
+});

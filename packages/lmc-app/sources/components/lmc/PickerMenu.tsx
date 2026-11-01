@@ -143,6 +143,7 @@ export const PickerMenuRow = React.memo((props: {
      * of what a list of nine models looks ragged for.
      */
     meta?: string | null;
+    trailing?: React.ReactNode;
     selected: boolean;
     disabled?: boolean;
     leading?: React.ReactNode;
@@ -173,6 +174,7 @@ export const PickerMenuRow = React.memo((props: {
                     <Text style={styles.description} numberOfLines={1}>{props.description}</Text>
                 )}
             </View>
+            {props.trailing}
             {!!props.meta && <Text style={styles.meta} numberOfLines={1}>{props.meta}</Text>}
             <View style={styles.check}>
                 {props.selected && (
