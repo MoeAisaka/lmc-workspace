@@ -2,7 +2,7 @@
  * changes the navigation, user bubbles, code grid, or status colors. Nested
  * spans inherit these metrics; inline emphasis keeps its own semantic style. */
 export const readingStyles = `
-[data-lmc-prose] { min-width: 0; overflow-wrap: anywhere; line-height: 1.5; }
+[data-lmc-prose] { min-width: 0; overflow-wrap: anywhere; line-height: 1.75; }
 [data-lmc-prose] { font-feature-settings: "kern" 1, "liga" 1; -webkit-font-smoothing: antialiased; }
 /* Mail is supporting material: 14px against the reply's 16px. Capture the
  * user's scale on the card before overriding it inside prose. Nested quotes
@@ -22,7 +22,7 @@ export const readingStyles = `
   background: var(--lmc-prose-tint, rgba(127, 127, 127, 0.1));
   border: 1px solid var(--lmc-prose-divider, rgba(127, 127, 127, 0.18));
   font-size: calc(14px * var(--lmc-text-scale, 1)) !important;
-  line-height: calc(21px * var(--lmc-text-scale, 1) * var(--lmc-line-scale, 1)) !important;
+  line-height: calc(22px * var(--lmc-text-scale, 1) * var(--lmc-line-scale, 1)) !important;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
@@ -78,15 +78,15 @@ html[data-lmc-reading-style="editorial"] [data-lmc-prose="prose"],
 html[data-lmc-reading-style="academic"] [data-lmc-prose="prose"] { max-width: 100%; }
 html[data-lmc-reading-style="editorial"] [data-lmc-prose="prose"] > [data-lmc-block="paragraph"],
 html[data-lmc-reading-style="editorial"] [data-lmc-prose="prose"] > [data-lmc-block="list"] {
-  font-size: calc(16px * var(--lmc-text-scale, 1)); line-height: calc(24px * var(--lmc-text-scale, 1) * var(--lmc-line-scale, 1)); margin-top: 10px; margin-bottom: 16px;
+  font-size: calc(16px * var(--lmc-text-scale, 1)); line-height: calc(28px * var(--lmc-text-scale, 1) * var(--lmc-line-scale, 1)); margin-top: 10px; margin-bottom: 18px;
 }
 html[data-lmc-reading-style="academic"] [data-lmc-prose="prose"] > [data-lmc-block="paragraph"],
 html[data-lmc-reading-style="academic"] [data-lmc-prose="prose"] > [data-lmc-block="list"] {
-  font-size: calc(16px * var(--lmc-text-scale, 1)); line-height: calc(24px * var(--lmc-text-scale, 1) * var(--lmc-line-scale, 1)); margin-top: 8px; margin-bottom: 14px;
+  font-size: calc(16px * var(--lmc-text-scale, 1)); line-height: calc(28px * var(--lmc-text-scale, 1) * var(--lmc-line-scale, 1)); margin-top: 9px; margin-bottom: 16px;
 }
 html:not([data-lmc-reading-style="standard"]) [data-lmc-prose="prose"] > [data-lmc-block="list"] [data-lmc-list-text] { font-size: inherit; line-height: inherit; }
-html[data-lmc-reading-style="editorial"] [data-lmc-prose="prose"] > [data-lmc-block="list"] { gap: 10px; }
-html[data-lmc-reading-style="academic"] [data-lmc-prose="prose"] > [data-lmc-block="list"] { gap: 8px; }
+html[data-lmc-reading-style="editorial"] [data-lmc-prose="prose"] > [data-lmc-block="list"] { gap: 12px; }
+html[data-lmc-reading-style="academic"] [data-lmc-prose="prose"] > [data-lmc-block="list"] { gap: 10px; }
 html[data-lmc-reading-style="editorial"] [data-lmc-prose="prose"] > [data-lmc-heading] { margin-top: 26px; margin-bottom: 12px; }
 html[data-lmc-reading-style="editorial"] [data-lmc-prose="prose"] > [data-lmc-heading="1"] {
   font-size: calc(28px * var(--lmc-text-scale, 1)); line-height: calc(38px * var(--lmc-text-scale, 1) * var(--lmc-line-scale, 1)); font-weight: 700; border-bottom: none; padding-bottom: 0;

@@ -141,7 +141,7 @@ export function SavedFileDetails({ id }: { id: string }) {
                 {preview?.url && Platform.OS === 'web' && (previewType === 'image'
                     ? React.createElement('img', { src: preview.url, alt: file.manifest.name, style: { maxWidth: '100%', maxHeight: 600, objectFit: 'contain' } })
                     : React.createElement('iframe', { src: preview.url, title: file.manifest.name, sandbox: '', style: { width: '100%', height: 560, border: 0 } }))}
-                {preview?.text !== undefined && <Text selectable style={{ color: theme.colors.text, fontSize: 14, lineHeight: 21 }}>{preview.text}</Text>}
+                {preview?.text !== undefined && <Text selectable style={{ color: theme.colors.text, fontSize: 14, lineHeight: 24.5 }}>{preview.text}</Text>}
                     {previewType && Platform.OS === 'web' && file.manifest.size <= FILE_PREVIEW_LIMIT && !preview && !busy && button(t('lmc.savedFiles.loadPreview'), () => void run(loadingPreviewLabel, async () => {
                         if (Platform.OS !== 'web') throw new Error(t('lmc.savedFiles.previewWebOnlyError'));
                         if (file.manifest.size > FILE_PREVIEW_LIMIT) throw new Error(t('lmc.savedFiles.previewLimitError'));

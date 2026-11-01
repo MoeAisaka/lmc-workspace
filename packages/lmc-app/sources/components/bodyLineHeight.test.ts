@@ -31,18 +31,16 @@ import {
 } from './MultiTextInput.web';
 import { readingStyles } from './markdown/readingStyles';
 
-describe('LMC 1.5 body line-height baseline', () => {
-    it('sets composer and prose reading layouts to 1.5 line-height', () => {
-        expect(BODY_LINE_HEIGHT_RATIO).toBe(1.5);
-        expect(MULTI_TEXT_INPUT_LINE_HEIGHT / MULTI_TEXT_INPUT_FONT_SIZE).toBe(1.5);
-        expect(WEB_LINE_HEIGHT / WEB_FONT_SIZE).toBe(1.5);
-        expect(readingStyles).toContain('[data-lmc-prose] { min-width: 0; overflow-wrap: anywhere; line-height: 1.5; }');
-        expect(readingStyles).toContain('font-size: calc(16px * var(--lmc-text-scale, 1)); line-height: calc(24px * var(--lmc-text-scale, 1) * var(--lmc-line-scale, 1));');
-        expect(readingStyles).not.toContain('line-height: calc(28px * var(--lmc-text-scale, 1) * var(--lmc-line-scale, 1)); margin-top: 10px;');
-        expect(readingStyles).not.toContain('line-height: calc(28px * var(--lmc-text-scale, 1) * var(--lmc-line-scale, 1)); margin-top: 8px;');
+describe('LMC 1.75 body line-height baseline', () => {
+    it('sets composer and prose reading layouts to 1.75 line-height', () => {
+        expect(BODY_LINE_HEIGHT_RATIO).toBe(1.75);
+        expect(MULTI_TEXT_INPUT_LINE_HEIGHT / MULTI_TEXT_INPUT_FONT_SIZE).toBe(1.75);
+        expect(WEB_LINE_HEIGHT / WEB_FONT_SIZE).toBe(1.75);
+        expect(readingStyles).toContain('[data-lmc-prose] { min-width: 0; overflow-wrap: anywhere; line-height: 1.75; }');
+        expect(readingStyles).toContain('font-size: calc(16px * var(--lmc-text-scale, 1)); line-height: calc(28px * var(--lmc-text-scale, 1) * var(--lmc-line-scale, 1));');
     });
 
-    it('applies 1.5 default line-height to regular body Text without bloating headings, KPIs, or single-line labels', () => {
+    it('applies 1.75 default line-height to regular body Text without bloating headings, KPIs, or single-line labels', () => {
         let root!: { root: any };
         act(() => {
             root = create(
@@ -60,7 +58,7 @@ describe('LMC 1.5 body line-height baseline', () => {
 
         const lineHeightOf = (testID: string) =>
             flatten(root.root.find((node: any) => node.type === 'RNText' && node.props.testID === testID).props.style)?.lineHeight;
-        expect([24, '1.5']).toContain(lineHeightOf('body'));
+        expect([28, '1.75']).toContain(lineHeightOf('body'));
         expect(lineHeightOf('single-line')).toBeUndefined();
         expect(lineHeightOf('bold')).toBeUndefined();
         expect(lineHeightOf('kpi')).toBeUndefined();

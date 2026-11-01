@@ -16,7 +16,7 @@ interface StyledTextProps extends RNTextProps {
 
 const TextTypographyContext = React.createContext(false);
 
-export const BODY_LINE_HEIGHT_RATIO = 1.5;
+export const BODY_LINE_HEIGHT_RATIO = 1.75;
 
 function flattenStyle(style: unknown): TextStyle | undefined {
   if (StyleSheet?.flatten) return StyleSheet.flatten(style as StyleProp<TextStyle>);

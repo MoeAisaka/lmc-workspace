@@ -771,9 +771,9 @@ const style = StyleSheet.create((theme) => ({
     text: {
         ...Typography.default(),
         fontSize: conversationFontSize(16),
-        lineHeight: conversationLineHeight(24),
-        marginTop: 8,
-        marginBottom: 10,
+        lineHeight: conversationLineHeight(28),
+        marginTop: 9,
+        marginBottom: 12,
         color: theme.colors.text,
         fontWeight: '400',
     },
@@ -796,7 +796,7 @@ const style = StyleSheet.create((theme) => ({
     code: {
         ...Typography.mono(),
         fontSize: conversationFontSize(14),
-        lineHeight: conversationLineHeight(21),
+        lineHeight: conversationLineHeight(22),
         color: theme.colors.text,
         ...(Platform.OS !== 'web' ? {
             backgroundColor: theme.colors.surfaceHighest,
@@ -819,42 +819,42 @@ const style = StyleSheet.create((theme) => ({
     },
     header1: {
         fontSize: conversationFontSize(23),
-        lineHeight: conversationLineHeight(32),
+        lineHeight: conversationLineHeight(34),
         fontWeight: '700',
         marginTop: 22,
         marginBottom: 10,
     },
     header2: {
         fontSize: conversationFontSize(19.5),
-        lineHeight: conversationLineHeight(28),
+        lineHeight: conversationLineHeight(30),
         fontWeight: '700',
         marginTop: 20,
         marginBottom: 8,
     },
     header3: {
         fontSize: conversationFontSize(17.5),
-        lineHeight: conversationLineHeight(26),
+        lineHeight: conversationLineHeight(28),
         fontWeight: '600',
         marginTop: 16,
         marginBottom: 6,
     },
     header4: {
         fontSize: conversationFontSize(16),
-        lineHeight: conversationLineHeight(24),
+        lineHeight: conversationLineHeight(26),
         fontWeight: '600',
         marginTop: 12,
         marginBottom: 6,
     },
     header5: {
         fontSize: conversationFontSize(15),
-        lineHeight: conversationLineHeight(22.5),
+        lineHeight: conversationLineHeight(24),
         fontWeight: '600',
         marginTop: 10,
         marginBottom: 4,
     },
     header6: {
         fontSize: conversationFontSize(14),
-        lineHeight: conversationLineHeight(21),
+        lineHeight: conversationLineHeight(22),
         fontWeight: '600',
         color: theme.colors.textSecondary,
         marginTop: 10,
@@ -870,9 +870,9 @@ const style = StyleSheet.create((theme) => ({
     },
     listContainer: {
         flexDirection: 'column',
-        marginTop: 6,
-        marginBottom: 12,
-        gap: 7,
+        marginTop: 8,
+        marginBottom: 14,
+        gap: 9,
     },
     listRow: {
         flexDirection: 'row',
@@ -895,7 +895,7 @@ const style = StyleSheet.create((theme) => ({
     },
     taskMarkerWrap: {
         marginRight: 8,
-        paddingTop: 3,
+        paddingTop: 5,
     },
     taskCheckedBody: {
         opacity: 0.78,
@@ -1078,14 +1078,14 @@ const style = StyleSheet.create((theme) => ({
     optionText: {
         ...Typography.default(),
         fontSize: conversationFontSize(16),
-        lineHeight: conversationLineHeight(24),
+        lineHeight: conversationLineHeight(28),
         color: theme.colors.text,
     },
     optionDescription: {
         ...Typography.default(),
         color: theme.colors.textSecondary,
         fontSize: conversationFontSize(14),
-        lineHeight: conversationLineHeight(21),
+        lineHeight: conversationLineHeight(22),
         marginTop: 4,
     },
     optionButton: {
@@ -1101,7 +1101,7 @@ const style = StyleSheet.create((theme) => ({
     optionButtonText: {
         ...Typography.default(),
         fontSize: conversationFontSize(16),
-        lineHeight: conversationLineHeight(24),
+        lineHeight: conversationLineHeight(28),
         color: theme.colors.text,
     },
 
@@ -1203,14 +1203,14 @@ const style = StyleSheet.create((theme) => ({
         ...Typography.default('semiBold'),
         color: theme.colors.text,
         fontSize: conversationFontSize(15),
-        lineHeight: conversationLineHeight(22.5),
+        lineHeight: conversationLineHeight(24),
     },
     tableCellText: {
         ...(Platform.OS === 'web' ? ({ wordBreak: 'break-word' } as object) : {}),
         ...Typography.default(),
         color: theme.colors.text,
         fontSize: conversationFontSize(15),
-        lineHeight: conversationLineHeight(22.5),
+        lineHeight: conversationLineHeight(24),
     },
 
     ...(Platform.OS === 'web' ? {

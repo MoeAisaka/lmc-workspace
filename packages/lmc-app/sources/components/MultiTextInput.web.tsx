@@ -14,7 +14,7 @@ export interface KeyPressEvent {
 export type OnKeyPressCallback = (event: KeyPressEvent) => boolean;
 
 export const MULTI_TEXT_INPUT_FONT_SIZE = 16;
-export const MULTI_TEXT_INPUT_LINE_HEIGHT = 24;
+export const MULTI_TEXT_INPUT_LINE_HEIGHT = 28;
 
 export interface TextInputState {
     text: string;

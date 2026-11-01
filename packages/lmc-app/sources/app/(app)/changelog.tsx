@@ -160,7 +160,7 @@ const styles = StyleSheet.create((theme) => ({
     summaryText: {
         ...Typography.default('regular'),
         fontSize: 16,
-        lineHeight: 24,
+        lineHeight: 28,
         color: theme.colors.text,
         marginBottom: 16,
     },
