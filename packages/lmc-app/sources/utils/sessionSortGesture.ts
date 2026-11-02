@@ -16,6 +16,14 @@ export function touchSortIntent(armed: boolean, distance: number, released: bool
     return armed ? 'hold' : 'tap';
 }
 
+export function pointerSortIntent(pointerType: string, armed: boolean, distance: number, released: boolean) {
+    const slop = sortSlopForPointer(pointerType);
+    if (pointerType === 'mouse' && !released && distance > slop) {
+        return 'drag';
+    }
+    return touchSortIntent(armed, distance, released, slop);
+}
+
 /**
  * What releasing a held row means.
  *

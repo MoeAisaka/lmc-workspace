@@ -299,4 +299,89 @@ describe('SortableHubGroups with RN Web Pressable', () => {
         act(() => vi.runAllTimers());
         expect(sync.applySettings).toHaveBeenCalledExactlyOnceWith({ sessionProjectOrder: { 'lmc:hubs': ['H2', 'H1'] } });
     });
+
+    it('reorders on immediate mouse drag without requiring a 350ms stationary hold', () => {
+        mount();
+        const text = container.querySelector('[data-header-text="H1"]')!;
+        pointer(text, 'pointerdown', 10, 'mouse');
+        pointer(text, 'pointermove', 365, 'mouse');
+        pointer(text, 'pointerup', 365, 'mouse');
+        act(() => vi.runAllTimers());
+        expect(sync.applySettings).toHaveBeenCalledExactlyOnceWith({ sessionProjectOrder: { 'lmc:hubs': ['H2', 'H3', 'H1'] } });
+    });
+
+    it('reorders a tall expanded hub upward past a short collapsed hub without snapping back', () => {
+        act(() => root.render(React.createElement(SortableHubGroups<{ id: string }>, {
+            storageKey: 'lmc:hubs',
+            items: [{ id: 'H1' }, { id: 'H2' }],
+            getId: (item) => item.id,
+            renderItem: (item, handleProps) => React.createElement('section', { 'data-group': item.id },
+                React.createElement(Pressable, { ...handleProps, accessibilityRole: 'button' },
+                    React.createElement('span', { 'data-header-text': item.id }, item.id))),
+        })));
+        // H1 is collapsed (58px), H2 is expanded with 6 workers (360px).
+        const geometry = [{ top: 0, height: 58 }, { top: 58, height: 360 }];
+        container.querySelectorAll<HTMLElement>('[data-sort-active]').forEach((node, index) => {
+            vi.spyOn(node, 'getBoundingClientRect').mockReturnValue(geometry[index] as DOMRect);
+        });
+        Object.defineProperty(container.firstElementChild, 'setPointerCapture', { value: () => {}, configurable: true });
+
+        const h2Header = container.querySelector('[data-header-text="H2"]')!;
+        pointer(h2Header, 'pointerdown', 80, 'mouse');
+        // Drag H2's header up into H1's top half (y = 20 => top = -2 < H1 midpoint 29).
+        pointer(h2Header, 'pointermove', 20, 'mouse');
+        pointer(h2Header, 'pointerup', 20, 'mouse');
+        act(() => vi.runAllTimers());
+
+        expect(sync.applySettings).toHaveBeenCalledExactlyOnceWith({ sessionProjectOrder: { 'lmc:hubs': ['H2', 'H1'] } });
+    });
+
+    it('keeps tracking via window listeners and commits order even if pointer capture is lost and pointerup fires outside root', () => {
+        mount();
+        const text = container.querySelector('[data-header-text="H1"]')!;
+        const rootEl = container.firstElementChild as HTMLElement;
+        Object.defineProperty(rootEl, 'hasPointerCapture', { value: () => false, configurable: true });
+
+        pickUp(text);
+        pointer(text, 'pointermove', 120);
+        // Simulate browser / ancestor gesture responder revoking pointer capture mid-drag.
+        const lost = new MouseEvent('lostpointercapture', { bubbles: true, cancelable: false, clientX: 20, clientY: 120 });
+        Object.defineProperties(lost, { pointerId: { value: 1 }, pointerType: { value: 'mouse' }, isPrimary: { value: true } });
+        act(() => { rootEl.dispatchEvent(lost); });
+
+        // User moves outside the sidebar root onto document.body and releases mouse.
+        pointer(document.body, 'pointermove', 365);
+        pointer(document.body, 'pointerup', 365);
+        act(() => vi.runAllTimers());
+
+        expect(sync.applySettings).toHaveBeenCalledExactlyOnceWith({ sessionProjectOrder: { 'lmc:hubs': ['H2', 'H3', 'H1'] } });
+    });
+
+    it('flushes pending save when items change during the 180ms drop animation', () => {
+        vi.stubGlobal('matchMedia', () => ({ matches: false }));
+        const renderWithItems = (items: { id: string }[]) => act(() => root.render(React.createElement(SortableHubGroups<{ id: string }>, {
+            storageKey: 'lmc:hubs',
+            items,
+            getId: (item) => item.id,
+            renderItem: (item, handleProps) => React.createElement('section', { 'data-group': item.id },
+                React.createElement(Pressable, { ...handleProps, accessibilityRole: 'button' },
+                    React.createElement('span', { 'data-header-text': item.id }, item.id))),
+        })));
+
+        renderWithItems([{ id: 'H1' }, { id: 'H2' }, { id: 'H3' }]);
+        const geometry = [{ top: 0, height: 80 }, { top: 80, height: 80 }, { top: 160, height: 80 }];
+        container.querySelectorAll<HTMLElement>('[data-sort-active]').forEach((node, index) => {
+            vi.spyOn(node, 'getBoundingClientRect').mockReturnValue(geometry[index] as DOMRect);
+        });
+        Object.defineProperty(container.firstElementChild, 'setPointerCapture', { value: () => {}, configurable: true });
+
+        const text = container.querySelector('[data-header-text="H1"]')!;
+        pointer(text, 'pointerdown', 10);
+        pointer(text, 'pointermove', 220);
+        pointer(text, 'pointerup', 220);
+
+        // Before the 180ms drop timer fires, a live hub spawns (H4), changing rowKey.
+        renderWithItems([{ id: 'H1' }, { id: 'H2' }, { id: 'H3' }, { id: 'H4' }]);
+        expect(sync.applySettings).toHaveBeenCalledExactlyOnceWith({ sessionProjectOrder: { 'lmc:hubs': ['H2', 'H3', 'H1', 'H4'] } });
+    });
 });

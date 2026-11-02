@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { holdReleaseIntent, MOUSE_SORT_SLOP_PX, sortSlopForPointer, TOUCH_SORT_SLOP_PX, touchSortIntent } from './sessionSortGesture';
+import { holdReleaseIntent, MOUSE_SORT_SLOP_PX, pointerSortIntent, sortSlopForPointer, TOUCH_SORT_SLOP_PX, touchSortIntent } from './sessionSortGesture';
 
 describe('touch sort intent', () => {
     it('keeps early movement as scrolling even after the hold deadline', () => {
@@ -36,5 +36,19 @@ describe('holdReleaseIntent', () => {
     it('leaves a short press alone whatever pressed it', () => {
         expect(holdReleaseIntent('mouse', false)).toBe('tap');
         expect(holdReleaseIntent('touch', false)).toBe('tap');
+    });
+});
+
+describe('pointerSortIntent', () => {
+    it('starts dragging immediately on mouse movement past slop while keeping clicks below slop intact', () => {
+        expect(pointerSortIntent('mouse', false, 4, false)).toBe('tap');
+        expect(pointerSortIntent('mouse', false, 12, false)).toBe('drag');
+        expect(pointerSortIntent('mouse', true, 12, false)).toBe('drag');
+    });
+
+    it('still requires hold-to-arm on touch and pen so early movement scrolls natively', () => {
+        expect(pointerSortIntent('touch', false, 18, false)).toBe('scroll');
+        expect(pointerSortIntent('pen', false, 18, false)).toBe('scroll');
+        expect(pointerSortIntent('touch', true, 18, false)).toBe('drag');
     });
 });
