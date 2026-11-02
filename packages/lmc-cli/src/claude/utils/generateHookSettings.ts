@@ -17,7 +17,11 @@ import { projectPath } from '@/projectPath';
  * @param port - The port where LMC server is listening
  * @returns Path to the generated settings file
  */
-export function generateHookSettingsFile(port: number): string {
+export interface GenerateHookSettingsOptions {
+    isolatedSharedAccount?: boolean;
+}
+
+export function generateHookSettingsFile(port: number, opts: GenerateHookSettingsOptions = {}): string {
     const hooksDir = join(configuration.lmcHomeDir, 'tmp', 'hooks');
     mkdirSync(hooksDir, { recursive: true });
 
@@ -29,7 +33,14 @@ export function generateHookSettingsFile(port: number): string {
     const forwarderScript = resolve(projectPath(), 'scripts', 'session_hook_forwarder.cjs');
     const hookCommand = `node "${forwarderScript}" ${port}`;
 
-    const settings = {
+    const settings: Record<string, unknown> = {
+        ...(opts.isolatedSharedAccount
+            ? {
+                syncClaudeAiPlugins: false,
+                syncClaudeAiSkills: false,
+                disableClaudeAiConnectors: true,
+            }
+            : {}),
         hooks: {
             SessionStart: [
                 {

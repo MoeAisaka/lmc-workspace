@@ -116,6 +116,8 @@ export interface AgyBackendOptions {
   conversationId?: string | null;
   onConversationId?: (id: string) => void;
   env?: NodeJS.ProcessEnv;
+  /** Optional isolated `.gemini/antigravity-cli` directory for conversation DB repair. */
+  agyHomeDir?: string;
   /** Optional override for corrupted conversation media repair (used by unit tests). */
   repairConversationMedia?: (conversationId: string) => AgyConversationMediaRepairResult;
 }
@@ -228,7 +230,7 @@ export class AgyBackend implements AgentBackend {
     this.env = opts.env;
     this.repairConversationMedia =
       opts.repairConversationMedia ??
-      ((id: string) => repairCorruptedAgyConversationMedia(id, { log: this.log }));
+      ((id: string) => repairCorruptedAgyConversationMedia(id, { agyHomeDir: opts.agyHomeDir, log: this.log }));
   }
 
   /** Update the permission mode applied to subsequent turns. */

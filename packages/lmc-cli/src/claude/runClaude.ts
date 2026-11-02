@@ -63,6 +63,7 @@ import { createTaskMeter } from '@/modules/orchestration/meter';
 import { hubDisallowedTools } from '@/modules/orchestration/hubGuard';
 import { consumePendingHandoff, createHandoffPort } from '@/utils/handoffPort';
 import { poeClaudeEnvironment, readPoeSettings } from '@/runtime/poe';
+import { getSharedRuntime } from '@/daemon/sharedRuntime';
 
 /** JavaScript runtime to use for spawning Claude Code */
 export type JsRuntime = 'node' | 'bun'
@@ -99,9 +100,10 @@ type PendingClaudeGoalAction = {
 };
 
 export async function runClaude(credentials: Credentials, options: StartOptions = {}): Promise<void> {
+    const isSharedAccount = Boolean(getSharedRuntime());
     const poeEnv = poeClaudeEnvironment(readPoeSettings());
     if (poeEnv) options = { ...options, claudeEnvVars: { ...options.claudeEnvVars, ...poeEnv } };
-    const computerUse = readComputerUseSetup('claude');
+    const computerUse = isSharedAccount ? { mcpServers: {}, chrome: false } : readComputerUseSetup('claude');
     options = { ...options, claudeArgs: withClaudeChromeDefault(options.claudeArgs, computerUse.chrome) };
     logger.debug(`[CLAUDE] ===== CLAUDE MODE STARTING =====`);
     logger.debug(`[CLAUDE] This is the Claude agent, NOT Gemini`);
@@ -603,7 +605,7 @@ export async function runClaude(credentials: Credentials, options: StartOptions 
     logger.debug(`[START] Hook server started on port ${hookServer.port}`);
 
     // Generate hook settings file for Claude
-    const hookSettingsPath = generateHookSettingsFile(hookServer.port);
+    const hookSettingsPath = generateHookSettingsFile(hookServer.port, { isolatedSharedAccount: isSharedAccount });
     logger.debug(`[START] Generated hook settings file: ${hookSettingsPath}`);
 
     // Print log file path

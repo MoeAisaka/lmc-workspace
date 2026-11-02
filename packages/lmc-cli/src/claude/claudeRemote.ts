@@ -18,6 +18,8 @@ import type { UsageLimitWindow } from "@/api/types";
 import type { ClaudeGoalMessage } from './claudeAutomaticGoal';
 import { readSharedUsage, usageAccountKey } from "./utils/sharedUsageCache";
 import { configuration } from "@/configuration";
+import { getSharedRuntime } from "@/daemon/sharedRuntime";
+import { resolveClaudeSharedAccountIsolation } from "@/daemon/sharedAccountIsolation";
 
 export async function claudeRemote(opts: {
 
@@ -135,11 +137,16 @@ export async function claudeRemote(opts: {
 
     // Prepare SDK options
     let mode = initial.mode;
+    const claudeIsolation = getSharedRuntime() ? resolveClaudeSharedAccountIsolation(opts.path) : null;
     const sdkOptions: QueryOptions = {
         cwd: opts.path,
         resume: startFrom ?? undefined,
-        mcpServers: opts.mcpServers,
-        chrome: claudeChromeChoice(opts.claudeArgs),
+        mcpServers: claudeIsolation ? { ...claudeIsolation.mcpServers, ...opts.mcpServers } : opts.mcpServers,
+        strictMcpConfig: claudeIsolation ? true : undefined,
+        settingSources: claudeIsolation?.settingSources,
+        plugins: claudeIsolation?.plugins,
+        skills: claudeIsolation?.skills,
+        chrome: claudeIsolation ? false : claudeChromeChoice(opts.claudeArgs),
         permissionMode: mapToClaudeMode(initial.mode.permissionMode),
         allowDangerouslySkipPermissions: opts.allowWorkerPermissionControl
             || initial.mode.permissionMode === 'bypassPermissions' || initial.mode.permissionMode === 'yolo' || undefined,

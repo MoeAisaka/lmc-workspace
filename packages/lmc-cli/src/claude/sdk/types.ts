@@ -43,6 +43,9 @@ export interface QueryOptions {
     model?: string
     fallbackModel?: string
     strictMcpConfig?: boolean
+    settingSources?: ('user' | 'project' | 'local')[]
+    plugins?: Array<{ type: 'local'; path: string }>
+    skills?: string[]
     /** Official Claude in Chrome integration; undefined preserves the provider default. */
     chrome?: boolean
     canCallTool?: CanCallToolCallback

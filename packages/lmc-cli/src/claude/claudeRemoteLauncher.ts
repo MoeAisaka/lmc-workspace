@@ -37,6 +37,7 @@ import { watchSessionConfiguration } from '@/modules/orchestration/workerConfig'
 import { normalizeRemotePermissionMode } from './utils/permissionMode';
 import { nativeTransportAvailable } from './native/interactiveProcess';
 import { nativeResumeIdentity } from './native/policy';
+import { getSharedRuntime } from '@/daemon/sharedRuntime';
 
 interface PermissionsField {
     date: number;
@@ -256,13 +257,14 @@ export async function claudeRemoteLauncher(session: Session): Promise<'switch' |
         if (target) session.client.sendSessionEvent({ type: 'engine-switch-cancelled', target });
         return { status: 'cancelled' };
     });
+    const nativeComputerAllowed = nativeTransportAvailable() && !session.sandboxConfig?.enabled && !getSharedRuntime();
     await session.client.updateMetadata(m => ({ ...m,
         claudeNativeActive: false,
-        sessionCapabilities: { ...engineCapabilities('claude'), nativeComputer: nativeTransportAvailable() && !session.sandboxConfig?.enabled, refresh: true, runtimeConfiguration: false },
+        sessionCapabilities: { ...engineCapabilities('claude'), nativeComputer: nativeComputerAllowed, refresh: true, runtimeConfiguration: false },
     }));
     session.client.rpcHandlerManager.registerHandler('native-computer', async (request: any) => {
         if (request?.action !== 'start') return { active: false };
-        if (!nativeTransportAvailable() || session.sandboxConfig?.enabled) throw new Error('当前设备或沙盒不支持原生电脑模式');
+        if (!nativeComputerAllowed) throw new Error('当前设备或沙盒不支持原生电脑模式');
         session.sessionId = nativeResumeIdentity(session.claudeArgs, session.sessionId);
         if (!safeIdle || pending || exitReason || session.queue.size() || permissionHandler.hasPendingRequests() || backgroundTasks.size || refresh.pending) {
             throw new Error('请等待回合、排队消息、授权和后台任务结束后开启原生模式');

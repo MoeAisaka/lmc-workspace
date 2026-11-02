@@ -78,6 +78,7 @@ import {
 import { discoverCodexSkillCommands } from './codexSkills';
 import { CodexRemoteModeState } from './remoteModeState';
 import { assertCodexModelEffort, UnsupportedCodexEffortError } from './modelEffort';
+import { getSharedRuntime } from '@/daemon/sharedRuntime';
 import { saveAttachmentsToInbox, formatInboxNote } from '@/modules/common/attachmentInbox';
 import {
     codexGoalActionCapabilities,
@@ -232,7 +233,10 @@ export async function runCodex(opts: {
     if (serviceTier !== undefined) metadata.fastMode = serviceTier === 'fast';
     metadata.codexContextLimits = contextLimits;
 
-    const skillCommands = await discoverCodexSkillCommands();
+    const sharedRuntime = getSharedRuntime();
+    const skillCommands = await discoverCodexSkillCommands(
+        sharedRuntime ? { cwd: process.cwd(), codexHome: join(process.cwd(), '.codex') } : undefined,
+    );
     if (skillCommands.length > 0) {
         metadata.skills = skillCommands;
         metadata.slashCommands = Array.from(new Set([...(metadata.slashCommands ?? []), ...skillCommands]));
@@ -817,7 +821,13 @@ export async function runCodex(opts: {
     // Start Context 
     //
 
-    client = new CodexAppServerClient(sandboxConfig, contextLimits, serviceTier);
+    client = new CodexAppServerClient(
+        sandboxConfig,
+        contextLimits,
+        serviceTier,
+        undefined,
+        sharedRuntime ? { isolatedSharedAccount: true, workspaceDir: process.cwd() } : undefined,
+    );
     client.setActivityHandler(() => progress.progress());
 
     permissionHandler = new CodexPermissionHandler(session);
@@ -1205,7 +1215,7 @@ export async function runCodex(opts: {
     // codex would otherwise fail to start the MCP server, the change_title tool would
     // not be visible to the model, and the model would improvise with shell echoes.
     const bridgeEntrypoint = join(projectPath(), 'bin', 'happy-mcp.mjs');
-    const computerUse = readComputerUseSetup('codex');
+    const computerUse = sharedRuntime ? { mcpServers: {} } : readComputerUseSetup('codex');
     const mcpServersForRole = () => ({
         ...computerUse.mcpServers,
         happy: {

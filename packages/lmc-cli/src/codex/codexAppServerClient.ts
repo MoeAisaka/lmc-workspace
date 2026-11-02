@@ -1,5 +1,6 @@
 import { sanitizeSessionEnvironment } from '@/daemon/sessionEnvironment';
 import { codexExecutable } from '@/runtime/managedRuntime';
+import { resolveCodexSharedAccountIsolation } from '@/daemon/sharedAccountIsolation';
 import { validateCodexServiceTier, type CodexServiceTier } from './serviceTier';
 import { validateCodexContextLimits, type CodexContextLimits } from './contextLimits';
 import { assertCodexModelEffort } from './modelEffort';
@@ -282,7 +283,13 @@ export class CodexAppServerClient {
     private serviceTier?: CodexServiceTier;
     private contextLimits: CodexContextLimits;
 
-    constructor(sandboxConfig?: SandboxConfig, contextLimits?: CodexContextLimits, serviceTier?: CodexServiceTier, private discoveryExecutable?: string) {
+    constructor(
+        sandboxConfig?: SandboxConfig,
+        contextLimits?: CodexContextLimits,
+        serviceTier?: CodexServiceTier,
+        private discoveryExecutable?: string,
+        private isolationOptions?: { isolatedSharedAccount?: boolean; workspaceDir?: string },
+    ) {
         this.serviceTier = validateCodexServiceTier(serviceTier);
         this.contextLimits = validateCodexContextLimits(contextLimits);
         this.sandboxConfig = sandboxConfig;
@@ -705,14 +712,19 @@ export class CodexAppServerClient {
             );
         }
 
+        const startupIsolationArgs = this.isolationOptions?.isolatedSharedAccount
+            ? resolveCodexSharedAccountIsolation({
+                workspaceDir: this.isolationOptions.workspaceDir ?? process.cwd(),
+            }).startupCliArgs
+            : [];
         let command = this.discoveryExecutable ?? codexExecutable();
-        let args = ['app-server', '--listen', 'stdio://'];
+        let args = ['app-server', ...startupIsolationArgs, '--listen', 'stdio://'];
         this.sandboxEnabled = false;
 
         if (this.sandboxConfig?.enabled && process.platform !== 'win32') {
             try {
                 this.sandboxCleanup = await initializeSandbox(this.sandboxConfig, process.cwd());
-                const wrapped = await wrapForMcpTransport(codexExecutable(), ['app-server', '--listen', 'stdio://']);
+                const wrapped = await wrapForMcpTransport(codexExecutable(), ['app-server', ...startupIsolationArgs, '--listen', 'stdio://']);
                 command = wrapped.command;
                 args = wrapped.args;
                 this.sandboxEnabled = true;
@@ -947,7 +959,14 @@ export class CodexAppServerClient {
     }
 
     private buildThreadConfig(mcpServers?: Record<string, unknown>): Record<string, unknown> | null {
-        const config: Record<string, unknown> = mcpServers ? { mcp_servers: mcpServers } : {};
+        const config: Record<string, unknown> = this.isolationOptions?.isolatedSharedAccount
+            ? {
+                ...resolveCodexSharedAccountIsolation({
+                    workspaceDir: this.isolationOptions.workspaceDir ?? this.threadDefaults?.cwd ?? process.cwd(),
+                    sessionMcpServers: mcpServers,
+                }).threadConfig,
+            }
+            : (mcpServers ? { mcp_servers: mcpServers } : {});
         if (this.serviceTier !== undefined) config.service_tier = this.serviceTier;
         if (this.serviceTier === 'fast') config['features.fast_mode'] = true;
         if (this.contextLimits.contextWindow !== undefined) config.model_context_window = this.contextLimits.contextWindow;

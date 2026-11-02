@@ -44,6 +44,8 @@ import { normalizeRemotePermissionMode } from '@/claude/utils/permissionMode';
 import { AgyBackend } from './AgyBackend';
 import { inspectAgyCli } from './preflight';
 import { getSharedRuntime } from '@/daemon/sharedRuntime';
+import { prepareAgySharedAccountIsolation } from '@/daemon/sharedAccountIsolation';
+import { configuration } from '@/configuration';
 import { startHappyServer } from '@/claude/utils/startHappyServer';
 import { projectPath } from '@/projectPath';
 import { readModelCatalogs } from '@/runtime/modelCatalogCache';
@@ -193,18 +195,29 @@ export async function runAgy(opts: RunAgyOptions): Promise<'stopped' | 'refresh-
     configureQueue: request => applyQueueModeRequest(request, messageQueue, session),
     exit: () => { refreshHandoff = true; shouldExit = true; messageQueue.close(); abortController.abort(); },
   });
+  const sharedRuntime = getSharedRuntime();
+  const agyIsolation = sharedRuntime
+    ? prepareAgySharedAccountIsolation({
+        accountId: sharedRuntime.accountId,
+        workspaceDir: process.cwd(),
+        lmcHomeDir: configuration.lmcHomeDir,
+      })
+    : null;
   const nativeEnvironment: NodeJS.ProcessEnv = {
+    ...(agyIsolation?.env ?? {}),
     LMC_AGY_MCP_MODULE: join(projectPath(), 'dist', 'codex', 'happyMcpStdioBridge.mjs'),
   };
   let activeConversationId: string | undefined =
     opts.resume ??
-    (getSharedRuntime()?.resume && typeof getSharedRuntime()?.metadata.agyConversationId === 'string'
-      ? (getSharedRuntime()!.metadata.agyConversationId as string)
+    (sharedRuntime?.resume && typeof sharedRuntime.metadata.agyConversationId === 'string'
+      ? (sharedRuntime.metadata.agyConversationId as string)
       : undefined) ??
     (reconnectId && typeof session.getMetadata()?.agyConversationId === 'string'
       ? session.getMetadata()!.agyConversationId
       : undefined);
-  const contextUsage = new AgyContextUsageTracker();
+  const contextUsage = new AgyContextUsageTracker(
+    agyIsolation ? { agyHomeDir: agyIsolation.agyCliHomeDir } : undefined,
+  );
   const backend = new AgyBackend({
     conversationId: activeConversationId,
     cwd: process.cwd(),
@@ -215,6 +228,7 @@ export async function runAgy(opts: RunAgyOptions): Promise<'stopped' | 'refresh-
       session.updateMetadata(m => ({ ...m, agyConversationId: id }));
     },
     env: nativeEnvironment,
+    agyHomeDir: agyIsolation?.agyCliHomeDir,
     log,
   });
 
@@ -416,6 +430,7 @@ export async function runAgy(opts: RunAgyOptions): Promise<'stopped' | 'refresh-
       log(`Incoming prompt: ${batch.message.slice(0, 200)}`);
       sendEnvelopes(sessionManager.startTurn());
       try {
+        agyIsolation?.syncWorkspaceMcpConfig();
         await backend.sendPrompt(process.cwd(), batch.message);
         sendEnvelopes(sessionManager.endTurn('completed'));
       } catch (error) {
