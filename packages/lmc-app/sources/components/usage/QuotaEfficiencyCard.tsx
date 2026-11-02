@@ -36,11 +36,11 @@ export function QuotaEfficiencyCard({records,range,machineNames}:{records:UsageR
         {history.error&&<Text accessibilityRole="alert" style={styles.muted}>{history.error}</Text>}
         {!history.error&&analysis.sampleCount<2&&<Text style={styles.muted}>{history.loading?t('lmc.usage.loadingQuotaSamples'):t('lmc.usage.waitingQuotaSamples')}</Text>}
         <ScrollView horizontal><View>
-            <View style={styles.row}>{[t('lmc.usage.colModel'),t('lmc.usage.colTotalTokens'),t('lmc.usage.colMatchedSamples'),t('lmc.usage.colBurnPoints'),t('lmc.usage.colTokensPerPoint'),t('lmc.usage.colPointsPerMillion')].map((v,i)=><Text key={v} style={[styles.cell,{fontWeight:'600'},i===0&&{width:260}]}>{v}</Text>)}</View>
+            <View style={styles.row}>{[t('lmc.usage.colModel'),t('lmc.usage.colTotalTokens'),t('lmc.usage.colMatchedSamples'),t('lmc.usage.colBurnPoints'),t('lmc.usage.colTokensPerPoint'),t('lmc.usage.colPointsPerHundredMillion')].map((v,i)=><Text key={v} style={[styles.cell,{fontWeight:'600'},i===0&&{width:260}]}>{v}</Text>)}</View>
             {analysis.models.map(m=><View key={m.model} style={styles.row}>
                 <Text style={[styles.cell,{width:260}]}>{m.model}</Text><Text style={styles.cell}>{fmt(m.tokens)}</Text>
                 <Text style={styles.cell}>{fmt(m.matchedTokens)} / {m.samples}</Text><Text style={styles.cell}>{m.samples?m.points.toFixed(2):'—'}</Text>
-                <Text style={styles.cell}>{m.points>0?fmt(m.matchedTokens/m.points):'—'}</Text><Text style={styles.cell}>{m.matchedTokens>0?(m.points*1e6/m.matchedTokens).toFixed(2):'—'}</Text>
+                <Text style={styles.cell}>{m.points>0?fmt(m.matchedTokens/m.points):'—'}</Text><Text style={styles.cell}>{m.matchedTokens>0?(m.points*1e8/m.matchedTokens).toFixed(2):'—'}</Text>
             </View>)}
         </View></ScrollView>
         {!analysis.models.length&&<Text style={styles.muted}>{t('lmc.usage.noPoolRecords')}</Text>}

@@ -2128,7 +2128,7 @@ export const zhHans: TranslationStructure = {
             colMatchedSamples: '匹配 Token / 样本',
             colBurnPoints: '观察消耗（百分点）',
             colTokensPerPoint: 'Token / 1 百分点',
-            colPointsPerMillion: '百分点 / 百万 Token',
+            colPointsPerHundredMillion: '百分点 / 亿 Token',
             noPoolRecords: '当前范围内没有此额度池的模型 Token 记录。',
             sampleStats: ({ samples, intervals, excluded, last }: { samples: number; intervals: number; excluded: number; last: string }) => `${samples} 次采样 · ${intervals} 个有效区间 · ${excluded} 个重置/断档区间已排除${last ? ` · 最近 ${last}` : ''}`,
             efficiencyFootnote1: '比例是采样区间内的观察值，不是官方计费系数。只在单一已知模型有记录且额度下降时计算；混用模型、跨采样回合、重置和长时间断档不分摊。未变化可能是四舍五入或延迟，不能视为零消耗。家庭共享、其他设备及 LMC 外调用仍可能影响结果。',

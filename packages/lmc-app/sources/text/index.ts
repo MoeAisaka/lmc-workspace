@@ -73,31 +73,43 @@ const translations: Record<SupportedLanguage, TranslationStructure> = {
 const _typeCheck: Record<SupportedLanguage, TranslationStructure> = translations;
 
 //
-// Resolve language
+// Resolve language (re-synced automatically when account persistence switches or settings save)
 //
 
 let currentLanguage: SupportedLanguage = DEFAULT_LANGUAGE;
+let syncedSettingsRevision = -1;
 
-// Read from settings
-let settings = loadSettings();
-let found = false;
-if (settings.settings.preferredLanguage && settings.settings.preferredLanguage in translations) {
-    currentLanguage = settings.settings.preferredLanguage as SupportedLanguage;
-    found = true;
-    console.log(`[i18n] Using preferred language: ${currentLanguage}`);
+function syncCurrentLanguage(logBoot = false): SupportedLanguage {
+    const rev = (loadSettings as { revision?: number }).revision ?? 0;
+    if (!logBoot && rev === syncedSettingsRevision) {
+        return currentLanguage;
+    }
+    syncedSettingsRevision = rev;
+    const settings = loadSettings();
+    const pref = settings?.settings?.preferredLanguage;
+    // Deliberately no device-locale detection: a freshly deployed center serves
+    // English until someone chooses otherwise, so an operator setting it up sees
+    // the same screens as the documentation.
+    const next: SupportedLanguage = pref && pref in translations
+        ? (pref as SupportedLanguage)
+        : DEFAULT_LANGUAGE;
+    const changed = next !== currentLanguage;
+    currentLanguage = next;
+    if (logBoot) {
+        if (pref && pref in translations) {
+            console.log(`[i18n] Using preferred language: ${currentLanguage}`);
+        } else {
+            console.log(`[i18n] No preference stored; using ${DEFAULT_LANGUAGE}`);
+        }
+        console.log(`[i18n] Final language: ${currentLanguage}`);
+    }
+    if ((logBoot || changed) && typeof document !== 'undefined' && document.documentElement) {
+        document.documentElement.lang = currentLanguage === 'zh-Hans' ? 'zh-CN' : 'en';
+    }
+    return currentLanguage;
 }
 
-// Deliberately no device-locale detection: a freshly deployed center serves
-// English until someone chooses otherwise, so an operator setting it up sees
-// the same screens as the documentation.
-if (!found) {
-    console.log(`[i18n] No preference stored; using ${DEFAULT_LANGUAGE}`);
-}
-
-console.log(`[i18n] Final language: ${currentLanguage}`);
-if (typeof document !== 'undefined' && document.documentElement) {
-    document.documentElement.lang = currentLanguage === 'zh-Hans' ? 'zh-CN' : 'en';
-}
+syncCurrentLanguage(true);
 
 /**
  * Main translation function with strict typing
@@ -126,7 +138,7 @@ export function t<K extends TranslationKey>(
 ): string {
     try {
         // Get current language translations
-        const currentTranslations = translations[currentLanguage];
+        const currentTranslations = translations[syncCurrentLanguage()];
 
         // Navigate to the value using dot notation
         const keys = key.split('.');
@@ -165,12 +177,12 @@ export function t<K extends TranslationKey>(
  * Useful for debugging and language-aware components
  */
 export function getCurrentLanguage(): SupportedLanguage {
-    return currentLanguage;
+    return syncCurrentLanguage();
 }
 
 /**
  * BCP 47 locale tag matching the active UI language for Date/Intl formatting
  */
 export function getDateLocale(): string {
-    return currentLanguage === 'zh-Hans' ? 'zh-CN' : 'en-US';
+    return syncCurrentLanguage() === 'zh-Hans' ? 'zh-CN' : 'en-US';
 }

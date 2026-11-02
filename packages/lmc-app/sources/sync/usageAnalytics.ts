@@ -1,5 +1,5 @@
 import { addUsage, emptyUsage, usageTotal, type AccountQuotaSnapshot, type UsageRecord, type UsageTokens } from 'lmc-wire';
-import { t } from '@/text';
+import { getCurrentLanguage, t, type SupportedLanguage } from '@/text';
 
 export type UsagePeriod = '5hours' | 'today' | '7days' | '30days' | 'month';
 export type UsageTimeRange = { start: number; end: number };
@@ -105,7 +105,13 @@ export function usageCalendar(buckets: UsageBucket[], now: number, monthOffset =
     return { year, month, leading: (first.getDay() + 6) % 7, days };
 }
 
-export function compactTokens(value: number) {
-    return value >= 1e9 ? `${(value / 1e9).toFixed(2)}B` : value >= 1e6 ? `${(value / 1e6).toFixed(2)}M`
-        : value >= 1e3 ? `${(value / 1e3).toFixed(1)}K` : Math.round(value).toLocaleString();
+export function compactTokens(value: number, lang: SupportedLanguage = getCurrentLanguage()) {
+    const safe = Number.isFinite(value) ? Math.max(0, value) : 0;
+    if (lang === 'zh-Hans') {
+        if (safe >= 9_999_500) return `${(safe / 1e8).toFixed(2)}亿`;
+        if (safe >= 9_999.5) return `${(safe / 1e4).toFixed(1)}万`;
+        return Math.round(safe).toLocaleString('zh-CN');
+    }
+    return safe >= 1e9 ? `${(safe / 1e9).toFixed(2)}B` : safe >= 1e6 ? `${(safe / 1e6).toFixed(2)}M`
+        : safe >= 1e3 ? `${(safe / 1e3).toFixed(1)}K` : Math.round(safe).toLocaleString('en-US');
 }

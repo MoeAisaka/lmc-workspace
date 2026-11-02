@@ -2142,7 +2142,7 @@ export const en = {
             colMatchedSamples: 'Matched tokens / samples',
             colBurnPoints: 'Observed burn (pct pts)',
             colTokensPerPoint: 'Tokens / 1 pct pt',
-            colPointsPerMillion: 'Pct pts / 1M tokens',
+            colPointsPerHundredMillion: 'Pct pts / 100M tokens',
             noPoolRecords: 'No model token records for this quota pool in the selected range.',
             sampleStats: ({ samples, intervals, excluded, last }: { samples: number; intervals: number; excluded: number; last: string }) => `${samples} samples · ${intervals} valid intervals · ${excluded} reset/gap intervals excluded${last ? ` · Latest ${last}` : ''}`,
             efficiencyFootnote1: 'Ratios are empirical observations across sampling intervals, not official billing weights. Computed only when a single known model ran and quota dropped; mixed-model intervals, turns spanning a sample boundary, resets and long gaps are excluded rather than prorated. Unchanged quota may reflect rounding or delay rather than zero cost. Family sharing, other devices or calls outside LMC can still affect results.',

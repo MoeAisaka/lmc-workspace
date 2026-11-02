@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 vi.mock('@/sync/persistence', () => ({ loadSettings: () => ({ settings: {} }) }));
-import { fiveHourUsageRange, summarizeUsage, usageCalendar, usageQueryRange, usageRange } from './usageAnalytics';
+import { compactTokens, fiveHourUsageRange, summarizeUsage, usageCalendar, usageQueryRange, usageRange } from './usageAnalytics';
 import { usageTotal, type AccountQuotaSnapshot, type UsageRecord } from 'lmc-wire';
 const now = new Date(2026, 9, 5, 12).getTime();
 const make = (overrides: Partial<UsageRecord> = {}): UsageRecord => ({ key: 'u2:claude:one', sessionId: 's1', machineId: 'm1', engine: 'claude', model: 'model', occurredAt: now - 60_000, tokens: { input: 10, output: 20, cacheRead: 60, cacheWrite: 10 }, ...overrides });
@@ -117,5 +117,29 @@ describe('monthly usage calendar', () => {
             const daily = summarizeUsage(s.records, 'today', new Date(2026, 9, 25, 23, 59).getTime());
             expect(daily.buckets.filter(b => b.count)).toHaveLength(2);
         } finally { if (previous === undefined) delete process.env.TZ;else process.env.TZ = previous; }
+    });
+});
+
+describe('compactTokens unit formatting', () => {
+    it('formats Chinese usage with 亿 from 0.1亿 (10M) upward and degrades smaller values to 万 or exact integers', () => {
+        expect(compactTokens(0, 'zh-Hans')).toBe('0');
+        expect(compactTokens(2_480, 'zh-Hans')).toBe('2,480');
+        expect(compactTokens(9_999, 'zh-Hans')).toBe('9,999');
+        expect(compactTokens(9_999.6, 'zh-Hans')).toBe('1.0万');
+        expect(compactTokens(10_000, 'zh-Hans')).toBe('1.0万');
+        expect(compactTokens(12_500, 'zh-Hans')).toBe('1.3万');
+        expect(compactTokens(850_000, 'zh-Hans')).toBe('85.0万');
+        expect(compactTokens(9_500_000, 'zh-Hans')).toBe('950.0万');
+        expect(compactTokens(9_999_600, 'zh-Hans')).toBe('0.10亿');
+        expect(compactTokens(10_000_000, 'zh-Hans')).toBe('0.10亿');
+        expect(compactTokens(35_400_000, 'zh-Hans')).toBe('0.35亿');
+        expect(compactTokens(152_800_000, 'zh-Hans')).toBe('1.53亿');
+        expect(compactTokens(1_240_000_000, 'zh-Hans')).toBe('12.40亿');
+    });
+    it('keeps English K/M/B compact units when UI language is English', () => {
+        expect(compactTokens(950, 'en')).toBe('950');
+        expect(compactTokens(1_500, 'en')).toBe('1.5K');
+        expect(compactTokens(35_400_000, 'en')).toBe('35.40M');
+        expect(compactTokens(1_240_000_000, 'en')).toBe('1.24B');
     });
 });

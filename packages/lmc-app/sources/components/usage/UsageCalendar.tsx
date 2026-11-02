@@ -61,7 +61,7 @@ export function UsageCalendar(props: {
                 const selected = day.at === props.selectedAt;
                 const disabled = !props.ready || day.state === 'future' || day.state === 'uncollected';
                 const value = usageTotal(day.tokens);
-                const note = !props.ready ? t('lmc.usage.dayWaiting') : day.state === 'future' ? t('lmc.usage.dayFuture') : day.state === 'uncollected' ? t('lmc.usage.dayUncollected') : day.count ? t('lmc.usage.dayRecordsNote', { tokens: value.toLocaleString(), count: day.count }) : t('lmc.usage.dayNoRecords');
+                const note = !props.ready ? t('lmc.usage.dayWaiting') : day.state === 'future' ? t('lmc.usage.dayFuture') : day.state === 'uncollected' ? t('lmc.usage.dayUncollected') : day.count ? t('lmc.usage.dayRecordsNote', { tokens: compactTokens(value), count: day.count }) : t('lmc.usage.dayNoRecords');
                 const dayDateLabel = new Date(calendar.year, calendar.month, day.day).toLocaleDateString(locale, { month: 'short', day: 'numeric' });
                 const label = `${dayDateLabel} · ${note}`;
                 return <View key={day.at} style={styles.slot}>

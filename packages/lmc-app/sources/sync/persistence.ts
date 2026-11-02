@@ -7,8 +7,16 @@ import type { PermissionModeKey } from '@/components/PermissionModeSelector';
 
 // Never preload another person's cached profile/settings before authentication.
 let mmkv = new MMKV({ id: 'lmc-signed-out' });
+let settingsRevision = 0;
+
+function bumpSettingsRevision() {
+    settingsRevision++;
+    (loadSettings as { revision?: number }).revision = settingsRevision;
+}
+
 export function selectAccountPersistence(server: string, accountId: string) {
     mmkv = new MMKV({ id: 'lmc-account:' + encodeURIComponent(server) + ':' + encodeURIComponent(accountId) });
+    bumpSettingsRevision();
     if (mmkv.getBoolean('__account_initialized')) return;
     const legacy = new MMKV();
     let legacyId: string | null = null;
@@ -19,6 +27,7 @@ export function selectAccountPersistence(server: string, accountId: string) {
             const value = legacy.getString(key);
             if (value !== undefined) { mmkv.set(key, value); legacy.delete(key); }
         }
+        bumpSettingsRevision();
     }
     mmkv.set('__account_initialized', true);
 }
@@ -58,9 +67,11 @@ export function loadSettings(): { settings: Settings, version: number | null } {
     }
     return { settings: { ...settingsDefaults }, version: null };
 }
+(loadSettings as { revision?: number }).revision = settingsRevision;
 
 export function saveSettings(settings: Settings, version: number) {
     mmkv.set('settings', JSON.stringify({ settings: settingsToSyncPayload(settings), version }));
+    bumpSettingsRevision();
 }
 
 export function loadPendingSettings(): Partial<Settings> {
@@ -323,4 +334,5 @@ export function resetVoiceLocalCounters() {
 
 export function clearPersistence() {
     mmkv.clearAll();
+    bumpSettingsRevision();
 }

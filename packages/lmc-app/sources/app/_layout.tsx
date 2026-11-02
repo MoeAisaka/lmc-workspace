@@ -26,7 +26,7 @@ import { CommandPaletteProvider } from '@/components/CommandPalette/CommandPalet
 import { StatusBarProvider } from '@/components/StatusBarProvider';
 // import * as SystemUI from 'expo-system-ui';
 import { initConsoleLogging, setConsoleOutputEnabled } from '@/utils/consoleLogging';
-import { useLocalSetting } from '@/sync/storage';
+import { useLocalSetting, useSetting } from '@/sync/storage';
 import { useUnistyles } from 'react-native-unistyles';
 import { AsyncLock } from '@/utils/lock';
 import { useTauriZoom } from '@/hooks/useTauriZoom';
@@ -220,6 +220,7 @@ export default function RootLayout() {
 
     // Sync console output toggle from Dev screen
     const consoleLoggingEnabled = useLocalSetting('consoleLoggingEnabled');
+    const preferredLanguage = useSetting('preferredLanguage');
     const devModeEnabled = __DEV__ || useLocalSetting('devModeEnabled');
     React.useEffect(() => {
         setConsoleOutputEnabled(consoleLoggingEnabled);
@@ -255,7 +256,7 @@ export default function RootLayout() {
                                 <BrowserNavigationShortcuts />
                                 <CommandPaletteProvider>
                                         <HorizontalSafeAreaWrapper>
-                                            <SidebarNavigator />
+                                            <SidebarNavigator key={preferredLanguage ?? 'default'} />
                                         </HorizontalSafeAreaWrapper>
                                 </CommandPaletteProvider>
                             </ModalProvider>
