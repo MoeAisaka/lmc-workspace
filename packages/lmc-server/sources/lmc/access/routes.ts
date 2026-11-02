@@ -16,6 +16,13 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
 export function registerAccountRoutes(app: FastifyInstance, deps: Dependencies) {
     const attempts = new Map<string, { count: number; expires: number }>();
     app.register(async scope => {
+        scope.removeContentTypeParser('application/json');
+        scope.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
+            const text = typeof body === 'string' ? body.trim() : '';
+            if (!text) return done(null, undefined);
+            try { done(null, JSON.parse(text)); }
+            catch { done(new AccessError(400, 'invalid_input', '输入无效')); }
+        });
         scope.addHook('onRequest', async (req, reply) => {
             reply.header('Cache-Control', 'no-store');
             if (!deps.enabled()) return reply.code(404).send({ error: '多账号功能尚未启用', code: 'not_enabled' });
@@ -23,6 +30,10 @@ export function registerAccountRoutes(app: FastifyInstance, deps: Dependencies) 
         });
         scope.setErrorHandler((error, _req, reply) => {
             if (error instanceof AccessError) return reply.code(error.status).send({ error: error.message, code: error.code });
+            const statusCode = (error as { statusCode?: number } | null)?.statusCode;
+            if (statusCode && statusCode >= 400 && statusCode < 500) {
+                return reply.code(statusCode).send({ error: '输入无效', code: 'invalid_input' });
+            }
             return reply.code(500).send({ error: '账号操作失败，请稍后重试', code: 'account_error' });
         });
         const user = async (req: FastifyRequest) => {

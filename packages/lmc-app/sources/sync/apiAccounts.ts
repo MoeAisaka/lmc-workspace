@@ -7,11 +7,30 @@ export type LmcAccount = { id: string; username: string | null; role: 'admin' | 
 export type AccountCapabilities = { account: LmcAccount; capabilities: { version: number; fileSharing: boolean; sessionSharing: boolean; sharedExecution: boolean; deviceSharing?: boolean; modelIdentity?: 'device' } };
 export type AccountInvitation = { id: string; createdById: string; expiresAt: string; consumedAt: string | null; revokedAt: string | null; token?: string };
 export type SharingPolicy = { kind: string; resourceId: string; ownerAccountId: string; version: number; adminManaged: boolean; grants: Array<{ accountId: string; actions: string[] }>; canManage: boolean; sharingSupported: boolean; unavailableReason: string | null };
+function normalizeHeaders(headers?: HeadersInit): Record<string, string> {
+    if (!headers) return {};
+    if (headers instanceof Headers) return Object.fromEntries(headers.entries());
+    if (Array.isArray(headers)) return Object.fromEntries(headers);
+    return { ...headers };
+}
+
 export async function accountRequest<T>(path: string, options?: RequestInit): Promise<T> {
     const credentials = sync.getCredentials();
     if (!credentials) throw new Error(t('lmc.sharing.signInRequired'));
-    const response = await fetch(getServerUrl() + path, { ...options, cache: 'no-store', headers: { Authorization: 'Bearer ' + credentials.token, 'Content-Type': 'application/json' }, signal: options?.signal ?? AbortSignal.timeout(15_000) });
-    const body = await response.json();
+    const callerHeaders = normalizeHeaders(options?.headers);
+    const hasContentType = Object.keys(callerHeaders).some((k) => k.toLowerCase() === 'content-type');
+    const headers: Record<string, string> = {
+        ...(options?.body !== undefined && !hasContentType ? { 'Content-Type': 'application/json' } : {}),
+        ...callerHeaders,
+        Authorization: 'Bearer ' + credentials.token,
+    };
+    const response = await fetch(getServerUrl() + path, {
+        ...options,
+        cache: 'no-store',
+        headers,
+        signal: options?.signal ?? AbortSignal.timeout(15_000),
+    });
+    const body = await response.json().catch(() => ({}));
     if (!response.ok) throw Object.assign(new Error(translateLmcServerMessage(body.error, body.code) || t('lmc.sharing.actionFailed')), { status: response.status, code: body.code });
     return body as T;
 }
