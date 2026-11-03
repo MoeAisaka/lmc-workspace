@@ -46,14 +46,15 @@ export function PersonalizationSettings({ onReset, colors }: { onReset: () => vo
         <Item key={key} title={label(key)} subtitle={subtitle} subtitleLines={key === 'uiFont' || key === 'codeFont' ? 0 : 2} showChevron={false}
             rightElement={<SettingsSelect title={label(key)} value={value[key]} options={options} onChange={next => update(key, next)} />} />
     );
-    const button = { minHeight: 44, justifyContent: 'center' as const, paddingHorizontal: 12, borderRadius: 10, backgroundColor: theme.colors.surfaceHigh };
+    const presetCard = { minHeight: 44, justifyContent: 'center' as const, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 12, backgroundColor: theme.colors.surfaceHigh };
+    const replayButton = { minHeight: 32, justifyContent: 'center' as const, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 9, borderWidth: 1, borderColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh };
     return <>
         <ItemGroup title={t('personalization.title')} footer={t('personalization.local')}>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 12 }}>
                 {(Object.keys(PERSONALIZATION_PRESETS) as PersonalizationPreset[]).map(key => <Pressable key={key}
                     accessibilityRole="button" accessibilityLabel={label(key)} accessibilityState={{ selected: preset === key }}
                     onPress={() => { setValue({ ...PERSONALIZATION_PRESETS[key] }); setWide(false); }}
-                    style={[button, { flexGrow: 1, flexBasis: 140, paddingVertical: 12, borderWidth: 1, borderColor: preset === key ? theme.colors.textLink : theme.colors.divider }]}>
+                    style={[presetCard, { flexGrow: 1, flexBasis: 140, borderWidth: 1, borderColor: preset === key ? theme.colors.textLink : theme.colors.divider }]}>
                     <Text style={{ fontSize: 15, fontWeight: '600', color: preset === key ? theme.colors.textLink : theme.colors.text }}>{label(key)}{preset === key ? ' ✓' : ''}</Text>
                     <Text style={{ fontSize: 12, lineHeight: 18, color: theme.colors.textSecondary, marginTop: 4 }}>{t(`personalization.${key}Hint`)}</Text>
                 </Pressable>)}
@@ -64,7 +65,7 @@ export function PersonalizationSettings({ onReset, colors }: { onReset: () => vo
             <View style={{ padding: 16, gap: 8, borderTopWidth: 1, borderTopColor: theme.colors.divider }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
                     <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>{t('personalization.preview')}</Text>
-                    <Pressable accessibilityRole="button" onPress={() => setReplay(n => n + 1)} style={button}>
+                    <Pressable hitSlop={6} accessibilityRole="button" onPress={() => setReplay(n => n + 1)} style={({ pressed }) => [replayButton, pressed && { opacity: 0.72 }]}>
                         <Text style={{ color: theme.colors.textLink, fontSize: 13 }}>{t('personalization.replay')}</Text>
                     </Pressable>
                 </View>

@@ -108,12 +108,10 @@ export function SessionResourceWindow({ sessionId, onOpen, onBrowse, active = tr
                 {!!query && <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.resources.clearSearch')} onPress={() => setQuery('')} hitSlop={8}><Ionicons name="close" size={18} color={theme.colors.textSecondary} /></Pressable>}
             </View>
             <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-                <View style={{ borderWidth: 1, borderColor: theme.colors.divider, borderRadius: 8, minHeight: 36, justifyContent: 'center' }}>
-                    <SettingsSelect value={extension} onChange={setExtension} title={t('lmc.resources.fileFormat')} options={[
-                        { value: null, label: t('lmc.resources.allFormats'), description: t('lmc.resources.searchItemCount', { count: files.length }) },
-                        ...formats.map(([value, count]) => ({ value, label: formatLabel(value), description: t('lmc.resources.searchItemCount', { count }) })),
-                    ]} />
-                </View>
+                <SettingsSelect value={extension} onChange={setExtension} title={t('lmc.resources.fileFormat')} options={[
+                    { value: null, label: t('lmc.resources.allFormats'), description: t('lmc.resources.searchItemCount', { count: files.length }) },
+                    ...formats.map(([value, count]) => ({ value, label: formatLabel(value), description: t('lmc.resources.searchItemCount', { count }) })),
+                ]} />
                 <Text style={infoStyle}>{t('lmc.resources.searchResultCount', { count: matches.length, total: Math.max(files.length, search?.total ?? 0) })}</Text>
             </View>
             {!!needle && !searchable && <Text style={infoStyle}>{t('lmc.resources.searchUpgrade')}</Text>}

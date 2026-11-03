@@ -93,6 +93,10 @@ export function useAuth() {
     return context;
 }
 
+export function useOptionalAuth(): AuthContextType | null {
+    return useContext(AuthContext) ?? null;
+}
+
 // Helper to get current auth state for non-React contexts
 let currentAuthState: AuthContextType | null = null;
 

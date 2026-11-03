@@ -252,6 +252,7 @@ export default function RootLayout() {
                     <AuthProvider initialCredentials={initState.credentials}>
                         <ThemeProvider value={navigationTheme}>
                             <StatusBarProvider />
+                            <ModuleSwitcher />
                             <ModalProvider>
                                 <BrowserNavigationShortcuts />
                                 <CommandPaletteProvider>
@@ -272,7 +273,6 @@ export default function RootLayout() {
         <>
             <PersonalizationRuntime />
             <WebInputProbeRuntime />
-            <ModuleSwitcher />
             <FaviconPermissionIndicator />
             {providers}
         </>

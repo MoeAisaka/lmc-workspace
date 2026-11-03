@@ -35,6 +35,7 @@ export interface SelectOption<T> {
 }
 
 interface OpenMenu {
+    id: string;
     x: number;
     y: number;
     width: number;
@@ -46,6 +47,7 @@ interface OpenMenu {
 }
 
 interface MenuController {
+    openId: string | null;
     open: (anchor: { x: number; y: number; width: number; height: number }, menu: Omit<OpenMenu, 'x' | 'y' | 'width' | 'height'>) => void;
     close: () => void;
 }
@@ -63,21 +65,47 @@ const styles = StyleSheet.create((theme) => ({
     trigger: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 4,
-        maxWidth: 220,
-        minHeight: 30,
-        paddingLeft: 10,
-        paddingRight: 6,
-        borderRadius: 8,
+        gap: 8,
+        maxWidth: 260,
+        minHeight: 34,
+        paddingLeft: 14,
+        paddingRight: 11,
+        paddingVertical: 6,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: theme.dark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(15, 23, 42, 0.08)',
+        backgroundColor: theme.dark ? 'rgba(255, 255, 255, 0.045)' : 'rgba(15, 23, 42, 0.028)',
+    },
+    triggerHover: {
+        borderColor: theme.dark ? 'rgba(255, 255, 255, 0.17)' : 'rgba(15, 23, 42, 0.14)',
+        backgroundColor: theme.dark ? 'rgba(255, 255, 255, 0.09)' : 'rgba(15, 23, 42, 0.06)',
+    },
+    triggerOpen: {
+        borderColor: theme.dark ? 'rgba(125, 181, 255, 0.45)' : 'rgba(0, 96, 240, 0.30)',
+        backgroundColor: theme.dark ? 'rgba(125, 181, 255, 0.10)' : 'rgba(0, 96, 240, 0.06)',
     },
     triggerLabel: {
         flexShrink: 1,
         fontSize: 13.5,
-        color: theme.colors.textSecondary,
+        lineHeight: 19,
+        color: theme.colors.text,
         ...Typography.default(),
     },
-    flatTrigger: { minHeight: 44, paddingLeft: 0, paddingRight: 0, flexShrink: 1 },
-    flatLabel: { fontSize: 15, lineHeight: 22, color: theme.colors.text },
+    flatTrigger: {
+        minHeight: 36,
+        paddingLeft: 14,
+        paddingRight: 11,
+        paddingVertical: 6,
+        flexShrink: 1,
+    },
+    flatLabel: {
+        fontSize: 14,
+        lineHeight: 20,
+        color: theme.colors.text,
+    },
+    chevronOpen: {
+        transform: [{ rotate: '180deg' }],
+    },
     menu: {
         position: 'absolute',
         paddingVertical: 6,
@@ -98,23 +126,27 @@ export const SettingsMenuHost = React.memo(({ children }: { children: React.Reac
     const [size, setSize] = React.useState({ width: 0, height: 0 });
     const [menu, setMenu] = React.useState<OpenMenu | null>(null);
 
+    const open = React.useCallback<MenuController['open']>((anchor, config) => {
+        // The anchor arrives in window coordinates; the menu is placed in
+        // the host's, which is not the window when the host is a dialog.
+        const place = (originX: number, originY: number) => setMenu({
+            ...config,
+            x: anchor.x - originX,
+            y: anchor.y - originY,
+            width: anchor.width,
+            height: anchor.height,
+        });
+        const node = host.current;
+        if (node?.measureInWindow) node.measureInWindow((x, y) => place(x, y));
+        else place(0, 0);
+    }, []);
+    const close = React.useCallback(() => setMenu(null), []);
+    const openId = menu?.id ?? null;
     const controller = React.useMemo<MenuController>(() => ({
-        open: (anchor, config) => {
-            // The anchor arrives in window coordinates; the menu is placed in
-            // the host's, which is not the window when the host is a dialog.
-            const place = (originX: number, originY: number) => setMenu({
-                ...config,
-                x: anchor.x - originX,
-                y: anchor.y - originY,
-                width: anchor.width,
-                height: anchor.height,
-            });
-            const node = host.current;
-            if (node?.measureInWindow) node.measureInWindow((x, y) => place(x, y));
-            else place(0, 0);
-        },
-        close: () => setMenu(null),
-    }), []);
+        openId,
+        open,
+        close,
+    }), [openId, open, close]);
 
     return (
         <SettingsMenuContext.Provider value={controller}>
@@ -223,6 +255,8 @@ export function SettingsSelect<T>(props: {
     const { theme } = useUnistyles();
     const flat = useFlatSettings();
     const controller = React.useContext(SettingsMenuContext);
+    const selectId = React.useId();
+    const isOpen = Boolean(controller?.openId && controller.openId === selectId);
     const trigger = React.useRef<View>(null);
     const [hovered, setHovered] = React.useState(false);
     const hoverProps = Platform.OS === 'web'
@@ -235,31 +269,49 @@ export function SettingsSelect<T>(props: {
     return (
         <Pressable
             ref={trigger}
+            hitSlop={4}
             accessibilityRole="button"
-            accessibilityState={{ expanded: false, disabled: !!props.disabled }}
+            accessibilityState={{ expanded: isOpen, disabled: !!props.disabled }}
             accessibilityLabel={props.title ? `${props.title}: ${label}` : label}
             disabled={props.disabled || !controller}
             {...hoverProps}
             onPress={() => {
-                trigger.current?.measureInWindow?.((x, y, width, height) => {
+                if (isOpen) {
+                    controller?.close();
+                    return;
+                }
+                const openAt = (x: number, y: number, width: number, height: number) => {
                     controller?.open({ x, y, width, height }, {
+                        id: selectId,
                         title: props.title,
                         options: props.options,
                         value: props.value,
                         onSelect: (value) => props.onChange(value as T),
                     });
-                });
+                };
+                if (trigger.current?.measureInWindow) {
+                    trigger.current.measureInWindow(openAt);
+                } else {
+                    openAt(0, 0, 0, flat ? 36 : 34);
+                }
             }}
             style={({ pressed }) => [
                 styles.trigger,
                 flat && styles.flatTrigger,
-                (hovered || pressed) && !props.disabled && { backgroundColor: theme.colors.surfacePressed },
+                (hovered || pressed) && !props.disabled && styles.triggerHover,
+                isOpen && !props.disabled && styles.triggerOpen,
                 props.disabled && { opacity: 0.45 },
             ]}
         >
             {!!selected?.leading && selected.leading}
             <Text style={[styles.triggerLabel, flat && styles.flatLabel]} numberOfLines={1}>{label}</Text>
-            <Ionicons name="chevron-down" size={15} color={theme.colors.groupped.chevron} />
+            <View style={isOpen ? styles.chevronOpen : undefined}>
+                <Ionicons
+                    name="chevron-down"
+                    size={14}
+                    color={isOpen ? theme.colors.textLink : theme.colors.groupped.chevron}
+                />
+            </View>
         </Pressable>
     );
 }
