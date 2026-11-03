@@ -175,6 +175,14 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="settings/general"
+                options={{ headerTitle: t('lmc.settings.general') }}
+            />
+            <Stack.Screen
+                name="settings/conversation"
+                options={{ headerTitle: t('lmc.settings.conversation') }}
+            />
+            <Stack.Screen
                 name="settings/appearance"
                 options={{
                     headerTitle: t('settings.appearance'),

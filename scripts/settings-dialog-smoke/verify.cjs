@@ -17,6 +17,7 @@ console.log('Artifacts: '+out);
    await page.goto(url+'?theme='+theme+'&lang=zh-Hans');
    const dialog=page.getByTestId('lmc-settings-dialog'),pane=page.getByTestId('settings-pane');
    await dialog.waitFor();await page.waitForTimeout(240);
+   assert.equal(await dialog.evaluate(n=>getComputedStyle(n).backgroundColor),theme==='dark'?'rgb(33, 33, 33)':'rgb(255, 255, 255)','requested theme rendered');
    const bounds=await dialog.boundingBox();assert.ok(bounds.x>=11&&bounds.y>=0&&bounds.x+bounds.width<=size.width-11&&bounds.y+bounds.height<=size.height,JSON.stringify(bounds));
    assert.ok((await page.getByRole('button',{name:'关闭设置'}).boundingBox()).height>=44);
    const checkPane=async()=>{
@@ -26,7 +27,21 @@ console.log('Artifacts: '+out);
    await checkPane();
    await page.screenshot({path:path.join(out,`${theme}-${size.width}.png`)});
    const search=page.getByRole('textbox',{name:'搜索设置'});
-   await search.fill('气泡');await pane.getByRole('button',{name:/常规/}).click();await pane.getByRole('heading',{name:'常规',exact:true}).waitFor();assert.equal(await search.inputValue(),'');
+   await search.fill('气泡');await pane.getByRole('button',{name:/外观/}).click();await pane.getByRole('heading',{name:'外观',exact:true}).waitFor();assert.equal(await search.inputValue(),'');
+   await checkPane();
+   await page.screenshot({path:path.join(out,`${theme}-${size.width}-appearance.png`)});
+   await search.fill('交互');await pane.getByRole('button',{name:/会话/}).click();
+   await pane.getByRole('heading',{name:'会话',exact:true}).waitFor();
+   await checkPane();
+   // A moved input preference must still update its original account setting.
+   const enterBefore=await page.evaluate(()=>moduleExport('storage').storage.getState().settings.agentInputEnterToSend);
+   await pane.getByRole('switch').nth(1).click();
+   assert.equal(await page.evaluate(()=>moduleExport('storage').storage.getState().settings.agentInputEnterToSend),!enterBefore);
+   await page.screenshot({path:path.join(out,`${theme}-${size.width}-conversation.png`)});
+   await search.fill('语言');await pane.getByRole('button',{name:/常规/}).click();
+   await pane.getByRole('heading',{name:'常规',exact:true}).waitFor();
+   assert.equal(await pane.getByRole('switch').count(),1,'General only contains language and app shortcuts');
+   assert.equal(await page.getByRole('tab').count(),7);
    await search.fill('definitely-no-match');await pane.getByText('没有匹配的会话',{exact:true}).count().then(async count=>{if(!count)assert.match(await pane.innerText(),/无匹配|没有匹配|No matches/)});
    await search.fill('模型');await pane.getByRole('button',{name:/Agent 默认参数/}).click();
    await pane.getByRole('heading',{name:'Agent 默认参数'}).waitFor();
@@ -38,13 +53,14 @@ console.log('Artifacts: '+out);
    await page.getByTestId('settings-tab-about').click();await pane.getByText('网页版本',{exact:true}).waitFor();await checkPane();
    await page.getByTestId('settings-tab-general').click();
    // Changing an existing control must reach the same account settings store.
-   const before=await page.evaluate(()=>moduleExport('storage').storage.getState().settings.usageLimitShowRemaining);
+   const before=await page.evaluate(()=>moduleExport('storage').storage.getState().settings.commandPaletteEnabled);
    await pane.getByRole('switch').first().click();
-   const after=await page.evaluate(()=>moduleExport('storage').storage.getState().settings.usageLimitShowRemaining);assert.equal(after,!before);
+   const after=await page.evaluate(()=>moduleExport('storage').storage.getState().settings.commandPaletteEnabled);assert.equal(after,!before);
+   await page.getByTestId('settings-tab-appearance').click();
    // The appearance menu uses the actual anchored SettingsSelect layer.
-   await pane.getByRole('button',{name:'自适应',exact:true}).click();
-   await pane.getByRole('button',{name:/^深色/}).click();await page.waitForTimeout(200);
-   assert.equal(await dialog.evaluate(n=>getComputedStyle(n).backgroundColor),'rgb(33, 33, 33)');
+   await pane.getByRole('button',{name:theme==='dark'?'深色':'浅色',exact:true}).click();
+   await pane.getByRole('button',{name:theme==='dark'?/^浅色/:/^深色/}).click();await page.waitForTimeout(200);
+   assert.equal(await dialog.evaluate(n=>getComputedStyle(n).backgroundColor),theme==='dark'?'rgb(255, 255, 255)':'rgb(33, 33, 33)');
    await page.getByRole('button',{name:'关闭设置'}).click();await dialog.waitFor({state:'hidden'});
    // Phone account menu now opens the same floating dialog without routing away.
    await page.getByRole('button',{name:'账户菜单',exact:true}).click();

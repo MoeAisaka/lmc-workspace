@@ -5,6 +5,8 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
+import GeneralSettingsScreen from '@/app/(app)/settings/general';
+import ConversationSettingsScreen from '@/app/(app)/settings/conversation';
 import AppearanceSettingsScreen from '@/app/(app)/settings/appearance';
 import AgentsSettingsScreen from '@/app/(app)/settings/agents';
 import AccountSettings from '@/app/(app)/settings/account';
@@ -26,14 +28,17 @@ import {
 import { t } from '@/text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-export type LmcSettingsSection = 'general' | 'devices' | 'agents' | 'account' | 'about';
+export type LmcSettingsSection = 'general' | 'appearance' | 'conversation' | 'devices' | 'agents' | 'account' | 'about';
 
+// Resolve labels when read so account language restoration also reaches the tabs.
 export const LMC_SETTINGS_SECTIONS: { key: LmcSettingsSection; label: string; icon: keyof typeof Ionicons.glyphMap; keywords: string }[] = [
-    { key: 'general', label: t('lmc.settings.general'), icon: 'settings-outline', keywords: t('lmc.settings.generalKeywords') },
-    { key: 'devices', label: t('lmc.settings.devices'), icon: 'laptop-outline', keywords: t('lmc.settings.devicesKeywords') },
-    { key: 'agents', label: t('lmc.settings.agents'), icon: 'options-outline', keywords: t('lmc.settings.agentsKeywords') },
-    { key: 'account', label: t('lmc.settings.account'), icon: 'person-circle-outline', keywords: t('lmc.settings.accountKeywords') },
-    { key: 'about', label: t('lmc.settings.about'), icon: 'information-circle-outline', keywords: t('lmc.settings.aboutKeywords') },
+    { key: 'general', get label() { return t('lmc.settings.general'); }, icon: 'settings-outline', get keywords() { return t('lmc.settings.generalKeywords'); } },
+    { key: 'appearance', get label() { return t('lmc.settings.appearance'); }, icon: 'color-palette-outline', get keywords() { return t('lmc.settings.appearanceKeywords'); } },
+    { key: 'conversation', get label() { return t('lmc.settings.conversation'); }, icon: 'chatbubbles-outline', get keywords() { return t('lmc.settings.conversationKeywords'); } },
+    { key: 'devices', get label() { return t('lmc.settings.devices'); }, icon: 'laptop-outline', get keywords() { return t('lmc.settings.devicesKeywords'); } },
+    { key: 'agents', get label() { return t('lmc.settings.agents'); }, icon: 'options-outline', get keywords() { return t('lmc.settings.agentsKeywords'); } },
+    { key: 'account', get label() { return t('lmc.settings.account'); }, icon: 'person-circle-outline', get keywords() { return t('lmc.settings.accountKeywords'); } },
+    { key: 'about', get label() { return t('lmc.settings.about'); }, icon: 'information-circle-outline', get keywords() { return t('lmc.settings.aboutKeywords'); } },
 ];
 
 const styles = StyleSheet.create((theme) => ({
@@ -108,15 +113,20 @@ export function LmcSettingsDialog({
     // Results navigate to existing controls instead of mounting every pane
     // (and starting device/account requests) for a search.
     const terms: Record<LmcSettingsSection, string[]> = {
-        general: [
-            t('personalization.chrome'), t('personalization.terminal'),
-            t('personalization.title'), t('personalization.motion'), t('personalization.typography'), t('personalization.colors'), t('personalization.layout'), t('personalization.uiFont'), t('personalization.textSize'),
-            t('settings.appearance'), t('settingsLanguage.currentLanguage'),
-            t('settingsAppearance.userMessageBubbleColor'),
-            t('settingsAppearance.alwaysShowContextSize'), t('settingsFeatures.enterToSend'),
-            t('settingsFeatures.commandPalette'), t('settingsAppearance.groupSessionsByEngine'),
-            t('settingsAppearance.compactToolCalls'), t('settingsFeatures.fileDiffsSidebar'),
-            t('settingsFeatures.groupToolCalls'), t('settingsAppearance.showLineNumbersInToolViews'),
+        general: [t('settingsLanguage.currentLanguage'), t('settingsFeatures.commandPalette')],
+        appearance: [
+            t('settings.appearance'), t('personalization.title'), t('personalization.chrome'), t('personalization.terminal'),
+            t('personalization.readingStyle'), t('personalization.motion'), t('personalization.typography'),
+            t('personalization.uiFont'), t('personalization.codeFont'), t('personalization.textSize'), t('personalization.lineHeight'),
+            t('personalization.colors'), t('personalization.accent'), t('settingsAppearance.userMessageBubbleColor'),
+            t('personalization.layout'), t('personalization.density'), t('personalization.sidebarWidth'),
+            t('personalization.contentWidth'), t('personalization.zen'), t('personalization.reset'),
+        ],
+        conversation: [
+            t('settingsAppearance.input'), t('settingsAppearance.alwaysShowContextSize'), t('settingsFeatures.enterToSend'),
+            t('settingsAppearance.display'), t('settingsAppearance.groupSessionsByEngine'), t('settingsAppearance.compactToolCalls'),
+            t('settingsFeatures.fileDiffsSidebar'), t('settingsFeatures.groupToolCalls'), t('settingsAppearance.showLineNumbersInToolViews'),
+            t('lmc.interactive.settingTitle'), t('lmc.interactive.settingSubtitle'),
         ],
         devices: [t('lmc.menu.devices'), t('lmc.devices.detail')],
         agents: [t('localFeatures.model'), t('localFeatures.effort'), t('localFeatures.permission'), 'Claude Code', 'Codex'],
@@ -220,7 +230,9 @@ export function LmcSettingsDialog({
         : item.key === 'account' ? t('settings.account') : item.label;
     const activeSubpage = subpages[subpages.length - 1];
 
-    const pane = section === 'general' ? <AppearanceSettingsScreen />
+    const pane = section === 'general' ? <GeneralSettingsScreen />
+        : section === 'appearance' ? <AppearanceSettingsScreen />
+        : section === 'conversation' ? <ConversationSettingsScreen />
         : section === 'agents' ? <AgentsSettingsScreen onNavigate={close} />
         : section === 'account' ? <AccountSettings onNavigate={close} />
         : section === 'devices' ? <ScrollView><DevicesUpgradePane onNavigate={close} /></ScrollView>

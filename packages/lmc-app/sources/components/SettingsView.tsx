@@ -19,7 +19,9 @@ import { useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 
 const ROUTES: Record<LmcSettingsSection, string> = {
-    general: '/settings/appearance',
+    general: '/settings/general',
+    appearance: '/settings/appearance',
+    conversation: '/settings/conversation',
     devices: '/settings/devices',
     agents: '/settings/agents',
     account: '/settings/account',
@@ -45,6 +47,8 @@ export const SettingsView = React.memo(({ topContentInset = 0, bottomContentInse
 
     const subtitles: Record<LmcSettingsSection, string | undefined> = {
         general: t('lmc.settings.generalSubtitle'),
+        appearance: t('lmc.settings.appearanceSubtitle'),
+        conversation: t('lmc.settings.conversationSubtitle'),
         devices: machines.length === 0
             ? t('lmc.settings.noDevices')
             : machines

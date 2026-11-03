@@ -8,12 +8,10 @@ import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { useUnistyles, UnistylesRuntime } from 'react-native-unistyles';
-import { Switch } from '@/components/Switch';
 import { Appearance, Platform, View } from 'react-native';
 import * as SystemUI from 'expo-system-ui';
 import { darkTheme, lightTheme } from '@/theme';
-import { t, getLanguageNativeName, SUPPORTED_LANGUAGE_CODES, DEFAULT_LANGUAGE, type SupportedLanguage } from '@/text';
-import { useUpdates } from '@/hooks/useUpdates';
+import { t } from '@/text';
 import { SettingsMenuHost, SettingsSelect, type SelectOption } from '@/components/lmc/SettingsSelect';
 import {
     normalizeUserMessageBubbleColor,
@@ -22,10 +20,6 @@ import {
     type UserMessageBubbleColor,
 } from '@/utils/userMessageBubbleColor';
 import * as React from 'react';
-import { INTERACTIVE_ANSWERS_MODES, type InteractiveAnswersMode } from 'lmc-wire';
-
-const interactiveLabel = (mode: InteractiveAnswersMode) => mode === 'off' ? t('lmc.interactive.modeOff') : mode === 'ask' ? t('lmc.interactive.modeAsk') : t('lmc.interactive.modeAuto');
-const interactiveDescription = (mode: InteractiveAnswersMode) => mode === 'off' ? t('lmc.interactive.modeOffDescription') : mode === 'ask' ? t('lmc.interactive.modeAskDescription') : t('lmc.interactive.modeAutoDescription');
 
 type ThemePreference = 'adaptive' | 'light' | 'dark';
 
@@ -64,18 +58,8 @@ function BubbleColorDot({ color }: { color: UserMessageBubbleColor }) {
 
 export default function AppearanceSettingsScreen() {
     const { theme } = useUnistyles();
-    const { reloadApp } = useUpdates();
-    const [showLineNumbersInToolViews, setShowLineNumbersInToolViews] = useSettingMutable('showLineNumbersInToolViews');
-    const [alwaysShowContextSize, setAlwaysShowContextSize] = useSettingMutable('alwaysShowContextSize');
-    const [compactToolCalls, setCompactToolCalls] = useSettingMutable('compactToolCalls');
-    const [groupSessionsByEngine, setGroupSessionsByEngine] = useSettingMutable('sessionListGroupByEngine');
     const [userMessageBubbleColor, setUserMessageBubbleColor] = useSettingMutable('userMessageBubbleColor');
     const [themePreference, setThemePreference] = useSettingMutable('themePreference');
-    const [preferredLanguage, setPreferredLanguage] = useSettingMutable('preferredLanguage');
-    const [agentInputEnterToSend, setAgentInputEnterToSend] = useSettingMutable('agentInputEnterToSend');
-    const [commandPaletteEnabled, setCommandPaletteEnabled] = useSettingMutable('commandPaletteEnabled');
-    const [fileDiffsSidebar, setFileDiffsSidebar] = useSettingMutable('fileDiffsSidebar');
-    const [groupToolCalls, setGroupToolCalls] = useSettingMutable('groupToolCalls');
 
     const displayBubbleColor = normalizeUserMessageBubbleColor(userMessageBubbleColor);
 
@@ -109,26 +93,6 @@ export default function AppearanceSettingsScreen() {
         }
     };
 
-    // No automatic option: a center serves English until someone picks a
-    // language, so "follow the device" would only ever mean English.
-    const language: SupportedLanguage = SUPPORTED_LANGUAGE_CODES.includes(preferredLanguage as SupportedLanguage)
-        ? preferredLanguage as SupportedLanguage
-        : DEFAULT_LANGUAGE;
-    const languageOptions: SelectOption<SupportedLanguage>[] = SUPPORTED_LANGUAGE_CODES.map((code) => ({
-        value: code,
-        label: getLanguageNativeName(code),
-    }));
-
-    // Every translated string is read once at boot — the section titles in the
-    // settings rail included — so the choice only lands after a reload. The row
-    // says so before you pick rather than asking again afterwards: a dialog on
-    // top of this one would close the settings you opened it from.
-    const changeLanguage = (next: SupportedLanguage) => {
-        if (next === language) return;
-        setPreferredLanguage(next);
-        setTimeout(() => reloadApp(), 100);
-    };
-
     const bubbleControl = (
         <Item
             title={t('settingsAppearance.userMessageBubbleColor')}
@@ -143,12 +107,9 @@ export default function AppearanceSettingsScreen() {
         />
     );
 
-    const [interactiveAnswers, setInteractiveAnswers] = useSettingMutable('interactiveAnswers');
     return (
         <SettingsMenuHost>
             <ItemList style={{ paddingTop: 0 }}>
-                {/* No heading: appearance and language are the first thing the
-                    pane shows, and "Theme" stopped describing the pair. */}
                 <ItemGroup>
                     <Item
                         title={t('settings.appearance')}
@@ -160,31 +121,6 @@ export default function AppearanceSettingsScreen() {
                                 onChange={applyTheme}
                             />
                         }
-                    />
-                    <Item
-                        title={t('settingsLanguage.currentLanguage')}
-                        subtitle={t('settingsLanguage.needsRestartMessage')}
-                        icon={<Ionicons name="language-outline" size={29} color="#0060F0" />}
-                        rightElement={
-                            <SettingsSelect
-                                value={language}
-                                options={languageOptions}
-                                onChange={changeLanguage}
-                            />
-                        }
-                        showDivider={false}
-                    />
-                </ItemGroup>
-
-                <ItemGroup title={t('lmc.interactive.settingTitle')} footer={t('lmc.interactive.settingFooter')}>
-                    <Item
-                        title={t('lmc.interactive.settingSubtitle')}
-                        icon={<Ionicons name="color-wand-outline" size={29} color={theme.colors.status.connecting} />}
-                        rightElement={<SettingsSelect
-                            value={interactiveAnswers}
-                            options={INTERACTIVE_ANSWERS_MODES.map(mode => ({ value: mode, label: interactiveLabel(mode), description: interactiveDescription(mode) }))}
-                            onChange={setInteractiveAnswers}
-                        />}
                         showDivider={false}
                     />
                 </ItemGroup>
@@ -206,113 +142,6 @@ export default function AppearanceSettingsScreen() {
                     </ItemGroup>
                 )}
 
-                <ItemGroup title={t('settingsAppearance.input')} footer={t('settingsAppearance.inputDescription')}>
-                    <Item
-                        title={t('settingsAppearance.alwaysShowContextSize')}
-                        subtitle={t('settingsAppearance.alwaysShowContextSizeDescription')}
-                        icon={<Ionicons name="analytics-outline" size={29} color="#5856D6" />}
-                        rightElement={
-                            <Switch
-                                value={alwaysShowContextSize}
-                                onValueChange={setAlwaysShowContextSize}
-                            />
-                        }
-                    />
-                    {Platform.OS === 'web' && (
-                        <>
-                            <Item
-                                title={t('settingsFeatures.enterToSend')}
-                                subtitle={agentInputEnterToSend
-                                    ? t('settingsFeatures.enterToSendEnabled')
-                                    : t('settingsFeatures.enterToSendDisabled')}
-                                icon={<Ionicons name="return-down-forward-outline" size={29} color="#0060F0" />}
-                                rightElement={
-                                    <Switch
-                                        value={agentInputEnterToSend}
-                                        onValueChange={setAgentInputEnterToSend}
-                                    />
-                                }
-                                showChevron={false}
-                            />
-                            <Item
-                                title={t('settingsFeatures.commandPalette')}
-                                subtitle={commandPaletteEnabled
-                                    ? t('settingsFeatures.commandPaletteEnabled')
-                                    : t('settingsFeatures.commandPaletteDisabled')}
-                                icon={<Ionicons name="keypad-outline" size={29} color="#0060F0" />}
-                                rightElement={
-                                    <Switch
-                                        value={commandPaletteEnabled}
-                                        onValueChange={setCommandPaletteEnabled}
-                                    />
-                                }
-                                showChevron={false}
-                                showDivider={false}
-                            />
-                        </>
-                    )}
-                </ItemGroup>
-
-                <ItemGroup title={t('settingsAppearance.display')} footer={t('settingsAppearance.displayDescription')}>
-                    <Item
-                        title={t('settingsAppearance.groupSessionsByEngine')}
-                        subtitle={t('settingsAppearance.groupSessionsByEngineDescription')}
-                        icon={<Ionicons name="git-network-outline" size={29} color="#0060F0" />}
-                        rightElement={
-                            <Switch
-                                value={groupSessionsByEngine}
-                                onValueChange={setGroupSessionsByEngine}
-                            />
-                        }
-                    />
-                    <Item
-                        title={t('settingsAppearance.compactToolCalls')}
-                        subtitle={t('settingsAppearance.compactToolCallsDescription')}
-                        icon={<Ionicons name="contract-outline" size={29} color="#5856D6" />}
-                        rightElement={
-                            <Switch
-                                value={compactToolCalls}
-                                onValueChange={setCompactToolCalls}
-                            />
-                        }
-                    />
-                    <Item
-                        title={t('settingsFeatures.fileDiffsSidebar')}
-                        subtitle={t('settingsFeatures.fileDiffsSidebarSubtitle')}
-                        icon={<Ionicons name="git-branch-outline" size={29} color="#0060F0" />}
-                        rightElement={
-                            <Switch
-                                value={fileDiffsSidebar}
-                                onValueChange={setFileDiffsSidebar}
-                            />
-                        }
-                        showChevron={false}
-                    />
-                    <Item
-                        title={t('settingsFeatures.groupToolCalls')}
-                        subtitle={t('settingsFeatures.groupToolCallsSubtitle')}
-                        icon={<Ionicons name="layers-outline" size={29} color="#AF52DE" />}
-                        rightElement={
-                            <Switch
-                                value={groupToolCalls}
-                                onValueChange={setGroupToolCalls}
-                            />
-                        }
-                        showChevron={false}
-                    />
-                    <Item
-                        title={t('settingsAppearance.showLineNumbersInToolViews')}
-                        subtitle={t('settingsAppearance.showLineNumbersInToolViewsDescription')}
-                        icon={<Ionicons name="code-working-outline" size={29} color="#5856D6" />}
-                        rightElement={
-                            <Switch
-                                value={showLineNumbersInToolViews}
-                                onValueChange={setShowLineNumbersInToolViews}
-                            />
-                        }
-                        showDivider={false}
-                    />
-                </ItemGroup>
             </ItemList>
         </SettingsMenuHost>
     );

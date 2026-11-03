@@ -152,6 +152,12 @@ vi.mock('@/components/RuntimeUpdatesPanel', () => ({
 }));
 vi.mock('@/components/lmc/DetailSummary', () => ({ DetailSummary: 'DetailSummary' }));
 vi.mock('@/components/lmc/settings/ProfileSection', () => ({ ProfileSection: 'ProfileSection' }));
+vi.mock('@/app/(app)/settings/general', () => ({
+    default: () => React.createElement('View', { testID: 'general-pane' }),
+}));
+vi.mock('@/app/(app)/settings/conversation', () => ({
+    default: () => React.createElement('View', { testID: 'conversation-pane' }),
+}));
 vi.mock('@/app/(app)/settings/appearance', () => ({
     default: () => React.createElement('View', { testID: 'appearance-pane' }),
 }));
@@ -177,7 +183,7 @@ vi.mock('@/utils/webInputProbeBootstrap', () => ({
     setWebInputProbeEnabled: vi.fn(),
     webInputProbeQueryEnabled: () => false,
 }));
-vi.mock('@/sync/serverConfig', () => ({ getServerUrl: () => 'https://lmc.moeaisaka.cn:11455' }));
+vi.mock('@/sync/serverConfig', () => ({ getServerUrl: () => 'https://lmc.example.test' }));
 vi.mock('@/sync/apiServices', () => ({ disconnectService: vi.fn(), connectService: vi.fn() }));
 vi.mock('@/sync/apiFileAssets', () => ({
     listFileAssets: vi.fn().mockResolvedValue({ files: [], next: null }),
