@@ -96,8 +96,11 @@ export function useSessionStatus(session: Session): SessionStatus {
  */
 export function getSessionName(session: Session): string {
     if (session.customName?.trim()) return session.customName;
-    if (session.metadata?.summary) {
+    if (session.metadata?.summary?.text?.trim()) {
         return session.metadata.summary.text;
+    }
+    if (session.metadata?.name?.trim()) {
+        return session.metadata.name;
     }
     return t('session.newChat');
 }

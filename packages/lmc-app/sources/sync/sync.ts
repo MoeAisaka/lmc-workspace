@@ -1378,6 +1378,36 @@ class Sync {
         return this.sessionsSync.invalidateAndAwait();
     }
 
+    public ensureSessionsLoaded = async (sessionIds: string[]): Promise<void> => {
+        if (!this.credentials || !sessionIds.length) return;
+        const epoch = this.sharedAccessEpoch;
+        const existing = storage.getState().sessions;
+        const missing = Array.from(new Set(sessionIds)).filter((id) => id && !existing[id]);
+        if (!missing.length) return;
+
+        const snapshots: ApiSessionSnapshot[] = [];
+        const concurrency = 6;
+        let cursor = 0;
+        const worker = async () => {
+            while (cursor < missing.length) {
+                const sessionId = missing[cursor++];
+                if (epoch !== this.sharedAccessEpoch) return;
+                try {
+                    const response = await apiSocket.request(`/v1/sessions/${encodeURIComponent(sessionId)}`);
+                    if (epoch !== this.sharedAccessEpoch || !response.ok) continue;
+                    const body = await response.json() as { session?: ApiSessionSnapshot };
+                    if (body?.session) snapshots.push(body.session);
+                } catch {
+                    // Best-effort hydration; unreadable member private sessions remain E2E-opaque.
+                }
+            }
+        };
+        await Promise.all(Array.from({ length: Math.min(concurrency, missing.length) }, () => worker()));
+        if (snapshots.length > 0 && epoch === this.sharedAccessEpoch) {
+            await this.applySessionSnapshot(snapshots, epoch);
+        }
+    }
+
     public getCredentials() {
         return this.credentials;
     }

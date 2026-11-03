@@ -143,11 +143,96 @@ export function SessionInfoContent(props: { session: Session; onClose?: () => vo
 
 function SharedSessionInfo({ session }: { session: Session }) {
     const { theme } = useUnistyles();
-    return <View style={{ padding: 24, gap: 16 }}>
-        <Text style={{ fontSize: 22, fontWeight: '600', color: theme.colors.text }}>{getSessionName(session)}</Text>
-        <Text style={{ color: theme.colors.textSecondary }}>{t('lmc.sharing.sharedReadOnlyTitle')}</Text>
-        <Text style={{ color: theme.colors.textSecondary }}>{t('lmc.sharing.sharedReadOnlyBody')}</Text>
-    </View>;
+    const sessionStatus = useSessionStatus(session);
+    const actions = session.accessActions ?? ['read'];
+    const isCollaborative = actions.some((a) => a === 'send' || a === 'stop' || a === 'approve');
+    const flavor = session.metadata?.flavor;
+    const engineLabel =
+        flavor === 'codex'
+            ? 'Codex'
+            : flavor === 'claude'
+              ? 'Claude Code'
+              : flavor === 'agy' || flavor === 'antigravity'
+                ? 'Antigravity'
+                : flavor || null;
+    const hostLabel = session.metadata?.host?.trim() || null;
+    const pathLabel = session.metadata?.path?.trim()
+        ? formatPathRelativeToHome(session.metadata.path, session.metadata.homeDir)
+        : null;
+    const actionLabels = [
+        actions.includes('read') ? t('lmc.sharing.actionRead') : null,
+        actions.includes('send') ? t('lmc.sharing.actionSend') : null,
+        actions.includes('stop') ? t('lmc.sharing.actionStop') : null,
+        actions.includes('approve') ? t('lmc.sharing.actionApprove') : null,
+    ].filter((v): v is string => Boolean(v));
+    const shortId =
+        session.id.length > 16
+            ? `${session.id.slice(0, 8)}…${session.id.slice(-6)}`
+            : session.id;
+
+    return (
+        <ItemList>
+            <View style={{ maxWidth: layout.maxWidth, alignSelf: 'center', width: '100%' }}>
+                <View style={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12, gap: 10 }}>
+                    <Text style={{ fontSize: 22, fontWeight: '600', color: theme.colors.text }}>
+                        {getSessionName(session)}
+                    </Text>
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: isCollaborative ? theme.colors.textLink : theme.colors.textSecondary }}>
+                        {isCollaborative ? t('lmc.sharing.sharedCollaborativeTitle') : t('lmc.sharing.sharedReadOnlyTitle')}
+                    </Text>
+                    <Text style={{ fontSize: 13, lineHeight: 20, color: theme.colors.textSecondary }}>
+                        {isCollaborative ? t('lmc.sharing.sharedCollaborativeBody') : t('lmc.sharing.sharedReadOnlyBody')}
+                    </Text>
+                </View>
+
+                <ItemGroup>
+                    <Item
+                        title={t('lmc.sharing.grantedPermissionsLabel')}
+                        subtitle={actionLabels.join(' · ')}
+                        icon={<Ionicons name="shield-checkmark-outline" size={22} color={theme.colors.textLink} />}
+                        showChevron={false}
+                    />
+                    <Item
+                        title={t('lmc.sharing.sessionStatusLabel')}
+                        subtitle={sessionStatus.statusText}
+                        icon={<Ionicons name={sessionStatus.isConnected ? 'radio-button-on' : 'ellipse-outline'} size={22} color={sessionStatus.statusDotColor} />}
+                        showChevron={false}
+                    />
+                    {hostLabel ? (
+                        <Item
+                            title={t('lmc.sharing.sessionHostLabel')}
+                            subtitle={hostLabel}
+                            icon={<Ionicons name="laptop-outline" size={22} color={theme.colors.textSecondary} />}
+                            showChevron={false}
+                        />
+                    ) : null}
+                    {engineLabel ? (
+                        <Item
+                            title={t('lmc.sharing.sessionEngineLabel')}
+                            subtitle={engineLabel}
+                            icon={<Ionicons name="sparkles-outline" size={22} color={theme.colors.textSecondary} />}
+                            showChevron={false}
+                        />
+                    ) : null}
+                    {pathLabel ? (
+                        <Item
+                            title={t('lmc.sharing.sessionPathLabel')}
+                            subtitle={pathLabel}
+                            icon={<Ionicons name="folder-open-outline" size={22} color={theme.colors.textSecondary} />}
+                            showChevron={false}
+                        />
+                    ) : null}
+                    <Item
+                        title={t('lmc.sharing.sessionIdLabel')}
+                        subtitle={shortId}
+                        icon={<Ionicons name="finger-print-outline" size={22} color={theme.colors.textSecondary} />}
+                        onPress={() => { void Clipboard.setStringAsync(session.id); }}
+                        showChevron={false}
+                    />
+                </ItemGroup>
+            </View>
+        </ItemList>
+    );
 }
 
 function OwnedSessionInfoContent({ session, onClose }: { session: Session; onClose?: () => void }) {

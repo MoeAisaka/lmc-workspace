@@ -433,6 +433,32 @@ const DeviceSection = React.memo(({ group, selectedSessionId, now, onNavigate, o
         : { height: bodyHeight ? progress.value * bodyHeight : undefined, opacity: progress.value }));
     const chevronStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${-90 + progress.value * 90}deg` }] }));
 
+    const buildRowMeta = (session: Session, includeEngine: boolean): RowMeta => {
+        const model = modelNameOf(session);
+        const rawEngine = engineKeyForSession(session);
+        const engine = includeEngine ? (rawEngine === 'other' ? null : rawEngine) : undefined;
+        if (!group.shared) {
+            return {
+                ...(includeEngine ? { engine } : {}),
+                extras: [model ?? ''].filter(Boolean),
+            };
+        }
+        const accessBadge = session.accessActions?.includes('send')
+            ? t('lmc.sharing.badgeCollaborative')
+            : t('lmc.sharing.badgeReadOnly');
+        const rawPath = session.metadata?.path?.trim() ?? '';
+        const folderSegment = rawPath
+            ? rawPath.replace(/[\\/]+$/, '').split(/[\\/]/).filter(Boolean).pop() ?? ''
+            : '';
+        const sessionTitle = getSessionName(session);
+        const showFolder = Boolean(folderSegment && !sessionTitle.includes(folderSegment));
+        return {
+            device: session.metadata?.host?.trim() || null,
+            ...(includeEngine ? { engine } : {}),
+            extras: [accessBadge, model ?? '', showFolder ? folderSegment : ''].filter(Boolean),
+        };
+    };
+
     const meta = group.shared ? t('lmc.sharing.perSessionGrant') : [group.sharedDevice ? t('lmc.sharing.sharedDevice') : null, group.agentVersion ? `Agent ${group.agentVersion}` : null, group.online ? null : t('lmc.list.offline')].filter(Boolean).join(' · ');
     return (
         <View>
@@ -480,7 +506,7 @@ const DeviceSection = React.memo(({ group, selectedSessionId, now, onNavigate, o
                             ownDropTarget="ungroup"
                             onDropOn={onDropOn}
                             renderRow={(session) => (
-                                <SessionRow key={session.id} session={session} selected={session.id === selectedSessionId} now={now} onNavigate={onNavigate} meta={{ extras: [modelNameOf(session) ?? ''].filter(Boolean) }} />
+                                <SessionRow key={session.id} session={session} selected={session.id === selectedSessionId} now={now} onNavigate={onNavigate} meta={buildRowMeta(session, false)} />
                             )}
                         />
                         {/* Drawn after the rows so a selected or hovered row never
@@ -501,7 +527,7 @@ const DeviceSection = React.memo(({ group, selectedSessionId, now, onNavigate, o
                         ownDropTarget="ungroup"
                         onDropOn={onDropOn}
                         renderRow={(session) => (
-                            <SessionRow key={session.id} session={session} selected={session.id === selectedSessionId} now={now} onNavigate={onNavigate} meta={{ engine: ((k) => k === 'other' ? null : k)(engineKeyForSession(session)), extras: [modelNameOf(session) ?? ''].filter(Boolean) }} />
+                            <SessionRow key={session.id} session={session} selected={session.id === selectedSessionId} now={now} onNavigate={onNavigate} meta={buildRowMeta(session, true)} />
                         )}
                     />
                     <View pointerEvents="none" style={[styles.engineGuide, { backgroundColor: theme.colors.divider }]} />

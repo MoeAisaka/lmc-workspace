@@ -7,6 +7,16 @@ export type LmcAccount = { id: string; username: string | null; role: 'admin' | 
 export type AccountCapabilities = { account: LmcAccount; capabilities: { version: number; fileSharing: boolean; sessionSharing: boolean; sharedExecution: boolean; deviceSharing?: boolean; modelIdentity?: 'device' } };
 export type AccountInvitation = { id: string; createdById: string; expiresAt: string; consumedAt: string | null; revokedAt: string | null; token?: string };
 export type SharingPolicy = { kind: string; resourceId: string; ownerAccountId: string; version: number; adminManaged: boolean; grants: Array<{ accountId: string; actions: string[] }>; canManage: boolean; sharingSupported: boolean; unavailableReason: string | null };
+export type ShareableResourceSummary = {
+    id: string;
+    kind: string;
+    createdAt: string;
+    updatedAt?: string;
+    active?: boolean;
+    size: number | null;
+    adminManaged?: boolean;
+    grants?: Array<{ accountId: string; actions: string[] }>;
+};
 function normalizeHeaders(headers?: HeadersInit): Record<string, string> {
     if (!headers) return {};
     if (headers instanceof Headers) return Object.fromEntries(headers.entries());

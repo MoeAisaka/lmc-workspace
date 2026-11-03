@@ -34,13 +34,30 @@ export const resourcesService = {
         const actor = await loadActor(actorId);
         if (actor.id !== ownerId && actor.role !== 'admin') throw new AccessError(403, 'sharing_forbidden', '只能管理自己的资源');
         // Metadata necessary for access management only. No encrypted content/key.
-        const [files, sessions, machines] = await Promise.all([
+        const [files, sessions, machines, policies] = await Promise.all([
             db.fileAsset.findMany({ where: { accountId: ownerId, state: 'ready' }, select: { id: true, createdAt: true, size: true }, orderBy: { createdAt: 'desc' }, take: 200 }),
-            db.session.findMany({ where: { accountId: ownerId }, select: { id: true, createdAt: true }, orderBy: { createdAt: 'desc' }, take: 200 }),
-            db.machine.findMany({ where: { accountId: ownerId }, select: { id: true, createdAt: true }, orderBy: { createdAt: 'desc' }, take: 200 }),
+            db.session.findMany({ where: { accountId: ownerId }, select: { id: true, createdAt: true, updatedAt: true, active: true }, orderBy: { updatedAt: 'desc' }, take: 200 }),
+            db.machine.findMany({ where: { accountId: ownerId }, select: { id: true, createdAt: true, updatedAt: true, active: true }, orderBy: { updatedAt: 'desc' }, take: 200 }),
+            db.lmcResourcePolicy.findMany({ where: { ownerAccountId: ownerId }, include: { grants: true }, take: 1000 }),
         ]);
-        return [...files.map(f => ({ kind: 'file' as const, id: f.id, createdAt: f.createdAt, size: Number(f.size) })),
-            ...sessions.map(s => ({ kind: 'session' as const, ...s, size: null })), ...machines.map(m => ({ kind: 'machine' as const, ...m, size: null }))];
+        const policyByKey = new Map(
+            policies.map(p => [
+                `${p.kind}:${p.resourceId}`,
+                {
+                    adminManaged: p.adminManaged,
+                    grants: p.grants.map(g => ({ accountId: g.accountId, actions: actions(g.actions) })),
+                },
+            ]),
+        );
+        const attachPolicy = <T extends { kind: string; id: string }>(item: T) => {
+            const p = policyByKey.get(`${item.kind}:${item.id}`);
+            return { ...item, adminManaged: p?.adminManaged ?? false, grants: p?.grants ?? [] };
+        };
+        return [
+            ...files.map(f => attachPolicy({ kind: 'file' as const, id: f.id, createdAt: f.createdAt, size: Number(f.size) })),
+            ...sessions.map(s => attachPolicy({ kind: 'session' as const, id: s.id, createdAt: s.createdAt, updatedAt: s.updatedAt, active: s.active, size: null })),
+            ...machines.map(m => attachPolicy({ kind: 'machine' as const, id: m.id, createdAt: m.createdAt, updatedAt: m.updatedAt, active: m.active, size: null })),
+        ];
     },
     async get(actorId: string, kind: ResourceKind, resourceId: string) {
         const actor = await loadActor(actorId), owner = await resourceOwner(kind, resourceId, db);
