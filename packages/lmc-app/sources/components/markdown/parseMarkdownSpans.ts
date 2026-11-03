@@ -2,7 +2,58 @@ import type { MarkdownSpan, MarkdownSpanStyle } from "./parseMarkdown";
 import { findFileReferences, parseFileReference } from "./linkUtils";
 
 const ASCII_WORD = /[A-Za-z0-9]/;
-const ESCAPABLE = /[\\`*_{}[\]()#+\-.!|~>]/;
+const ESCAPABLE = /[\\`*_{}[\]()#+\-.!|~><&]/;
+const HTML_BR_TAG = /^<br\s*\/?>/i;
+const HTML_AUTOLINK = /^<(https?:\/\/[^\s<>]+)>/i;
+const HTML_OPEN_TAG = /^<(b|strong|i|em|s|del|strike|code|kbd|a|ul|ol|sup|sub|u|ins|mark|span)((?:\s+[A-Za-z_:][\w:.-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*\s*)>/i;
+const HTML_LI_OPEN_TAG = /<li(?:\s+[A-Za-z_:][\w:.-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*\s*>/i;
+const HTML_ENTITY_AT_START = /^&([A-Za-z][A-Za-z0-9]*|#[0-9]{1,7}|#x[0-9A-Fa-f]{1,6});/;
+
+const NAMED_HTML_ENTITIES: Record<string, string> = {
+    nbsp: '\u00A0',
+    lt: '<',
+    gt: '>',
+    amp: '&',
+    quot: '"',
+    apos: "'",
+    mdash: '—',
+    ndash: '–',
+    hellip: '…',
+    rarr: '→',
+    larr: '←',
+    times: '×',
+    divide: '÷',
+    copy: '©',
+    reg: '®',
+    trade: '™',
+};
+
+function decodeHtmlEntityToken(token: string): string | null {
+    if (token.startsWith('#x') || token.startsWith('#X')) {
+        const cp = parseInt(token.slice(2), 16);
+        if (cp >= 0x20 && cp <= 0x10FFFF && (cp < 0xD800 || cp > 0xDFFF)) {
+            return String.fromCodePoint(cp);
+        }
+        return null;
+    }
+    if (token.startsWith('#')) {
+        const cp = parseInt(token.slice(1), 10);
+        if (cp >= 0x20 && cp <= 0x10FFFF && (cp < 0xD800 || cp > 0xDFFF)) {
+            return String.fromCodePoint(cp);
+        }
+        return null;
+    }
+    const lower = token.toLowerCase();
+    return Object.prototype.hasOwnProperty.call(NAMED_HTML_ENTITIES, lower)
+        ? NAMED_HTML_ENTITIES[lower]
+        : null;
+}
+
+function decodeHtmlEntities(raw: string): string {
+    return raw.replace(/&([A-Za-z][A-Za-z0-9]*|#[0-9]{1,7}|#x[0-9A-Fa-f]{1,6});/g, (full, token: string) => {
+        return decodeHtmlEntityToken(token) ?? full;
+    });
+}
 
 function mergeStyles(base: MarkdownSpanStyle[], extra?: MarkdownSpanStyle | MarkdownSpanStyle[]): MarkdownSpanStyle[] {
     if (!extra) return base.length ? [...base] : [];
@@ -216,6 +267,60 @@ function matchMarkdownLink(src: string, openBracketIndex: number): { label: stri
 }
 
 /**
+ * Find matching closing HTML tag `</tag>` while respecting nested same-name tags
+ * and (for non-code tags) inline backtick code spans.
+ */
+function findClosingHtmlTag(
+    src: string,
+    startAfterOpen: number,
+    tagLower: string,
+    rawContent: boolean
+): { contentEnd: number; afterClose: number } | null {
+    let depth = 1;
+    let j = startAfterOpen;
+    while (j < src.length) {
+        const ch = src[j];
+        if (!rawContent) {
+            if (ch === '\\' && j + 1 < src.length) {
+                j += 2;
+                continue;
+            }
+            if (ch === '`') {
+                let ticks = 0;
+                while (j + ticks < src.length && src[j + ticks] === '`') ticks++;
+                const closeCode = findCodeSpanEnd(src, j + ticks, ticks);
+                if (closeCode !== -1) {
+                    j = closeCode + ticks;
+                    continue;
+                }
+                j += ticks;
+                continue;
+            }
+        }
+        if (ch === '<') {
+            const rest = src.slice(j);
+            const closeMatch = rest.match(/^<\/([A-Za-z]+)\s*>/);
+            if (closeMatch && closeMatch[1].toLowerCase() === tagLower) {
+                depth--;
+                if (depth === 0) {
+                    return { contentEnd: j, afterClose: j + closeMatch[0].length };
+                }
+                j += closeMatch[0].length;
+                continue;
+            }
+            const openMatch = rest.match(tagLower === 'li' ? /^<(li)((?:\s+[A-Za-z_:][\w:.-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*\s*)>/i : HTML_OPEN_TAG);
+            if (openMatch && openMatch[1].toLowerCase() === tagLower) {
+                depth++;
+                j += openMatch[0].length;
+                continue;
+            }
+        }
+        j++;
+    }
+    return null;
+}
+
+/**
  * Find matching closing emphasis delimiter (`***`, `**`, `__`, `~~`, `*`, `_`)
  * while skipping inline code spans and links so inner `*` / `_` inside URLs or
  * backticks never prematurely terminate outer emphasis.
@@ -243,6 +348,16 @@ function findClosingDelimiter(src: string, startAfterOpen: number, delim: string
             }
             i += ticks;
             continue;
+        }
+        if (ch === '<') {
+            const codeOpen = src.slice(i).match(/^<(code|kbd)\b[^>]*>/i);
+            if (codeOpen) {
+                const closed = findClosingHtmlTag(src, i + codeOpen[0].length, codeOpen[1].toLowerCase(), true);
+                if (closed) {
+                    i = closed.afterClose;
+                    continue;
+                }
+            }
         }
         if (ch === '[') {
             const link = matchMarkdownLink(src, i);
@@ -292,12 +407,31 @@ function tokenizeInline(
             buffer = '';
         }
     };
+    const trimTrailingHorizontalSpaceBeforeBreak = () => {
+        if (buffer.length > 0) {
+            buffer = buffer.replace(/[ \t]+$/, '');
+            return;
+        }
+        const prev = spans.at(-1);
+        if (prev && !prev.styles.includes('code') && /[ \t]$/.test(prev.text)) {
+            prev.text = prev.text.replace(/[ \t]+$/, '');
+            if (!prev.text) spans.pop();
+        }
+    };
 
     let i = 0;
     while (i < src.length) {
         const ch = src[i];
 
-        // 1. Backslash escapes (`\*`, `\|`, `\[`, etc.)
+        // 1. Backslash hard break (`\\\n`) and escapes (`\*`, `\|`, `\<`, `\&`, etc.)
+        if (ch === '\\' && src[i + 1] === '\n') {
+            trimTrailingHorizontalSpaceBeforeBreak();
+            flush();
+            appendSpan(spans, inheritedStyles, '\n', inheritedUrl);
+            i += 2;
+            while (i < src.length && (src[i] === ' ' || src[i] === '\t')) i++;
+            continue;
+        }
         if (ch === '\\' && i + 1 < src.length && ESCAPABLE.test(src[i + 1])) {
             buffer += src[i + 1];
             i += 2;
@@ -325,7 +459,129 @@ function tokenizeInline(
             continue;
         }
 
-        // 3. Inline image `![alt](url)` inside a paragraph -> render as clickable link `[🖼 alt]`
+        // 3. Inline HTML (`<br>`, `<https://...>`, paired `<b>`/`<strong>`/`<i>`/`<em>`/`<del>`/`<code>`/`<a>`/`<ul>`/`<ol>`)
+        if (ch === '<') {
+            const rest = src.slice(i);
+
+            const brMatch = rest.match(HTML_BR_TAG);
+            if (brMatch) {
+                trimTrailingHorizontalSpaceBeforeBreak();
+                flush();
+                appendSpan(spans, inheritedStyles, '\n', inheritedUrl);
+                i += brMatch[0].length;
+                while (i < src.length && (src[i] === ' ' || src[i] === '\t')) i++;
+                continue;
+            }
+
+            if (!inheritedUrl) {
+                const autoMatch = rest.match(HTML_AUTOLINK);
+                if (autoMatch) {
+                    flush();
+                    appendSpan(spans, inheritedStyles, autoMatch[1], autoMatch[1]);
+                    i += autoMatch[0].length;
+                    continue;
+                }
+            }
+
+            const openMatch = rest.match(HTML_OPEN_TAG);
+            if (openMatch) {
+                const tagLower = openMatch[1].toLowerCase();
+                const attrs = openMatch[2] ?? '';
+                const openEnd = i + openMatch[0].length;
+                const isCodeTag = tagLower === 'code' || tagLower === 'kbd';
+                const closed = findClosingHtmlTag(src, openEnd, tagLower, isCodeTag);
+                if (closed) {
+                    const inner = src.slice(openEnd, closed.contentEnd);
+                    if (isCodeTag) {
+                        flush();
+                        const decoded = decodeHtmlEntities(inner);
+                        const targetUrl = inheritedUrl ?? (parseFileReference(decoded) ? decoded : null);
+                        appendSpan(spans, mergeStyles(inheritedStyles, 'code'), decoded, targetUrl);
+                        i = closed.afterClose;
+                        continue;
+                    }
+                    if (tagLower === 'ul' || tagLower === 'ol') {
+                        const items: string[] = [];
+                        let cursor = 0;
+                        while (cursor < inner.length) {
+                            const liOpen = inner.slice(cursor).match(HTML_LI_OPEN_TAG);
+                            if (!liOpen || liOpen.index === undefined) break;
+                            const liBodyStart = cursor + liOpen.index + liOpen[0].length;
+                            const liClosed = findClosingHtmlTag(inner, liBodyStart, 'li', false);
+                            if (!liClosed) break;
+                            items.push(inner.slice(liBodyStart, liClosed.contentEnd).trim());
+                            cursor = liClosed.afterClose;
+                        }
+                        if (items.length > 0) {
+                            trimTrailingHorizontalSpaceBeforeBreak();
+                            flush();
+                            const prev = spans.at(-1);
+                            if (prev && !prev.text.endsWith('\n')) {
+                                appendSpan(spans, inheritedStyles, '\n', inheritedUrl);
+                            }
+                            items.forEach((item, idx) => {
+                                if (idx > 0) appendSpan(spans, inheritedStyles, '\n', inheritedUrl);
+                                appendSpan(spans, inheritedStyles, tagLower === 'ol' ? `${idx + 1}. ` : '• ', inheritedUrl);
+                                tokenizeInline(item, header, inheritedStyles, inheritedUrl, spans);
+                            });
+                            i = closed.afterClose;
+                            while (i < src.length && (src[i] === ' ' || src[i] === '\t')) i++;
+                            if (i < src.length && !HTML_BR_TAG.test(src.slice(i)) && src[i] !== '\n') {
+                                appendSpan(spans, inheritedStyles, '\n', inheritedUrl);
+                            }
+                            continue;
+                        }
+                    }
+                    flush();
+                    if (tagLower === 'b' || tagLower === 'strong') {
+                        const nextStyles = header ? inheritedStyles : mergeStyles(inheritedStyles, 'bold');
+                        tokenizeInline(inner, header, nextStyles, inheritedUrl, spans);
+                    } else if (tagLower === 'i' || tagLower === 'em') {
+                        const nextStyles = header ? inheritedStyles : mergeStyles(inheritedStyles, 'italic');
+                        tokenizeInline(inner, header, nextStyles, inheritedUrl, spans);
+                    } else if (tagLower === 's' || tagLower === 'del' || tagLower === 'strike') {
+                        tokenizeInline(inner, header, mergeStyles(inheritedStyles, 'strikethrough'), inheritedUrl, spans);
+                    } else if (tagLower === 'a') {
+                        const hrefMatch = attrs.match(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/i);
+                        const rawHref = decodeHtmlEntities((hrefMatch?.[1] ?? hrefMatch?.[2] ?? hrefMatch?.[3] ?? '').trim());
+                        const safeHref = rawHref && !/^(?:javascript|vbscript|data):/i.test(rawHref) ? rawHref : null;
+                        tokenizeInline(inner, header, inheritedStyles, inheritedUrl ?? safeHref, spans);
+                    } else {
+                        const nextStyles = tagLower === 'mark' && !header
+                            ? mergeStyles(inheritedStyles, 'semibold')
+                            : inheritedStyles;
+                        tokenizeInline(inner, header, nextStyles, inheritedUrl, spans);
+                    }
+                    i = closed.afterClose;
+                    continue;
+                }
+            }
+        }
+
+        // 4. HTML character entities (`&nbsp;`, `&lt;`, `&#124;`, etc.) — decoded directly into text buffer
+        if (ch === '&') {
+            const entityMatch = src.slice(i).match(HTML_ENTITY_AT_START);
+            if (entityMatch) {
+                const decoded = decodeHtmlEntityToken(entityMatch[1]);
+                if (decoded !== null) {
+                    buffer += decoded;
+                    i += entityMatch[0].length;
+                    continue;
+                }
+            }
+        }
+
+        // 5. CommonMark two-space hard line break (`  \n`)
+        if (ch === '\n' && buffer.endsWith('  ')) {
+            trimTrailingHorizontalSpaceBeforeBreak();
+            flush();
+            appendSpan(spans, inheritedStyles, '\n', inheritedUrl);
+            i += 1;
+            while (i < src.length && (src[i] === ' ' || src[i] === '\t')) i++;
+            continue;
+        }
+
+        // 6. Inline image `![alt](url)` inside a paragraph -> render as clickable link `[🖼 alt]`
         if (ch === '!' && src[i + 1] === '[' && !inheritedUrl) {
             const imgLink = matchMarkdownLink(src, i + 1);
             if (imgLink) {
@@ -337,7 +593,7 @@ function tokenizeInline(
             }
         }
 
-        // 4. Explicit Markdown link `[label](url)` (recursively parses inner `code`, `**bold**`, etc.)
+        // 7. Explicit Markdown link `[label](url)` (recursively parses inner `code`, `**bold**`, etc.)
         if (ch === '[' && !inheritedUrl) {
             const link = matchMarkdownLink(src, i);
             if (link) {
@@ -348,7 +604,7 @@ function tokenizeInline(
             }
         }
 
-        // 5. Strikethrough `~~...~~`
+        // 8. Strikethrough `~~...~~`
         if (ch === '~' && src[i + 1] === '~' && src[i + 2] !== '~') {
             const close = findClosingDelimiter(src, i + 2, '~~');
             if (close !== -1) {
@@ -365,7 +621,7 @@ function tokenizeInline(
             }
         }
 
-        // 6. Strong + Italic `***...***`, Strong `**...**` / `__...__`, Italic `*...*` / `_..._`
+        // 9. Strong + Italic `***...***`, Strong `**...**` / `__...__`, Italic `*...*` / `_..._`
         if (ch === '*' || ch === '_') {
             const prevChar = i > 0 ? src[i - 1] : '';
             const blockedUnderscore = ch === '_' && ASCII_WORD.test(prevChar);
@@ -418,4 +674,29 @@ export function parseMarkdownSpans(markdown: string, header: boolean): MarkdownS
     const spans: MarkdownSpan[] = [];
     tokenizeInline(markdown, header, [], null, spans);
     return spans;
+}
+
+const WIDE_CHAR = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/;
+const CODE_CHAR_RATIO = 1.15;
+
+/**
+ * Estimate widest visual line width (in half-width character cells) across
+ * multi-line spans so `<br>`-wrapped table cells size columns to their longest
+ * line rather than summing every line together.
+ */
+export function spansLength(spans: MarkdownSpan[]): number {
+    let maxLine = 0;
+    let currentLine = 0;
+    for (const s of spans) {
+        const ratio = s.styles.includes('code') ? CODE_CHAR_RATIO : 1;
+        for (const ch of s.text) {
+            if (ch === '\n') {
+                if (currentLine > maxLine) maxLine = currentLine;
+                currentLine = 0;
+            } else {
+                currentLine += (WIDE_CHAR.test(ch) ? 2 : 1) * ratio;
+            }
+        }
+    }
+    return Math.max(maxLine, currentLine);
 }

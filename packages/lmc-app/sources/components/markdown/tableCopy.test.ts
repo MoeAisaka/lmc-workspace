@@ -38,6 +38,16 @@ describe('copying a table as a table', () => {
         expect(tableToTsv(headers, [[[span('only')]]])).toBe('机器\t上行\nonly\t');
         expect(tableToHtml(headers, [[[span('only')]]])).toContain('<tr><td>only</td><td></td></tr>');
     });
+
+    it('preserves multi-line cell breaks as <br> in HTML while keeping TSV single-line', () => {
+        const brCell = [span('❌ '), span('不能！', ['bold']), span('\nFree 档仅开放入门小模型')];
+        expect(tableToHtml([[span('结论')]], [[brCell]])).toBe(
+            '<table><thead><tr><th>结论</th></tr></thead><tbody>'
+            + '<tr><td>❌ <b>不能！</b><br>Free 档仅开放入门小模型</td></tr>'
+            + '</tbody></table>'
+        );
+        expect(tableToTsv([[span('结论')]], [[brCell]])).toBe('结论\n❌ 不能！ Free 档仅开放入门小模型');
+    });
 });
 
 describe('wrapping a cell for the picture', () => {

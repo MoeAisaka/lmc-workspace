@@ -13,6 +13,7 @@ const escapeHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '
 function spanToHtml(span: MarkdownSpan): string {
     let html = escapeHtml(span.text);
     if (span.styles.includes('code')) html = `<code>${html}</code>`;
+    else html = html.replace(/\n/g, '<br>');
     if (span.styles.includes('strikethrough')) html = `<s>${html}</s>`;
     if (span.styles.includes('bold') || span.styles.includes('semibold')) html = `<b>${html}</b>`;
     if (span.styles.includes('italic')) html = `<i>${html}</i>`;

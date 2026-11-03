@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseMarkdownSpans } from './parseMarkdownSpans';
+import { parseMarkdownSpans, spansLength } from './parseMarkdownSpans';
 
 const linked = (markdown: string) => parseMarkdownSpans(markdown, false)
     .filter((span) => span.url)
@@ -56,5 +56,56 @@ describe('parseMarkdownSpans file links', () => {
         expect(parseMarkdownSpans('字段 is_completed_at 与 game_play_plans，尺寸 3 * 4 = 12', false)).toEqual([
             { styles: [], text: '字段 is_completed_at 与 game_play_plans，尺寸 3 * 4 = 12', url: null },
         ]);
+    });
+
+    it('converts <br>, <br/>, and <br /> into clean line breaks while trimming surrounding horizontal spaces', () => {
+        const spans = parseMarkdownSpans(
+            '❌ **不能！** <br>Free 档在 Codex 仅开放桌面端入门小模型 `GPT-6 Luna`<br/>第二行 <BR /> 第三行',
+            false
+        );
+        expect(spans).toEqual([
+            { styles: [], text: '❌ ', url: null },
+            { styles: ['bold'], text: '不能！', url: null },
+            { styles: [], text: '\nFree 档在 Codex 仅开放桌面端入门小模型 ', url: null },
+            { styles: ['code'], text: 'GPT-6 Luna', url: null },
+            { styles: [], text: '\n第二行\n第三行', url: null },
+        ]);
+    });
+
+    it('keeps <br> literal inside backtick code, backslash escapes, HTML entities, and generics', () => {
+        expect(parseMarkdownSpans('代码 `<br>`、转义 \\<br>、实体 &lt;br&gt; 与泛型 Array<string> / Map<s, b>', false)).toEqual([
+            { styles: [], text: '代码 ', url: null },
+            { styles: ['code'], text: '<br>', url: null },
+            { styles: [], text: '、转义 <br>、实体 <br> 与泛型 Array<string> / Map<s, b>', url: null },
+        ]);
+    });
+
+    it('parses paired inline HTML formatting tags, autolinks, and inline lists in table prose', () => {
+        const spans = parseMarkdownSpans(
+            '<strong>重点</strong> <em>说明</em> <del>废弃</del> <code>a &amp;&amp; b</code> <a href="https://example.com">官网</a> <https://openai.com>',
+            false
+        );
+        expect(spans).toEqual([
+            { styles: ['bold'], text: '重点', url: null },
+            { styles: [], text: ' ', url: null },
+            { styles: ['italic'], text: '说明', url: null },
+            { styles: [], text: ' ', url: null },
+            { styles: ['strikethrough'], text: '废弃', url: null },
+            { styles: [], text: ' ', url: null },
+            { styles: ['code'], text: 'a && b', url: null },
+            { styles: [], text: ' ', url: null },
+            { styles: [], text: '官网', url: 'https://example.com' },
+            { styles: [], text: ' ', url: null },
+            { styles: [], text: 'https://openai.com', url: 'https://openai.com' },
+        ]);
+
+        const listSpans = parseMarkdownSpans('规则如下 <ul><li><b>第一条</b></li><li>第二条&#124;补充</li></ul>', false);
+        expect(listSpans.map((s) => s.text).join('')).toBe('规则如下\n• 第一条\n• 第二条|补充');
+    });
+
+    it('measures spansLength by the widest visual line rather than summing across <br> line breaks', () => {
+        const multiLine = parseMarkdownSpans('第一行<br>第二行更长一些<br>三', false);
+        const longestSingleLine = parseMarkdownSpans('第二行更长一些', false);
+        expect(spansLength(multiLine)).toBe(spansLength(longestSingleLine));
     });
 });

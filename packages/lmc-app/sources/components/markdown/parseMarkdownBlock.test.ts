@@ -143,6 +143,28 @@ describe('parseMarkdownBlock - table parsing', () => {
         });
     });
 
+    it('renders <br> line breaks and <code> pipes cleanly inside GFM table cells', () => {
+        const md = [
+            '| 权益项 | 能否在 Codex 里解锁 `GPT-6` | 过期与清零规则 |',
+            '|---|---|---|',
+            '| Free 周限额重置卡 | ❌ **不能！** <br>重置卡只刷新套餐周额度池，不解锁 <code>GPT-6 | 5.4</code> | 兑换后 30 天内有效<br>用完即清零 |',
+        ].join('\n');
+
+        const blocks = parseMarkdown(md);
+        expect(blocks).toHaveLength(1);
+        const table = blocks[0];
+        if (table.type !== 'table') throw new Error('expected table');
+        expect(table.rows[0][1]).toEqual([
+            { styles: [], text: '❌ ', url: null },
+            { styles: ['bold'], text: '不能！', url: null },
+            { styles: [], text: '\n重置卡只刷新套餐周额度池，不解锁 ', url: null },
+            { styles: ['code'], text: 'GPT-6 | 5.4', url: null },
+        ]);
+        expect(table.rows[0][2]).toEqual([
+            { styles: [], text: '兑换后 30 天内有效\n用完即清零', url: null },
+        ]);
+    });
+
     it('preserves hierarchy when an ordered list nests unordered sub-items and task checkboxes', () => {
         const md = [
             '1. 第一步',

@@ -52,6 +52,19 @@ function splitTableRow(line: string): string[] {
             }
             continue;
         }
+        if (ch === '<') {
+            const openCode = trimmed.slice(i).match(/^<(code|kbd)\b[^>]*>/i);
+            if (openCode) {
+                const tag = openCode[1].toLowerCase();
+                const closeMatch = new RegExp(`</${tag}\\s*>`, 'i').exec(trimmed.slice(i + openCode[0].length));
+                if (closeMatch) {
+                    const take = openCode[0].length + closeMatch.index + closeMatch[0].length;
+                    current += trimmed.slice(i, i + take);
+                    i += take;
+                    continue;
+                }
+            }
+        }
         if (ch === '|') {
             cells.push(current.trim());
             current = '';

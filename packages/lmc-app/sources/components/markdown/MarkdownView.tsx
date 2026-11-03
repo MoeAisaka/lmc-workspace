@@ -8,6 +8,7 @@ import {
     TableColumnAlignment,
     parseMarkdown,
 } from './parseMarkdown';
+import { spansLength } from './parseMarkdownSpans';
 import * as React from 'react';
 import { ActivityIndicator, Image, Pressable, View, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -561,19 +562,6 @@ function RenderSpans(props: RenderSpanProps) {
             }
         })}
     </>);
-}
-
-const WIDE_CHAR = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/;
-const CODE_CHAR_RATIO = 1.15;
-
-function spansLength(spans: MarkdownSpan[]): number {
-    let n = 0;
-    for (const s of spans) {
-        let cells = 0;
-        for (const ch of s.text) cells += WIDE_CHAR.test(ch) ? 2 : 1;
-        n += s.styles.includes('code') ? cells * CODE_CHAR_RATIO : cells;
-    }
-    return n;
 }
 
 const TABLE_MIN_COL_WIDTH = 80;
