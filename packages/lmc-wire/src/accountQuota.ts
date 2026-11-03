@@ -42,16 +42,21 @@ export type AccountQuotaWindow = z.infer<typeof AccountQuotaWindowSchema>;
 export type AccountQuotaProvider = z.infer<typeof AccountQuotaProviderSchema>;
 export type AccountQuotaSnapshot = z.infer<typeof AccountQuotaSnapshotSchema>;
 
-/** Same daily allowance rule as the dashboard: today's full share is available
- * at the start of the day; earlier savings carry forward. Not a burn-rate forecast. */
+const DAY_MS = 86_400_000;
+const PACE_BUFFER_MS = 12 * 3_600_000;
+
+/** Rolling 24h dynamic pace with a 12h daytime burst buffer that tapers
+ * smoothly to 0 over the final 24h before reset (continuous, zero day-step jumps). */
 export function quotaDailyPace(window: AccountQuotaWindow, now: number) {
     if (window.pending || !window.resetsAt || !window.durationMins) return null;
     const total = window.durationMins * 60_000;
     const left = window.resetsAt - now;
-    const days = total / 86_400_000;
+    const days = total / DAY_MS;
     if (days < 1 || left <= 0 || left > total) return null;
-    const day = Math.min(Math.ceil(days), Math.floor((total - left) / 86_400_000) + 1);
-    return { day, days: Math.round(days), floor: Math.max(0, 100 - Math.min(days, day) * 100 / days) };
+    const day = Math.min(Math.ceil(days), Math.floor((total - left) / DAY_MS) + 1);
+    const buffer = left >= DAY_MS ? PACE_BUFFER_MS : PACE_BUFFER_MS * (left / DAY_MS);
+    const floor = Math.max(0, Math.min(100, ((left - buffer) / total) * 100));
+    return { day, days: Math.round(days), floor };
 }
 
 /** Dashboard convention: a full Fable pool consumes 50 weekly points.
