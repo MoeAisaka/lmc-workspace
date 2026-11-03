@@ -8,11 +8,21 @@ import { Modal } from '@/modal';
 import AppearanceSettingsScreen from '@/app/(app)/settings/appearance';
 import AgentsSettingsScreen from '@/app/(app)/settings/agents';
 import AccountSettings from '@/app/(app)/settings/account';
+import ClaudeOAuth from '@/app/(app)/settings/connect/claude';
+import { ChangelogDialog } from '../ChangelogDialog';
+import { MachineDialog } from '../MachineDialog';
+import { MembersDialog } from '../MembersDialog';
+import { ResourceSharingDialog, ResourceSharingList } from '../ResourceSharingDialog';
 import { DevicesUpgradePane } from './DevicesUpgradePane';
 import { AboutPane } from './AboutPane';
 import { lmcColors } from '../lmcColors';
 import { lmcElevation, lmcSurfaceBorder } from '../elevation';
 import { FlatSettingsContext } from './flatSettings';
+import {
+    SettingsNavigationContext,
+    type SettingsNavigationController,
+    type SettingsSubpageInput,
+} from './settingsNavigation';
 import { t } from '@/text';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -39,10 +49,24 @@ const styles = StyleSheet.create((theme) => ({
     navLabel: { fontSize: 15, lineHeight: 22, color: theme.colors.text, ...Typography.default() },
     pane: { flex: 1, minWidth: 0, minHeight: 0 },
     paneTitle: { fontSize: 18, lineHeight: 26, color: theme.colors.text, paddingHorizontal: 20, paddingTop: 16, paddingBottom: 10, ...Typography.default('semiBold') },
+    subpageHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, minHeight: 48, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider },
+    backButton: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingLeft: 6, paddingRight: 10, minHeight: 34, borderRadius: 10 },
+    backLabel: { fontSize: 14, lineHeight: 20, ...Typography.default('semiBold') },
+    breadcrumbs: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 4 },
+    breadcrumbButton: { flexShrink: 1, minWidth: 0, paddingHorizontal: 4, paddingVertical: 4, borderRadius: 6 },
+    breadcrumbLink: { fontSize: 14, lineHeight: 20, color: theme.colors.textSecondary, ...Typography.default() },
+    subpageTitle: { flexShrink: 1, fontSize: 15, lineHeight: 22, color: theme.colors.text, ...Typography.default('semiBold') },
     results: { paddingHorizontal: 20, paddingBottom: 20 },
     result: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider },
     resultHint: { fontSize: 13, lineHeight: 20, color: theme.colors.textSecondary, marginTop: 4, ...Typography.default() },
 }));
+
+interface MountedSubpage {
+    id: number;
+    key: string;
+    title: string;
+    render: () => React.ReactNode;
+}
 
 /**
  * One settings surface on phones and desktop. Only the content pane scrolls
@@ -63,6 +87,8 @@ export function LmcSettingsDialog({
     const insets = useSafeAreaInsets();
     const [section, setSection] = React.useState<LmcSettingsSection>(initial);
     const [query, setQuery] = React.useState('');
+    const [subpages, setSubpages] = React.useState<MountedSubpage[]>([]);
+    const nextSubpageId = React.useRef(1);
     const nav = React.useRef<ScrollView>(null);
     const tabPositions = React.useRef<Partial<Record<LmcSettingsSection, number>>>({});
     const q = query.trim().toLowerCase();
@@ -80,21 +106,107 @@ export function LmcSettingsDialog({
             t('settingsAppearance.compactToolCalls'), t('settingsFeatures.fileDiffsSidebar'),
             t('settingsFeatures.groupToolCalls'), t('settingsAppearance.showLineNumbersInToolViews'),
         ],
-        devices: [t('lmc.menu.devices')],
+        devices: [t('lmc.menu.devices'), t('lmc.devices.detail')],
         agents: [t('localFeatures.model'), t('localFeatures.effort'), t('localFeatures.permission'), 'Claude Code', 'Codex'],
-        account: [t('lmc.profile.section'), t('lmc.profile.name'), t('lmc.profile.changeAvatar'), t('lmc.account.mySharing'), t('lmc.account.members'), t('lmc.account.connectDevice'), t('lmc.menu.signOut')],
+        account: [t('lmc.profile.section'), t('lmc.profile.name'), t('lmc.profile.changeAvatar'), t('lmc.account.mySharing'), t('lmc.account.members'), t('lmc.account.connectDevice'), t('lmc.account.connectClaude'), t('lmc.menu.signOut')],
         about: [t('lmc.about.developerMode'), t('lmc.about.devTools'), t('lmc.about.webVersion'), t('lmc.about.changelog')],
     };
     const visible = LMC_SETTINGS_SECTIONS.filter((s) => [s.label, s.keywords, ...terms[s.key]].some(text => text.toLowerCase().includes(q)));
     const current = LMC_SETTINGS_SECTIONS.find((s) => s.key === section)!;
-    const close = () => onClose?.();
-    const select = (next: LmcSettingsSection) => { Keyboard.dismiss(); setSection(next); onSectionChange?.(next); setQuery(''); };
+    const close = React.useCallback(() => onClose?.(), [onClose]);
+    const pushSubpage = React.useCallback((entry: SettingsSubpageInput) => {
+        Keyboard.dismiss();
+        setSubpages((prev) => {
+            if (prev[prev.length - 1]?.key === entry.key) {
+                return prev;
+            }
+            return [
+                ...prev,
+                {
+                    id: nextSubpageId.current++,
+                    key: entry.key,
+                    title: entry.title,
+                    render: entry.render,
+                },
+            ];
+        });
+    }, []);
+    const popSubpage = React.useCallback(() => {
+        Keyboard.dismiss();
+        setSubpages((prev) => (prev.length > 0 ? prev.slice(0, -1) : prev));
+    }, []);
+    const popToIndex = React.useCallback((index: number) => {
+        Keyboard.dismiss();
+        setSubpages((prev) => (index < 0 ? [] : prev.slice(0, index + 1)));
+    }, []);
+    const resetSubpages = React.useCallback(() => {
+        Keyboard.dismiss();
+        setSubpages([]);
+    }, []);
+    const settingsNav = React.useMemo<SettingsNavigationController>(() => ({
+        isEmbeddedInSettings: true,
+        pushSubpage,
+        popSubpage,
+        popToIndex,
+        resetSubpages,
+        closeSettings: close,
+        openChangelog: () =>
+            pushSubpage({
+                key: 'changelog',
+                title: t('lmc.dialogs.changelog'),
+                render: () => <ChangelogDialog onClose={popSubpage} />,
+            }),
+        openMachineDetails: (machineId: string) =>
+            pushSubpage({
+                key: `machine:${machineId}`,
+                title: t('lmc.dialogs.machineDetails'),
+                render: () => <MachineDialog machineId={machineId} onClose={popSubpage} />,
+            }),
+        openMembers: () =>
+            pushSubpage({
+                key: 'members',
+                title: t('lmc.sharing.membersTitle'),
+                render: () => <MembersDialog onClose={popSubpage} />,
+            }),
+        openResourceSharingList: (ownerId?: string, ownerLabel?: string) =>
+            pushSubpage({
+                key: `sharing-list:${ownerId ?? 'self'}`,
+                title: ownerId
+                    ? ownerLabel
+                        ? `${ownerLabel} · ${t('lmc.sharing.sharedResources')}`
+                        : t('lmc.sharing.resourceSharingTitle')
+                    : t('lmc.account.mySharing'),
+                render: () => <ResourceSharingList ownerId={ownerId} onClose={popSubpage} />,
+            }),
+        openResourceSharing: (kind, id, options) =>
+            pushSubpage({
+                key: `sharing-item:${kind}:${id}`,
+                title: t('lmc.sharing.settingsTitle'),
+                render: () => (
+                    <ResourceSharingDialog
+                        kind={kind}
+                        id={id}
+                        onClose={popSubpage}
+                        onSaved={options?.onSaved}
+                    />
+                ),
+            }),
+        openConnectClaude: () =>
+            pushSubpage({
+                key: 'connect-claude',
+                title: t('lmc.account.connectClaude'),
+                render: () => <ClaudeOAuth />,
+            }),
+    }), [close, popSubpage, popToIndex, pushSubpage, resetSubpages]);
+
+    const select = (next: LmcSettingsSection) => { Keyboard.dismiss(); setSubpages([]); setSection(next); onSectionChange?.(next); setQuery(''); };
     React.useEffect(() => {
         nav.current?.scrollTo({ x: Math.max(0, (tabPositions.current[section] ?? 0) - 12), animated: false });
     }, [section, width]);
     const availableHeight = Math.max(0, height - insets.top - insets.bottom);
     const tabLabel = (item: typeof current) => item.key === 'devices' ? t('settings.machines')
         : item.key === 'account' ? t('settings.account') : item.label;
+    const activeSubpage = subpages[subpages.length - 1];
 
     const pane = section === 'general' ? <AppearanceSettingsScreen />
         : section === 'agents' ? <AgentsSettingsScreen onNavigate={close} />
@@ -146,10 +258,70 @@ export function LmcSettingsDialog({
                     </Pressable>)}
                     {visible.length === 0 && <Text style={[styles.resultHint, { paddingVertical: 20 }]}>{t('lmc.list.noMatches')}</Text>}
                 </ScrollView> : <>
-                    <Text accessibilityRole="header" style={styles.paneTitle}>{current.label}</Text>
-                    <FlatSettingsContext.Provider value={true}>
-                        <View key={section} style={styles.pane}>{pane}</View>
-                    </FlatSettingsContext.Provider>
+                    {activeSubpage ? (
+                        <View testID="settings-subpage-header" style={styles.subpageHeader}>
+                            <Pressable
+                                testID="settings-back-button"
+                                accessibilityRole="button"
+                                accessibilityLabel={t('common.back')}
+                                onPress={popSubpage}
+                                style={({ pressed }) => [styles.backButton, pressed && { backgroundColor: colors.rowSelected }]}
+                            >
+                                <Ionicons name="chevron-back" size={18} color={theme.colors.textLink ?? colors.brand} />
+                                <Text style={[styles.backLabel, { color: theme.colors.textLink ?? colors.brand }]}>{t('common.back')}</Text>
+                            </Pressable>
+                            <View style={styles.breadcrumbs}>
+                                <Pressable
+                                    accessibilityRole="button"
+                                    onPress={resetSubpages}
+                                    style={({ pressed }) => [styles.breadcrumbButton, pressed && { opacity: 0.6 }]}
+                                >
+                                    <Text numberOfLines={1} style={styles.breadcrumbLink}>{tabLabel(current)}</Text>
+                                </Pressable>
+                                {subpages.slice(0, -1).map((entry, idx) => (
+                                    <React.Fragment key={entry.id}>
+                                        <Ionicons name="chevron-forward" size={14} color={colors.tertiary} />
+                                        <Pressable
+                                            accessibilityRole="button"
+                                            onPress={() => popToIndex(idx)}
+                                            style={({ pressed }) => [styles.breadcrumbButton, pressed && { opacity: 0.6 }]}
+                                        >
+                                            <Text numberOfLines={1} style={styles.breadcrumbLink}>{entry.title}</Text>
+                                        </Pressable>
+                                    </React.Fragment>
+                                ))}
+                                <Ionicons name="chevron-forward" size={14} color={colors.tertiary} />
+                                <Text accessibilityRole="header" numberOfLines={1} style={styles.subpageTitle}>{activeSubpage.title}</Text>
+                            </View>
+                        </View>
+                    ) : (
+                        <Text accessibilityRole="header" style={styles.paneTitle}>{current.label}</Text>
+                    )}
+                    <SettingsNavigationContext.Provider value={settingsNav}>
+                        <FlatSettingsContext.Provider value={true}>
+                            <View
+                                key={section}
+                                testID="settings-root-pane"
+                                pointerEvents={subpages.length === 0 ? 'auto' : 'none'}
+                                style={[styles.pane, subpages.length > 0 && { display: 'none' }]}
+                            >
+                                {pane}
+                            </View>
+                            {subpages.map((entry, idx) => {
+                                const isTop = idx === subpages.length - 1;
+                                return (
+                                    <View
+                                        key={entry.id}
+                                        testID={isTop ? 'settings-active-subpage' : `settings-hidden-subpage-${idx}`}
+                                        pointerEvents={isTop ? 'auto' : 'none'}
+                                        style={[styles.pane, !isTop && { display: 'none' }]}
+                                    >
+                                        {entry.render()}
+                                    </View>
+                                );
+                            })}
+                        </FlatSettingsContext.Provider>
+                    </SettingsNavigationContext.Provider>
                 </>}
             </View>
         </View>

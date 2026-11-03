@@ -10,6 +10,7 @@ import { ItemGroup } from '@/components/ItemGroup';
 import { useLocalSettingMutable } from '@/sync/storage';
 import { useMultiClick } from '@/hooks/useMultiClick';
 import { Modal } from '@/modal';
+import { useSettingsNavigation } from './settingsNavigation';
 import { t } from '@/text';
 
 export function readLmcReleaseMarker(): string | null {
@@ -19,6 +20,7 @@ export function readLmcReleaseMarker(): string | null {
 
 export function AboutPane({ onNavigate }: { onNavigate?: () => void }) {
     const router = useRouter();
+    const settingsNav = useSettingsNavigation();
     const appVersion = Constants.expoConfig?.version || '1.0.0';
     const marker = readLmcReleaseMarker();
     const [devModeEnabled, setDevModeEnabled] = useLocalSettingMutable('devModeEnabled');
@@ -39,7 +41,7 @@ export function AboutPane({ onNavigate }: { onNavigate?: () => void }) {
     return (
         <View>
             <ItemGroup title={t('lmc.about.title')} footer={t('lmc.settings.selfHostBlurb')}>
-                <Item title={t('lmc.about.changelog')} subtitle={t('lmc.about.changelogSubtitle')} onPress={() => openChangelog()} />
+                <Item title={t('lmc.about.changelog')} subtitle={t('lmc.about.changelogSubtitle')} onPress={() => (settingsNav ? settingsNav.openChangelog() : openChangelog())} />
                 <Item title={t('lmc.about.webVersion')} subtitle={marker ?? t('lmc.about.localBuild')} detail={appVersion} showChevron={false} onPress={tapVersion} />
                 <Item title={t('lmc.about.developerMode')} subtitle={t('lmc.about.developerModeSubtitle')}
                     rightElement={<Switch value={enabled} onValueChange={changeDeveloperMode} />} showChevron={false} />

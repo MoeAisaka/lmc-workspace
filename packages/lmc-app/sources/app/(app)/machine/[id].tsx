@@ -1,5 +1,6 @@
 import { DetailSummary } from '@/components/lmc/DetailSummary';
 import { openResourceSharing } from '@/components/lmc/ResourceSharingDialog';
+import { useSettingsNavigation } from '@/components/lmc/settings/settingsNavigation';
 import { accountMe } from '@/sync/apiAccounts';
 import { Text } from '@/components/StyledText';
 import { RuntimeUpdatesPanel } from '@/components/RuntimeUpdatesPanel';
@@ -26,6 +27,7 @@ import { MOBILE_GLASS_HEADER_HEIGHT } from '@/components/navigation/headerMetric
 
 export default function MachineDetailScreen({ machineId: suppliedId, onClose }: { machineId?: string; onClose?: () => void } = {}) {
     const { theme } = useUnistyles();
+    const settingsNav = useSettingsNavigation();
     const { id } = useLocalSearchParams<{ id: string }>();
     const machineId = suppliedId ?? id;
     const router = useRouter();
@@ -229,7 +231,17 @@ export default function MachineDetailScreen({ machineId: suppliedId, onClose }: 
                 {!!suppliedId && <Item title={t('common.rename')} onPress={handleRenameMachine} disabled={isRenamingMachine} />}
                 {/* Daemon */}
                 <ItemGroup>
-                        {sharingEnabled && <Item title={t('lmc.sharing.settingsTitle')} subtitle={t('lmc.sharing.machineSubtitle')} onPress={() => openResourceSharing('machine', machineId!)} />}
+                        {sharingEnabled && (
+                            <Item
+                                title={t('lmc.sharing.settingsTitle')}
+                                subtitle={t('lmc.sharing.machineSubtitle')}
+                                onPress={() =>
+                                    settingsNav
+                                        ? settingsNav.openResourceSharing('machine', machineId!)
+                                        : openResourceSharing('machine', machineId!)
+                                }
+                            />
+                        )}
                         <Item
                             title={t('machine.status')}
                             detail={machineOnline ? t('status.online') : t('status.offline')}
@@ -311,7 +323,14 @@ export default function MachineDetailScreen({ machineId: suppliedId, onClose }: 
                                     title={getSessionName(session)}
                                     subtitle={getSessionSubtitle(session)}
                                     detail={formatBytes(resources.sessions[session.id].rssBytes)}
-                                    onPress={() => { onClose?.(); navigateToSession(session.id); }}
+                                    onPress={() => {
+                                        if (settingsNav) {
+                                            settingsNav.closeSettings();
+                                        } else {
+                                            onClose?.();
+                                        }
+                                        navigateToSession(session.id);
+                                    }}
                                 />
                             ))}
                         <Item title={t('machine.resourcesSampledAt')} detail={new Date(resources.sampledAt).toLocaleTimeString()} showChevron={false} />
@@ -384,7 +403,14 @@ export default function MachineDetailScreen({ machineId: suppliedId, onClose }: 
                                 key={session.id}
                                 title={getSessionName(session)}
                                 subtitle={getSessionSubtitle(session)}
-                                onPress={() => { onClose?.(); navigateToSession(session.id); }}
+                                onPress={() => {
+                                    if (settingsNav) {
+                                        settingsNav.closeSettings();
+                                    } else {
+                                        onClose?.();
+                                    }
+                                    navigateToSession(session.id);
+                                }}
                                 rightElement={<Ionicons name="chevron-forward" size={20} color="#C7C7CC" />}
                             />
                         ))}

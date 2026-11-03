@@ -7,6 +7,7 @@ import { Text } from '@/components/StyledText';
 import { Modal } from '@/modal';
 import { UtilityDialog } from './UtilityDialog';
 import { lmcSurfaceBorder } from './elevation';
+import { useSettingsNavigation } from './settings/settingsNavigation';
 import { accountMe, accountList, accountRequest, accountUpdate, type LmcAccount, type AccountInvitation } from '@/sync/apiAccounts';
 import { getServerUrl } from '@/sync/serverConfig';
 import { t, getDateLocale } from '@/text';
@@ -16,6 +17,7 @@ type ActionTone = 'primary' | 'secondary' | 'accent' | 'danger';
 
 export function MembersDialog({ onClose }: { onClose?: () => void }) {
     const { theme } = useUnistyles();
+    const settingsNav = useSettingsNavigation();
     const locale = getDateLocale();
     const [me, setMe] = React.useState<LmcAccount | null>(null);
     const [members, setMembers] = React.useState<LmcAccount[]>([]);
@@ -351,7 +353,10 @@ export function MembersDialog({ onClose }: { onClose?: () => void }) {
                                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
                                         {renderActionButton(
                                             t('lmc.sharing.sharedResources'),
-                                            () => openResourceSharingList(member.id),
+                                            () =>
+                                                settingsNav
+                                                    ? settingsNav.openResourceSharingList(member.id, displayName)
+                                                    : openResourceSharingList(member.id),
                                             { icon: 'share-social-outline', tone: 'secondary', compact: true },
                                         )}
                                         {renderActionButton(

@@ -9,6 +9,7 @@ import { ItemList } from '@/components/ItemList';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
 import { useFlatSettings } from '@/components/lmc/settings/flatSettings';
+import { useSettingsNavigation } from '@/components/lmc/settings/settingsNavigation';
 import { StopSlider } from '@/components/lmc/StopSlider';
 import {
     getEffortLevelsForModel,
@@ -180,6 +181,7 @@ const sliderRowStyles = StyleSheet.create((theme) => ({
 export default function AgentsSettingsScreen({ onNavigate }: { onNavigate?: () => void } = {}) {
     const { theme } = useUnistyles();
     const router = useRouter();
+    const settingsNav = useSettingsNavigation();
     const [agentDefaultOverrides, setAgentDefaultOverrides] = useSettingMutable('agentDefaultOverrides');
     const machines = useAllMachines({ includeOffline: true });
     const catalogMetadata = React.useMemo(() => ({
@@ -325,7 +327,13 @@ export default function AgentsSettingsScreen({ onNavigate }: { onNavigate?: () =
                                 }
                                 style={{ opacity: choice.online ? 1 : 0.5 }}
                                 onPress={targetMachine
-                                    ? () => { openMachineDetails(targetMachine.id); }
+                                    ? () => {
+                                        if (settingsNav) {
+                                            settingsNav.openMachineDetails(targetMachine.id);
+                                        } else {
+                                            openMachineDetails(targetMachine.id);
+                                        }
+                                    }
                                     : undefined}
                             />
                         );

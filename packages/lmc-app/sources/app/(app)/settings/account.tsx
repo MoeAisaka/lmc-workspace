@@ -5,6 +5,7 @@ import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { ProfileSection } from '@/components/lmc/settings/ProfileSection';
+import { useSettingsNavigation } from '@/components/lmc/settings/settingsNavigation';
 import { openMembers } from '@/components/lmc/MembersDialog';
 import { openResourceSharingList } from '@/components/lmc/ResourceSharingDialog';
 import { Modal } from '@/modal';
@@ -20,6 +21,7 @@ type Device = { id: string; createdAt: string; expiresAt: string };
 export default function AccountSettings({ onNavigate }: { onNavigate?: () => void } = {}) {
     const auth = useAuth();
     const router = useRouter();
+    const settingsNav = useSettingsNavigation();
     const profile = useProfile();
     const { connectTerminal, isLoading: pairing } = useConnectTerminal();
     const [membership, setMembership] = useState<AccountCapabilities | null>(null);
@@ -60,13 +62,13 @@ export default function AccountSettings({ onNavigate }: { onNavigate?: () => voi
                 <Item
                     title={t('lmc.account.mySharing')}
                     subtitle={t('lmc.account.mySharingSubtitle')}
-                    onPress={() => openResourceSharingList()}
+                    onPress={() => (settingsNav ? settingsNav.openResourceSharingList() : openResourceSharingList())}
                 />
                 {membership.account.role === 'admin' && (
                     <Item
                         title={t('lmc.account.members')}
                         subtitle={t('lmc.account.membersSubtitle')}
-                        onPress={() => openMembers()}
+                        onPress={() => (settingsNav ? settingsNav.openMembers() : openMembers())}
                     />
                 )}
             </ItemGroup>
@@ -84,7 +86,17 @@ export default function AccountSettings({ onNavigate }: { onNavigate?: () => voi
             here now, beside the services it manages. */}
         <ItemGroup title={t('lmc.account.engines')} footer={t('lmc.account.enginesFooter')}>
             {!profile.connectedServices?.includes('anthropic') && (
-                <Item title={t('lmc.account.connectClaude')} onPress={() => { onNavigate?.(); router.push('/settings/connect/claude'); }} />
+                <Item
+                    title={t('lmc.account.connectClaude')}
+                    onPress={() => {
+                        if (settingsNav) {
+                            settingsNav.openConnectClaude();
+                        } else {
+                            onNavigate?.();
+                            router.push('/settings/connect/claude');
+                        }
+                    }}
+                />
             )}
             {(profile.connectedServices ?? []).length === 0 && <Item title={t('lmc.account.noEngines')} showChevron={false} />}
             {(profile.connectedServices ?? []).map(service => <Item key={service} title={service} subtitle={t('lmc.account.unlink')} onPress={async () => {

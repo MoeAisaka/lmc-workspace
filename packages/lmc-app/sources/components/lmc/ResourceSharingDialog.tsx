@@ -8,6 +8,7 @@ import { FileIcon } from '@/components/FileIcon';
 import { Modal } from '@/modal';
 import { UtilityDialog } from './UtilityDialog';
 import { lmcSurfaceBorder } from './elevation';
+import { useSettingsNavigation } from './settings/settingsNavigation';
 import {
     accountDirectory,
     accountMe,
@@ -305,6 +306,7 @@ export function ResourceSharingDialog({
     onSaved?: (policy: SharingPolicy) => void;
 }) {
     const { theme } = useUnistyles();
+    const settingsNav = useSettingsNavigation();
     const locale = getDateLocale();
     const navigateToSession = useNavigateToSession();
     const session = useSession(kind === 'session' ? id : '');
@@ -461,7 +463,11 @@ export function ResourceSharingDialog({
                             <Pressable
                                 accessibilityRole="button"
                                 onPress={() => {
-                                    onClose?.();
+                                    if (settingsNav) {
+                                        settingsNav.closeSettings();
+                                    } else {
+                                        onClose?.();
+                                    }
                                     navigateToSession(id);
                                 }}
                                 style={({ pressed }) => ({
@@ -739,6 +745,7 @@ export const openResourceSharing = (
 
 export function ResourceSharingList({ ownerId, onClose }: { ownerId?: string; onClose?: () => void }) {
     const { theme } = useUnistyles();
+    const settingsNav = useSettingsNavigation();
     const locale = getDateLocale();
     const allSessions = useAllSessions();
     const allMachines = useAllMachines();
@@ -1069,16 +1076,19 @@ export function ResourceSharingList({ ownerId, onClose }: { ownerId?: string; on
                             <Pressable
                                 accessibilityRole="button"
                                 key={key}
-                                onPress={() =>
-                                    openResourceSharing(item.kind, item.id, {
-                                        onSaved: (updated) => {
-                                            setGrantsByKey((prev) => ({
-                                                ...prev,
-                                                [key]: updated.grants,
-                                            }));
-                                        },
-                                    })
-                                }
+                                onPress={() => {
+                                    const onSaved = (updated: SharingPolicy) => {
+                                        setGrantsByKey((prev) => ({
+                                            ...prev,
+                                            [key]: updated.grants,
+                                        }));
+                                    };
+                                    if (settingsNav) {
+                                        settingsNav.openResourceSharing(item.kind, item.id, { onSaved });
+                                    } else {
+                                        openResourceSharing(item.kind, item.id, { onSaved });
+                                    }
+                                }}
                                 style={({ pressed }) => ({
                                     padding: 14,
                                     borderRadius: 14,

@@ -15,6 +15,7 @@ import { sync } from '@/sync/sync';
 import type { Machine } from '@/sync/storageTypes';
 import { machineAgentVersion, machineDisplayName } from '@/utils/lmc/deviceEngineGroups';
 import { lmcColors } from '../lmcColors';
+import { useSettingsNavigation } from './settingsNavigation';
 import { t } from '@/text';
 
 /** Indent for everything belonging to the device above it. */
@@ -60,6 +61,7 @@ function DeviceCard({ machine, expanded, onToggle, onNavigate }: {
     onNavigate?: () => void;
 }) {
     const router = useRouter();
+    const settingsNav = useSettingsNavigation();
     const { theme } = useUnistyles();
     const colors = lmcColors(theme);
     const [stopping, setStopping] = React.useState(false);
@@ -142,7 +144,14 @@ function DeviceCard({ machine, expanded, onToggle, onNavigate }: {
                     <Item
                         title={t('lmc.devices.detail')}
                         style={NESTED}
-                        onPress={() => { onNavigate?.(); openMachineDetails(machine.id); }}
+                        onPress={() => {
+                            if (settingsNav) {
+                                settingsNav.openMachineDetails(machine.id);
+                            } else {
+                                onNavigate?.();
+                                openMachineDetails(machine.id);
+                            }
+                        }}
                     />
                     {online && (
                         <Item
