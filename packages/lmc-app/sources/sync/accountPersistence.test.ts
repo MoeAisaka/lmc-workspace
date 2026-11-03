@@ -9,8 +9,21 @@ vi.mock('react-native-mmkv', () => ({ MMKV: class {
     delete(key: string) { this.values.delete(key); }
     clearAll() { this.values.clear(); }
 } }));
-import { selectAccountPersistence, loadSessionDrafts, saveSessionDrafts, loadPendingSettings, saveSettings } from './persistence';
+import {
+    selectAccountPersistence,
+    loadSessionDrafts,
+    saveSessionDrafts,
+    loadPendingSettings,
+    loadSettings,
+    saveSettings,
+    saveLocalSettings,
+    loadThemePreference,
+    extractMigratedAppearanceFromLocalSettings,
+    markLocalAppearanceMigrated,
+} from './persistence';
 import { settingsDefaults } from './settings';
+import { localSettingsDefaults } from './localSettings';
+import { PERSONALIZATION_PRESETS } from './personalization';
 import { getCurrentLanguage, t } from '@/text';
 import { compactTokens } from './usageAnalytics';
 beforeEach(() => { mocks.stores.clear(); });
@@ -41,4 +54,54 @@ it('only migrates legacy state with an exact account identity, never pending set
     selectAccountPersistence('center-a', 'bob'); expect(loadSessionDrafts()).toEqual({}); expect(loadPendingSettings()).toEqual({});
     selectAccountPersistence('center-a', 'alice'); expect(loadSessionDrafts()).toEqual({ s: 'legacy' }); expect(loadPendingSettings()).toEqual({ analyticsOptOut: true });
     expect(mocks.stores.get('default')?.has('session-drafts')).toBe(false);
+});
+it('syncs theme, personalization, and layout settings per account and migrates non-default local-settings once without clobbering cloud values', () => {
+    selectAccountPersistence('center-a', 'alice');
+    saveLocalSettings({
+        ...localSettingsDefaults,
+        themePreference: 'dark',
+        chatWideMode: true,
+        personalization: { ...PERSONALIZATION_PRESETS.journal },
+    });
+
+    // Before cloud sync writes those keys, loadSettings adopts non-default local values seamlessly
+    expect(loadSettings().settings).toMatchObject({
+        themePreference: 'dark',
+        chatWideMode: true,
+        zenMode: false,
+        personalization: PERSONALIZATION_PRESETS.journal,
+    });
+    expect(loadThemePreference()).toBe('dark');
+
+    // If cloud settings already explicitly contain themePreference='light', migration preserves cloud themePreference
+    const partialMigration = extractMigratedAppearanceFromLocalSettings(new Set(['themePreference']));
+    expect(partialMigration).toEqual({
+        chatWideMode: true,
+        personalization: PERSONALIZATION_PRESETS.journal,
+    });
+
+    markLocalAppearanceMigrated();
+    saveSettings({
+        ...settingsDefaults,
+        themePreference: 'light',
+        chatWideMode: true,
+        commandPaletteEnabled: true,
+        personalization: { ...PERSONALIZATION_PRESETS.scholar },
+    }, 3);
+    expect(loadThemePreference()).toBe('light');
+
+    // Switching to another account isolates appearance & personalization
+    selectAccountPersistence('center-a', 'bob');
+    expect(loadThemePreference()).toBe('adaptive');
+    expect(loadSettings().settings.personalization).toEqual(settingsDefaults.personalization);
+
+    // Switching back restores alice's account-synced appearance & personalization
+    selectAccountPersistence('center-a', 'alice');
+    expect(loadThemePreference()).toBe('light');
+    expect(loadSettings().settings).toMatchObject({
+        themePreference: 'light',
+        chatWideMode: true,
+        commandPaletteEnabled: true,
+        personalization: PERSONALIZATION_PRESETS.scholar,
+    });
 });

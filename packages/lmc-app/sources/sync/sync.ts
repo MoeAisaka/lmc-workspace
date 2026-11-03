@@ -32,7 +32,14 @@ import { isRunningOnMac } from '@/utils/platform';
 import { NormalizedMessage, normalizeRawMessage, RawRecord } from './typesRaw';
 import { applySettings, Settings, settingsDefaults, settingsParse, settingsToSyncPayload, SUPPORTED_SCHEMA_VERSION } from './settings';
 import { Profile, profileParse } from './profile';
-import { loadPendingSettings, savePendingSettings, selectAccountPersistence } from './persistence';
+import {
+    extractMigratedAppearanceFromLocalSettings,
+    hasMigratedLocalAppearance,
+    loadPendingSettings,
+    markLocalAppearanceMigrated,
+    savePendingSettings,
+    selectAccountPersistence,
+} from './persistence';
 import {
     initializeTracking,
     trackGitHubConnected,
@@ -332,6 +339,7 @@ class Sync {
     }
 
     async #init() {
+        this.pendingSettings = loadPendingSettings();
 
         // Subscribe to updates
         this.subscribeToUpdates();
@@ -2033,11 +2041,32 @@ class Sync {
         };
 
         // Parse response
+        let rawDecrypted: unknown = null;
         let parsedSettings: Settings;
         if (data.settings) {
-            parsedSettings = settingsParse(await this.encryption.decryptRaw(data.settings));
+            rawDecrypted = await this.encryption.decryptRaw(data.settings);
+            parsedSettings = settingsParse(rawDecrypted);
         } else {
             parsedSettings = { ...settingsDefaults };
+        }
+
+        // One-time seamless migration: if this browser customized appearance/layout
+        // in legacy device-only local-settings and the account on the server has not
+        // stored those keys yet, adopt and upload them so existing customizations follow
+        // the account across devices without overwriting already-synced cloud values.
+        let migratedFromLocal: Partial<Settings> = {};
+        if (!hasMigratedLocalAppearance()) {
+            const existingServerKeys = new Set(
+                rawDecrypted && typeof rawDecrypted === 'object' && !Array.isArray(rawDecrypted)
+                    ? Object.keys(rawDecrypted as Record<string, unknown>)
+                    : [],
+            );
+            migratedFromLocal = extractMigratedAppearanceFromLocalSettings(existingServerKeys);
+            markLocalAppearanceMigrated();
+            if (Object.keys(migratedFromLocal).length > 0) {
+                this.pendingSettings = { ...migratedFromLocal, ...this.pendingSettings };
+                savePendingSettings(this.pendingSettings);
+            }
         }
 
         // Log
@@ -2048,6 +2077,9 @@ class Sync {
 
         // Apply settings to storage, re-layering any pending local changes on top
         this.applyServerSettings(parsedSettings, data.settingsVersion);
+        if (Object.keys(migratedFromLocal).length > 0) {
+            this.settingsSync.invalidate();
+        }
 
         // Sync PostHog opt-out state with settings
         if (tracking) {

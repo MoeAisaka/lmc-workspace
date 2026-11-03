@@ -6,7 +6,7 @@ import { Drawer } from 'expo-router/drawer';
 import { useIsTablet, useHeaderHeight } from '@/utils/responsive';
 import { SidebarView } from './SidebarView';
 import { View, Pressable, Platform } from 'react-native';
-import { useLocalSetting, useLocalSettingMutable } from '@/sync/storage';
+import { useSetting, useSettingMutable } from '@/sync/storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
@@ -31,7 +31,7 @@ export const SidebarNavigator = React.memo(() => {
     const { theme } = useUnistyles();
     React.useEffect(installSidebarMotion, []);
     const isTablet = useIsTablet();
-    const zenMode = useLocalSetting('zenMode');
+    const zenMode = useSetting('zenMode');
     const isDesktopLayout = auth.isAuthenticated && isTablet;
     const leftSidebarCollapsed = false;
     const showSidebar = isDesktopLayout && !zenMode;
@@ -124,7 +124,7 @@ const PersistentHeader = React.memo(() => {
     const safeArea = useSafeAreaInsets();
     const headerHeight = useHeaderHeight();
     const router = useRouter();
-    const [zenMode, setZenMode] = useLocalSettingMutable('zenMode');
+    const [zenMode, setZenMode] = useSettingMutable('zenMode');
     const leftSidebarCollapsed = false;
     const inTauri = isTauri();
     const isMacTauri = inTauri && typeof navigator !== 'undefined' && /Mac/.test(navigator.platform);

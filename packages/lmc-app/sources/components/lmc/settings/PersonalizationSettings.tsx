@@ -8,7 +8,7 @@ import { ItemGroup } from '@/components/ItemGroup';
 import { Switch } from '@/components/Switch';
 import { MarkdownView } from '@/components/markdown/MarkdownView';
 import { SettingsSelect, type SelectOption } from '../SettingsSelect';
-import { useLocalSettingMutable, useSetting } from '@/sync/storage';
+import { useSetting, useSettingMutable } from '@/sync/storage';
 import { PERSONALIZATION_PRESETS, matchingPersonalizationPreset, accentColors, type Personalization, type PersonalizationPreset } from '@/sync/personalization';
 import { resolveUserMessageBubbleColor } from '@/utils/userMessageBubbleColor';
 import { t } from '@/text';
@@ -18,9 +18,9 @@ const label = (key: LabelKey) => t(`personalization.${key}`);
 
 export function PersonalizationSettings({ onReset, colors }: { onReset: () => void; colors: React.ReactNode }) {
     const { theme } = useUnistyles();
-    const [value, setValue] = useLocalSettingMutable('personalization');
-    const [wide, setWide] = useLocalSettingMutable('chatWideMode');
-    const [zen, setZen] = useLocalSettingMutable('zenMode');
+    const [value, setValue] = useSettingMutable('personalization');
+    const [wide, setWide] = useSettingMutable('chatWideMode');
+    const [zen, setZen] = useSettingMutable('zenMode');
     const bubbleColor = useSetting('userMessageBubbleColor');
     const palette = resolveUserMessageBubbleColor(bubbleColor, theme.dark);
     const preset = wide ? 'custom' : matchingPersonalizationPreset(value);

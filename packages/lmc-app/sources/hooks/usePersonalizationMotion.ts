@@ -1,10 +1,10 @@
 import * as React from 'react';
 import { Platform } from 'react-native';
-import { useLocalSetting } from '@/sync/storage';
+import { useSetting } from '@/sync/storage';
 import { effectiveMotion } from '@/sync/personalization';
 
 export function usePersonalizationMotion() {
-    const value = useLocalSetting('personalization');
+    const value = useSetting('personalization');
     const [reduced, setReduced] = React.useState(() => Platform.OS === 'web' && typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
     React.useEffect(() => {
         if (Platform.OS !== 'web') return;

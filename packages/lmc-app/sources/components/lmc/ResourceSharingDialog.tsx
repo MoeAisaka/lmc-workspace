@@ -473,17 +473,19 @@ export function ResourceSharingDialog({
                                 style={({ pressed }) => ({
                                     flexDirection: 'row',
                                     alignItems: 'center',
+                                    justifyContent: 'center',
                                     gap: 5,
-                                    paddingHorizontal: 11,
-                                    paddingVertical: 8,
-                                    borderRadius: 10,
+                                    minHeight: 32,
+                                    paddingHorizontal: 12,
+                                    paddingVertical: 6,
+                                    borderRadius: 9,
                                     borderWidth: 1,
                                     borderColor: theme.colors.divider,
                                     backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surface,
                                 })}
                             >
                                 <Ionicons name="open-outline" size={14} color={theme.colors.textLink} />
-                                <Text style={{ fontSize: 12, fontWeight: '600', color: theme.colors.textLink }}>
+                                <Text style={{ fontSize: 12.5, lineHeight: 18, fontWeight: '600', color: theme.colors.textLink }}>
                                     {t('lmc.sharing.openSession')}
                                 </Text>
                             </Pressable>
@@ -671,7 +673,7 @@ export function ResourceSharingDialog({
                             {t('lmc.sharing.revokeHint')}
                         </Text>
 
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
                             <Pressable
                                 accessibilityRole="button"
                                 disabled={disabled}
@@ -684,30 +686,39 @@ export function ResourceSharingDialog({
                                     })
                                 }
                                 style={({ pressed }) => ({
-                                    paddingHorizontal: 18,
-                                    paddingVertical: 11,
-                                    borderRadius: 11,
+                                    minHeight: 36,
+                                    minWidth: 76,
+                                    paddingHorizontal: 16,
+                                    paddingVertical: 7,
+                                    borderRadius: 10,
+                                    borderWidth: 1,
+                                    borderColor: 'transparent',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
                                     backgroundColor: pressed ? '#0052CC' : theme.colors.textLink,
                                     opacity: disabled ? 0.5 : 1,
                                 })}
                             >
-                                <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: 14 }}>{t('common.save')}</Text>
+                                <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: 13.5, lineHeight: 20 }}>{t('common.save')}</Text>
                             </Pressable>
                             <Pressable
                                 accessibilityRole="button"
                                 disabled={busy}
                                 onPress={() => void run(load)}
                                 style={({ pressed }) => ({
+                                    minHeight: 36,
                                     paddingHorizontal: 16,
-                                    paddingVertical: 11,
-                                    borderRadius: 11,
+                                    paddingVertical: 7,
+                                    borderRadius: 10,
                                     borderWidth: 1,
                                     borderColor: theme.colors.divider,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
                                     backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surface,
                                     opacity: busy ? 0.5 : 1,
                                 })}
                             >
-                                <Text style={{ color: theme.colors.text, fontWeight: '500', fontSize: 14 }}>
+                                <Text style={{ color: theme.colors.text, fontWeight: '500', fontSize: 13.5, lineHeight: 20 }}>
                                     {t('lmc.sharing.reload')}
                                 </Text>
                             </Pressable>
@@ -1007,7 +1018,8 @@ export function ResourceSharingList({ ownerId, onClose }: { ownerId?: string; on
                                             alignItems: 'center',
                                             gap: 6,
                                             paddingHorizontal: 12,
-                                            paddingVertical: 7,
+                                            paddingVertical: 5,
+                                            minHeight: 32,
                                             borderRadius: 999,
                                             borderWidth: 1,
                                             borderColor: selected ? theme.colors.textLink : theme.colors.divider,
@@ -1021,6 +1033,7 @@ export function ResourceSharingList({ ownerId, onClose }: { ownerId?: string; on
                                         <Text
                                             style={{
                                                 fontSize: 13,
+                                                lineHeight: 18,
                                                 fontWeight: selected ? '600' : '500',
                                                 color: selected ? (theme.dark ? '#7DB5FF' : theme.colors.textLink) : theme.colors.text,
                                             }}
@@ -1030,6 +1043,7 @@ export function ResourceSharingList({ ownerId, onClose }: { ownerId?: string; on
                                         <Text
                                             style={{
                                                 fontSize: 11,
+                                                lineHeight: 16,
                                                 fontWeight: '600',
                                                 color: selected
                                                     ? (theme.dark ? '#7DB5FF' : theme.colors.textLink)

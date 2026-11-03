@@ -19,7 +19,7 @@ import { Text } from '../StyledText';
 import { Typography } from '@/constants/Typography';
 import { SimpleSyntaxHighlighter } from '../SimpleSyntaxHighlighter';
 import { Modal } from '@/modal';
-import { useLocalSetting } from '@/sync/storage';
+import { useSetting } from '@/sync/storage';
 import { storeTempText } from '@/sync/persistence';
 import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
@@ -68,7 +68,7 @@ export const MarkdownView = React.memo((props: {
         return props.inferOptions ? inferQuestionOptions(parsed) : parsed;
     }, [props.markdown, props.inferOptions]);
 
-    const markdownCopyV2 = useLocalSetting('markdownCopyV2');
+    const markdownCopyV2 = useSetting('markdownCopyV2');
     const selectable = Platform.OS === 'web' || !(markdownCopyV2 || props.externalCopyHandler);
     const router = useRouter();
 
@@ -1199,7 +1199,7 @@ const style = StyleSheet.create((theme) => ({
     },
     tableCell: {
         paddingHorizontal: 14,
-        paddingVertical: 9,
+        paddingVertical: 10,
         alignItems: 'flex-start',
         overflow: 'hidden',
     },
@@ -1215,14 +1215,14 @@ const style = StyleSheet.create((theme) => ({
         ...Typography.default('semiBold'),
         color: theme.colors.text,
         fontSize: conversationFontSize(15),
-        lineHeight: conversationLineHeight(24),
+        lineHeight: conversationLineHeight(26.25),
     },
     tableCellText: {
         ...(Platform.OS === 'web' ? ({ wordBreak: 'break-word' } as object) : {}),
         ...Typography.default(),
         color: theme.colors.text,
         fontSize: conversationFontSize(15),
-        lineHeight: conversationLineHeight(24),
+        lineHeight: conversationLineHeight(26.25),
     },
 
     ...(Platform.OS === 'web' ? {

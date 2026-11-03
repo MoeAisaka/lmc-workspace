@@ -89,7 +89,7 @@ export function wrapCell(cell: Cell, width: number, header: boolean, measure: Me
     return lines;
 }
 
-export const TABLE_IMAGE = { padding: 16, cellX: 12, cellY: 8, fontSize: 16, lineHeight: 24, maxColumn: 360, minColumn: 48, radius: 8 };
+export const TABLE_IMAGE = { padding: 16, cellX: 12, cellY: 8, fontSize: 16, lineHeight: 28, maxColumn: 360, minColumn: 48, radius: 8 };
 
 export type TableImageLayout = {
     width: number;

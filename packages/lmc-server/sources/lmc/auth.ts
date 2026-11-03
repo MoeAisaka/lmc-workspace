@@ -27,6 +27,7 @@ function open(value: string, accountId: string) {
 }
 export const authRevocations = new EventEmitter();
 authRevocations.setMaxListeners(0); // One bounded subscription per live socket; removed on disconnect.
+export const PERMANENT_LOGIN_EXPIRES_AT = new Date('9999-12-31T23:59:59.000Z');
 
 /** Expensive password work happens before the short permission transaction. */
 export async function prepareLmcAccount(username: string, password: string) {
@@ -44,7 +45,7 @@ export const lmcAuth = {
     async init() { masterKey(); },
     async createSessionToken(tx: Prisma.TransactionClient, accountId: string, sessionId: string, machineId: string) {
         const token = randomBytes(32).toString('base64url');
-        await tx.lmcLogin.create({ data: { hash: hashToken(token), accountId, kind: 'session', extras: { sessionId, machineId }, expiresAt: new Date(Date.now() + 365 * 86400_000) } });
+        await tx.lmcLogin.create({ data: { hash: hashToken(token), accountId, kind: 'session', extras: { sessionId, machineId }, expiresAt: PERMANENT_LOGIN_EXPIRES_AT } });
         return token;
     },
     async resourcePublicKey(tx: Prisma.TransactionClient, accountId: string) {
@@ -95,14 +96,16 @@ export const lmcAuth = {
         await accessTransaction(async tx => {
             const account = await tx.account.findUnique({ where: { id: userId }, select: { enabled: true } });
             if (!account?.enabled) throw new Error('Account is unavailable');
-            await tx.lmcLogin.create({ data: { hash: hashToken(token), accountId: userId, kind, ...(extras === undefined ? {} : { extras }), expiresAt: new Date(Date.now() + (kind === 'web' ? 30 : 365) * 86400_000) } });
+            const expiresAt = kind === 'web' ? new Date(Date.now() + 30 * 86400_000) : PERMANENT_LOGIN_EXPIRES_AT;
+            await tx.lmcLogin.create({ data: { hash: hashToken(token), accountId: userId, kind, ...(extras === undefined ? {} : { extras }), expiresAt } });
         });
         return token;
     },
     async verifyToken(token: string): Promise<{ userId: string; extras?: any; kind: string } | null> {
         if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
         const login = await db.lmcLogin.findUnique({ where: { hash: hashToken(token) }, include: { account: { select: { enabled: true } } } });
-        return login && login.account.enabled && login.expiresAt.getTime() > Date.now() ? { userId: login.accountId, extras: login.extras, kind: login.kind } : null;
+        const notExpired = login ? (login.kind !== 'web' || login.expiresAt.getTime() > Date.now()) : false;
+        return login && login.account.enabled && notExpired ? { userId: login.accountId, extras: login.extras, kind: login.kind } : null;
     },
     /**
      * The key paired agents use to talk to each other, derived from the account

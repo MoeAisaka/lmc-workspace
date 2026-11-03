@@ -36,6 +36,45 @@ const REGISTERED_PUSH_TOKEN_KEY = 'registered-push-token-v1';
 const VOICE_SOFT_PAYWALL_SHOWN_KEY = 'voice-soft-paywall-shown';
 const VOICE_ONBOARDING_PROMPT_LOAD_COUNT_KEY = 'voice-onboarding-prompt-load-count';
 const VOICE_MESSAGE_COUNT_KEY = 'voice-message-count';
+const APPEARANCE_MIGRATED_KEY = '__appearance_account_migrated_v1';
+const ACCOUNT_SYNCED_APPEARANCE_KEYS = [
+    'personalization',
+    'themePreference',
+    'chatWideMode',
+    'zenMode',
+    'commandPaletteEnabled',
+    'markdownCopyV2',
+] as const;
+
+export function hasMigratedLocalAppearance(): boolean {
+    return mmkv.getBoolean(APPEARANCE_MIGRATED_KEY) === true;
+}
+
+export function markLocalAppearanceMigrated(): void {
+    mmkv.set(APPEARANCE_MIGRATED_KEY, true);
+}
+
+export function extractMigratedAppearanceFromLocalSettings(
+    existingKnownKeys?: ReadonlySet<string>,
+): Partial<Settings> {
+    const raw = mmkv.getString('local-settings');
+    if (!raw) return {};
+    try {
+        const parsedRaw = JSON.parse(raw);
+        if (!parsedRaw || typeof parsedRaw !== 'object' || Array.isArray(parsedRaw)) return {};
+        const parsedLocal = localSettingsParse(parsedRaw);
+        const migrated: Partial<Settings> = {};
+        for (const key of ACCOUNT_SYNCED_APPEARANCE_KEYS) {
+            if (existingKnownKeys?.has(key)) continue;
+            if (!(key in parsedRaw)) continue;
+            if (JSON.stringify(parsedLocal[key]) === JSON.stringify(localSettingsDefaults[key])) continue;
+            (migrated as Record<string, unknown>)[key] = parsedLocal[key];
+        }
+        return migrated;
+    } catch {
+        return {};
+    }
+}
 
 export type NewSessionAgentType = 'claude' | 'codex' | 'gemini' | 'openclaw' | 'agy' | 'rig';
 export type NewSessionSessionType = 'simple' | 'worktree';
@@ -59,10 +98,25 @@ export function loadSettings(): { settings: Settings, version: number | null } {
     if (settings) {
         try {
             const parsed = JSON.parse(settings);
-            return { settings: settingsParse(parsed.settings), version: parsed.version };
+            const rawSettings = parsed?.settings && typeof parsed.settings === 'object' && !Array.isArray(parsed.settings)
+                ? parsed.settings as Record<string, unknown>
+                : undefined;
+            const migrated = !hasMigratedLocalAppearance()
+                ? extractMigratedAppearanceFromLocalSettings(new Set(rawSettings ? Object.keys(rawSettings) : []))
+                : {};
+            const source = rawSettings && Object.keys(migrated).length > 0
+                ? { ...migrated, ...rawSettings }
+                : (rawSettings ?? parsed.settings);
+            return { settings: settingsParse(source), version: parsed.version };
         } catch (e) {
             console.error('Failed to parse settings', e);
             return { settings: { ...settingsDefaults }, version: null };
+        }
+    }
+    if (!hasMigratedLocalAppearance()) {
+        const migrated = extractMigratedAppearanceFromLocalSettings();
+        if (Object.keys(migrated).length > 0) {
+            return { settings: settingsParse(migrated), version: null };
         }
     }
     return { settings: { ...settingsDefaults }, version: null };
@@ -127,6 +181,22 @@ export function saveLocalSettings(settings: LocalSettings) {
 }
 
 export function loadThemePreference(): 'light' | 'dark' | 'adaptive' {
+    const pendingTheme = loadPendingSettings().themePreference;
+    if (pendingTheme === 'light' || pendingTheme === 'dark' || pendingTheme === 'adaptive') {
+        return pendingTheme;
+    }
+    const syncedSettings = mmkv.getString('settings');
+    if (syncedSettings) {
+        try {
+            const parsed = JSON.parse(syncedSettings);
+            const pref = parsed?.settings?.themePreference;
+            if (pref === 'light' || pref === 'dark' || pref === 'adaptive') {
+                return pref;
+            }
+        } catch (e) {
+            console.error('Failed to parse synced settings for theme preference', e);
+        }
+    }
     const localSettings = mmkv.getString('local-settings');
     if (localSettings) {
         try {
@@ -135,10 +205,10 @@ export function loadThemePreference(): 'light' | 'dark' | 'adaptive' {
             return settings.themePreference;
         } catch (e) {
             console.error('Failed to parse local settings for theme preference', e);
-            return localSettingsDefaults.themePreference;
+            return settingsDefaults.themePreference;
         }
     }
-    return localSettingsDefaults.themePreference;
+    return settingsDefaults.themePreference;
 }
 
 export function loadPurchases(): Purchases {

@@ -80,7 +80,7 @@ export default function AccountSettings({ onNavigate }: { onNavigate?: () => voi
         <ItemGroup title={t('lmc.account.deviceAccess', { count: devices.length })} footer={error || t('lmc.account.deviceAccessFooter')}>
             <Item title={t('lmc.account.refresh')} onPress={reload} loading={busy} disabled={busy} />
             {devices.length === 0 ? <Item title={t('lmc.account.noDevices')} showChevron={false} /> : devices.map((device, index) =>
-                <Item key={device.id} title={t('lmc.account.deviceNth', { index: index + 1 })} subtitle={t('lmc.account.deviceMeta', { created: new Date(device.createdAt).toLocaleString(), expires: new Date(device.expiresAt).toLocaleDateString() })} onPress={() => revoke(device)} disabled={busy} />)}
+                <Item key={device.id} title={t('lmc.account.deviceNth', { index: index + 1 })} subtitle={t('lmc.account.deviceMeta', { created: new Date(device.createdAt).toLocaleString() })} onPress={() => revoke(device)} disabled={busy} />)}
         </ItemGroup>
         {/* Connecting used to be a row on the phone's settings index; it lives
             here now, beside the services it manages. */}

@@ -1,10 +1,11 @@
 import { resolveUIFont, resolveCodeFont, codeAssetFont } from '@/sync/personalizationFonts';
 import { loadUIFont } from '@/utils/personalizationFontAssets';
 import * as React from 'react';
-import { Platform } from 'react-native';
+import { Appearance, Platform } from 'react-native';
+import * as SystemUI from 'expo-system-ui';
 import { UnistylesRuntime, useUnistyles } from 'react-native-unistyles';
 import { readingStyles } from '@/components/markdown/readingStyles';
-import { useLocalSetting } from '@/sync/storage';
+import { useSetting } from '@/sync/storage';
 import { lightTheme, darkTheme } from '@/theme';
 import { accentColors, personalizationMetrics } from '@/sync/personalization';
 import { usePersonalizationMotion } from '@/hooks/usePersonalizationMotion';
@@ -12,9 +13,35 @@ import { personalizationPalette, terminalChromeStyles } from '@/sync/personaliza
 
 /** One subscription for presentation changes; no session/provider restart. */
 export function PersonalizationRuntime() {
-    const value = useLocalSetting('personalization');
+    const value = useSetting('personalization');
+    const themePreference = useSetting('themePreference');
     const motion = usePersonalizationMotion();
     const { theme } = useUnistyles();
+    React.useLayoutEffect(() => {
+        if (Platform.OS !== 'web') {
+            Appearance.setColorScheme(themePreference === 'adaptive' ? 'unspecified' : themePreference);
+        }
+        if (themePreference === 'adaptive') {
+            const systemTheme = Appearance.getColorScheme() === 'dark' ? 'dark' : 'light';
+            if (UnistylesRuntime.themeName !== systemTheme) {
+                UnistylesRuntime.setAdaptiveThemes(false);
+                UnistylesRuntime.setTheme(systemTheme);
+            }
+            UnistylesRuntime.setAdaptiveThemes(true);
+            if (Platform.OS === 'web' && typeof document !== 'undefined') {
+                document.documentElement.classList.remove('light', 'dark');
+            }
+            const color = systemTheme === 'dark' ? darkTheme.colors.groupped.background : lightTheme.colors.groupped.background;
+            UnistylesRuntime.setRootViewBackgroundColor(color);
+            void SystemUI.setBackgroundColorAsync(color);
+        } else {
+            UnistylesRuntime.setAdaptiveThemes(false);
+            UnistylesRuntime.setTheme(themePreference);
+            const color = themePreference === 'dark' ? darkTheme.colors.groupped.background : lightTheme.colors.groupped.background;
+            UnistylesRuntime.setRootViewBackgroundColor(color);
+            void SystemUI.setBackgroundColorAsync(color);
+        }
+    }, [themePreference]);
     React.useLayoutEffect(() => {
         if (Platform.OS !== 'web') return;
         const sheet = document.createElement('style');

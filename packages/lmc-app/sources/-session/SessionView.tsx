@@ -148,7 +148,7 @@ export const SessionView = React.memo((props: { id: string }) => {
     const isTablet = useIsTablet();
     const { width: windowWidth, height: windowHeight } = useLayoutWindowDimensions();
     const fileDiffsSidebarEnabled = useSetting('fileDiffsSidebar');
-    const zenMode = useLocalSetting('zenMode');
+    const zenMode = useSetting('zenMode');
     const [headerBackdropVisible, setHeaderBackdropVisible] = React.useState(false);
     // Measured by the sidebar itself, so the status card stands exactly as tall.
     const sidebarCardHeight = useSidebarMetrics((state) => state.headerCardHeight) || undefined;
@@ -164,7 +164,7 @@ export const SessionView = React.memo((props: { id: string }) => {
         && (!session || (rigCanBrowseFiles(session.metadata) && rigCanUseShell(session.metadata)))
         && isDataReady && !!session;
 
-    const chatWideMode = useLocalSetting('chatWideMode');
+    const chatWideMode = useSetting('chatWideMode');
     const [resourceBrowser, setResourceBrowser] = React.useState(false);
     const [sidebarExpanded, setSidebarExpanded] = React.useState(false);
     React.useEffect(() => { setSidebarExpanded(false); setResourceBrowser(false); }, [sessionId]);
@@ -448,7 +448,7 @@ export const SessionView = React.memo((props: { id: string }) => {
                     accessibilityRole="button"
                     accessibilityLabel={chatWideMode ? t('lmc.common.standardWidth') : t('lmc.common.wideMode')}
                     accessibilityState={{ selected: chatWideMode }}
-                    onPress={() => storage.getState().applyLocalSettings({ chatWideMode: !chatWideMode })}
+                    onPress={() => sync.applySettings({ chatWideMode: !chatWideMode })}
                     style={({ pressed }) => ({ width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.55 : 1 })}
                 >
                     <SidebarIcon name={chatWideMode ? 'contract-outline' : 'expand-outline'} size={20} color={theme.colors.header.tint} />
@@ -918,7 +918,7 @@ export function SessionViewLoaded({
     const { messages, isLoaded } = useSessionMessages(sessionId);
     const pendingCommunications = useSessionPendingCommunications(sessionId);
     const acknowledgedCliVersions = useLocalSetting('acknowledgedCliVersions');
-    const zenMode = useLocalSetting('zenMode');
+    const zenMode = useSetting('zenMode');
     // Match AgentInput's viewport breakpoint, including a narrow web browser.
     const sessionInputHorizontalPadding = inputWindowWidth > 700 ? 12 : 8;
     const chatListTopContentInset = embedded || (isLandscape && deviceType === 'phone')

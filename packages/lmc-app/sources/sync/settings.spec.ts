@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { SettingsSchema, settingsParse, applySettings, settingsDefaults, settingsToSyncPayload, type Settings } from './settings';
+import { personalizationDefaults } from './personalization';
 
 describe('settings', () => {
     describe('settingsParse', () => {
@@ -213,6 +214,12 @@ describe('settings', () => {
                 lastUsedPermissionMode: null,
                 lastUsedModelMode: null,
                 agentDefaultOverrides: {},
+                personalization: personalizationDefaults,
+                themePreference: 'adaptive',
+                chatWideMode: false,
+                zenMode: false,
+                commandPaletteEnabled: false,
+                markdownCopyV2: false,
                 projectAvatarOverrides: {},
                 sessionProjectOrder: {},
                 sessionNameOverrides: {},

@@ -26,7 +26,7 @@ import { KeyboardAvoidingView, KeyboardStickyView } from 'react-native-keyboard-
 import Constants from 'expo-constants';
 import { useHeaderHeight } from '@/utils/responsive';
 import { t } from '@/text';
-import { useAllMachines, useLocalSetting, useSessions, useSetting, storage } from '@/sync/storage';
+import { useAllMachines, useSessions, useSetting, storage } from '@/sync/storage';
 import { collectRecentTargets } from '@/utils/lmc/recentTargets';
 import { lmcElevation, lmcSurfaceBorder } from '@/components/lmc/elevation';
 import type { NewSessionAgentType } from '@/sync/persistence';
@@ -753,7 +753,7 @@ function NewSessionScreen() {
     const agentInputEnterToSend = useSetting('agentInputEnterToSend');
     const agentDefaultOverrides = useSetting('agentDefaultOverrides');
     const fileDiffsSidebarEnabled = useSetting('fileDiffsSidebar');
-    const zenMode = useLocalSetting('zenMode');
+    const zenMode = useSetting('zenMode');
     const { width: windowWidth, height: windowHeight } = useWindowDimensions();
 
     // Persisted draft state (survives navigation).

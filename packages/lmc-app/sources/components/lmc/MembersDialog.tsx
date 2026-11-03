@@ -111,9 +111,10 @@ export function MembersDialog({ onClose }: { onClose?: () => void }) {
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: 6,
-                    minHeight: compact ? 34 : 38,
-                    paddingHorizontal: compact ? 12 : 14,
-                    paddingVertical: compact ? 6 : 8,
+                    minHeight: compact ? 32 : 36,
+                    minWidth: compact ? 64 : 74,
+                    paddingHorizontal: compact ? 12 : 15,
+                    paddingVertical: compact ? 5 : 7,
                     borderRadius: compact ? 9 : 10,
                     borderWidth: 1,
                     borderColor,
@@ -122,7 +123,7 @@ export function MembersDialog({ onClose }: { onClose?: () => void }) {
                 })}
             >
                 {opts?.icon ? <Ionicons name={opts.icon} size={compact ? 14 : 16} color={fg} /> : null}
-                <Text style={{ fontSize: compact ? 12.5 : 13.5, fontWeight: tone === 'primary' ? '600' : '500', color: fg }}>
+                <Text style={{ fontSize: compact ? 12.5 : 13.5, lineHeight: compact ? 18 : 20, fontWeight: tone === 'primary' ? '600' : '500', color: fg }}>
                     {label}
                 </Text>
             </Pressable>

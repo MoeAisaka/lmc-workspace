@@ -26,7 +26,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
     const router = useRouter();
     const { logout, isAuthenticated } = useAuth();
     const sessions = storage(useShallow((state) => state.sessions));
-    const commandPaletteEnabled = storage(useShallow((state) => state.localSettings.commandPaletteEnabled));
+    const commandPaletteEnabled = storage(useShallow((state) => state.settings.commandPaletteEnabled));
     const sessionListViewData = useVisibleSessionListViewData();
     const machines = useAllMachines();
     const navigateToSession = useNavigateToSession();

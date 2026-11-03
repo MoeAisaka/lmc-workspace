@@ -1,5 +1,6 @@
 import * as z from 'zod';
 import { AgentDefaultOverridesSchema } from './agentDefaults';
+import { PersonalizationSchema, personalizationDefaults } from './personalization';
 import { DEFAULT_USER_MESSAGE_BUBBLE_COLOR } from '../utils/userMessageBubbleColor';
 
 //
@@ -72,6 +73,12 @@ export const SettingsSchema = z.object({
     sessionProjectOrder: z.record(z.string(), z.array(z.string()).nullable()),
     sessionNameOverrides: z.record(z.string(), z.string().max(200).nullable()),
     agentDefaultOverrides: AgentDefaultOverridesSchema.describe('User-selected agent defaults. Missing values use code defaults and are not sent as agent metadata.'),
+    personalization: PersonalizationSchema.catch(personalizationDefaults).describe('Account-synced presentation, typography, color accent, and reading preferences'),
+    themePreference: z.enum(['light', 'dark', 'adaptive']).describe('Theme preference: light, dark, or adaptive (follows system)'),
+    chatWideMode: z.boolean().describe('Use available conversation width on wide screens'),
+    zenMode: z.boolean().describe('Hide all sidebars and non-essential UI for focused work'),
+    commandPaletteEnabled: z.boolean().describe('Enable CMD+K command palette (web only)'),
+    markdownCopyV2: z.boolean().describe('Replace native paragraph selection with long-press modal for full markdown copy'),
     // Dismissed CLI warning banners (supports both per-machine and global dismissal)
     dismissedCLIWarnings: z.object({
         perMachine: z.record(z.string(), z.object({
@@ -148,6 +155,12 @@ export const settingsDefaults: Settings = {
     sessionProjectOrder: {},
     sessionNameOverrides: {},
     agentDefaultOverrides: {},
+    personalization: personalizationDefaults,
+    themePreference: 'adaptive',
+    chatWideMode: false,
+    zenMode: false,
+    commandPaletteEnabled: false,
+    markdownCopyV2: false,
     dismissedCLIWarnings: { perMachine: {}, global: {} },
 };
 Object.freeze(settingsDefaults);
@@ -180,8 +193,14 @@ export function settingsParse(settings: unknown): Settings {
 
     // Merge defaults, parsed settings, and preserve unknown fields
     const unknownFields = { ...(settings as any) };
-    // Remove known fields from unknownFields to preserve only the unknown ones
-    Object.keys(parsed.data).forEach(key => delete unknownFields[key]);
+    // Remove known fields from unknownFields to preserve only the unknown ones,
+    // and strip explicit undefined values so defaults are never overwritten.
+    Object.keys(parsed.data).forEach(key => {
+        delete unknownFields[key];
+        if ((parsed.data as any)[key] === undefined) {
+            delete (parsed.data as any)[key];
+        }
+    });
 
     return { ...settingsDefaults, ...parsed.data, ...unknownFields };
 }
@@ -198,6 +217,12 @@ export function applySettings(settings: Settings, delta: Partial<Settings>): Set
     if (delta.sessionProjectOrder) result.sessionProjectOrder = { ...settings.sessionProjectOrder, ...delta.sessionProjectOrder };
     if (delta.sessionNameOverrides) {
         result.sessionNameOverrides = { ...settings.sessionNameOverrides, ...delta.sessionNameOverrides };
+    }
+    if (delta.personalization) {
+        result.personalization = PersonalizationSchema.catch(personalizationDefaults).parse({
+            ...settings.personalization,
+            ...delta.personalization,
+        });
     }
 
     // Fill in any missing fields with defaults

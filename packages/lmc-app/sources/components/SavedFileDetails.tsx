@@ -84,8 +84,8 @@ export function SavedFileDetails({ id }: { id: string }) {
         finally { if (alive.current && currentId.current === id) { setBusy(''); busyRef.current = false; } }
     };
     const button = (label: string, action: () => void, disabled = false) => <Pressable key={label} accessibilityRole="button" disabled={!!busy || disabled} onPress={action}
-        style={{ paddingHorizontal: 16, paddingVertical: 12, borderWidth: 1, borderColor: theme.colors.divider, borderRadius: 10, opacity: busy || disabled ? 0.45 : 1 }}>
-        <Text style={{ color: theme.colors.textLink, fontWeight: '500' }}>{label}</Text></Pressable>;
+        style={({ pressed }) => ({ minHeight: 36, paddingHorizontal: 14, paddingVertical: 7, borderWidth: 1, borderColor: theme.colors.divider, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surface, opacity: busy || disabled ? 0.45 : 1 })}>
+        <Text style={{ color: theme.colors.textLink, fontSize: 13.5, lineHeight: 20, fontWeight: '500' }}>{label}</Text></Pressable>;
     const eligible = sessions.filter(session => !!session.metadata?.sessionCapabilities?.persistentFiles);
     const titleOf = (sessionId: string) => { const session = sessions.find(s => s.id === sessionId); return session?.metadata?.name || session?.metadata?.summary?.text || sessionId; };
     const previewType = file && previewTypeOf(file);

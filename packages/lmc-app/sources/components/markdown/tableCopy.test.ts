@@ -81,6 +81,10 @@ describe('wrapping a cell for the picture', () => {
 });
 
 describe('laying out the picture', () => {
+    it('matches the 1.75 body prose line-height ratio', () => {
+        expect(TABLE_IMAGE.lineHeight / TABLE_IMAGE.fontSize).toBe(1.75);
+    });
+
     it('sizes each column to its widest cell and every row to its tallest cell', () => {
         const layout = layoutTableImage([[span('ab')], [span('c')]], [[[span('abcdefghij')], [span('x')]]], measure);
         const { padding, cellX, cellY, lineHeight, minColumn } = TABLE_IMAGE;

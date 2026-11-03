@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { randomBytes } from 'node:crypto';
 import { db } from '@/storage/db';
-import { lmcAuth } from './auth';
+import { lmcAuth, PERMANENT_LOGIN_EXPIRES_AT } from './auth';
 const users: string[]=[];
 afterAll(async()=> { for(const id of users) { await db.lmcLogin.deleteMany({where:{accountId:id}}); await db.account.delete({where:{id}}); } await db.$disconnect(); });
 describe('LMC local authentication',()=> {
@@ -22,11 +22,21 @@ describe('LMC local authentication',()=> {
   await lmcAuth.invalidateUserTokens(id);
   expect(await lmcAuth.verifyToken(second!.token)).toBeNull();
  });
- it('rejects expired tokens even while a prior lookup succeeded',async()=> {
+ it('rejects expired web tokens even while a prior lookup succeeded',async()=> {
   const id=await lmcAuth.createAccount('test-'+randomBytes(8).toString('hex'),randomBytes(24).toString('hex'));users.push(id);
-  const token=await lmcAuth.createToken(id);
-  expect(await lmcAuth.verifyToken(token)).toMatchObject({userId:id});
-  await db.lmcLogin.updateMany({where:{accountId:id},data:{expiresAt:new Date(0)}});
+  const token=await lmcAuth.createToken(id,undefined,'web');
+  expect(await lmcAuth.verifyToken(token)).toMatchObject({userId:id,kind:'web'});
+  await db.lmcLogin.updateMany({where:{accountId:id,kind:'web'},data:{expiresAt:new Date(0)}});
+  expect(await lmcAuth.verifyToken(token)).toBeNull();
+ });
+ it('keeps device authorizations permanently valid until manually revoked',async()=> {
+  const id=await lmcAuth.createAccount('test-'+randomBytes(8).toString('hex'),randomBytes(24).toString('hex'));users.push(id);
+  const token=await lmcAuth.createToken(id,{pairing:'p1'},'device');
+  const row=await db.lmcLogin.findFirstOrThrow({where:{accountId:id,kind:'device'}});
+  expect(row.expiresAt.toISOString()).toBe(PERMANENT_LOGIN_EXPIRES_AT.toISOString());
+  await db.lmcLogin.updateMany({where:{accountId:id,kind:'device'},data:{expiresAt:new Date(0)}});
+  expect(await lmcAuth.verifyToken(token)).toMatchObject({userId:id,kind:'device',extras:{pairing:'p1'}});
+  await lmcAuth.invalidateToken(token);
   expect(await lmcAuth.verifyToken(token)).toBeNull();
  });
 });

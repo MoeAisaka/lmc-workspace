@@ -1,12 +1,12 @@
 import { PersonalizationSettings } from '@/components/lmc/settings/PersonalizationSettings';
-import { storage } from '@/sync/storage';
+import { useSettingMutable } from '@/sync/storage';
+import { sync } from '@/sync/sync';
 import { personalizationDefaults } from '@/sync/personalization';
 import { settingsDefaults } from '@/sync/settings';
 import { Ionicons } from '@expo/vector-icons';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
-import { useSettingMutable, useLocalSettingMutable } from '@/sync/storage';
 import { useUnistyles, UnistylesRuntime } from 'react-native-unistyles';
 import { Switch } from '@/components/Switch';
 import { Appearance, Platform, View } from 'react-native';
@@ -70,10 +70,10 @@ export default function AppearanceSettingsScreen() {
     const [compactToolCalls, setCompactToolCalls] = useSettingMutable('compactToolCalls');
     const [groupSessionsByEngine, setGroupSessionsByEngine] = useSettingMutable('sessionListGroupByEngine');
     const [userMessageBubbleColor, setUserMessageBubbleColor] = useSettingMutable('userMessageBubbleColor');
-    const [themePreference, setThemePreference] = useLocalSettingMutable('themePreference');
+    const [themePreference, setThemePreference] = useSettingMutable('themePreference');
     const [preferredLanguage, setPreferredLanguage] = useSettingMutable('preferredLanguage');
     const [agentInputEnterToSend, setAgentInputEnterToSend] = useSettingMutable('agentInputEnterToSend');
-    const [commandPaletteEnabled, setCommandPaletteEnabled] = useLocalSettingMutable('commandPaletteEnabled');
+    const [commandPaletteEnabled, setCommandPaletteEnabled] = useSettingMutable('commandPaletteEnabled');
     const [fileDiffsSidebar, setFileDiffsSidebar] = useSettingMutable('fileDiffsSidebar');
     const [groupToolCalls, setGroupToolCalls] = useSettingMutable('groupToolCalls');
 
@@ -191,8 +191,12 @@ export default function AppearanceSettingsScreen() {
 
                 {Platform.OS === 'web' ? <PersonalizationSettings
                     onReset={() => {
-                        storage.getState().applyLocalSettings({ personalization: { ...personalizationDefaults }, chatWideMode: false, zenMode: false });
-                        setUserMessageBubbleColor(settingsDefaults.userMessageBubbleColor);
+                        sync.applySettings({
+                            personalization: { ...personalizationDefaults },
+                            chatWideMode: false,
+                            zenMode: false,
+                            userMessageBubbleColor: settingsDefaults.userMessageBubbleColor,
+                        });
                         applyTheme('adaptive');
                     }}
                     colors={bubbleControl}

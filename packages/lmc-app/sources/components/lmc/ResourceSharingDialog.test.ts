@@ -531,6 +531,21 @@ describe('ResourceSharingDialog helpers & UI', () => {
             expect(text()).toContain('MacMini · Antigravity · ~/Work/MacMini Claude · cmto0c…ud62');
             expect(text()).toContain('打开会话');
 
+            const saveBtn = tree.root
+                .findAllByType('Pressable')
+                .find((b: any) => b.findAllByType('Text').some((tNode: any) => tNode.children.join('') === '保存'));
+            const reloadBtn = tree.root
+                .findAllByType('Pressable')
+                .find((b: any) => b.findAllByType('Text').some((tNode: any) => tNode.children.join('') === '重新加载'));
+            expect(saveBtn).toBeDefined();
+            expect(reloadBtn).toBeDefined();
+            const saveStyle = saveBtn!.props.style({ pressed: false });
+            const reloadStyle = reloadBtn!.props.style({ pressed: false });
+            expect(saveStyle).toMatchObject({ minHeight: 36, minWidth: 76, paddingVertical: 7, borderWidth: 1 });
+            expect(reloadStyle).toMatchObject({ minHeight: 36, paddingVertical: 7, borderWidth: 1 });
+            expect(saveBtn!.findByType('Text').props.style.lineHeight).toBe(20);
+            expect(reloadBtn!.findByType('Text').props.style.lineHeight).toBe(20);
+
             const openBtn = tree.root
                 .findAllByType('Pressable')
                 .find((b: any) => b.findAllByType('Text').some((tNode: any) => tNode.children.join('') === '打开会话'));

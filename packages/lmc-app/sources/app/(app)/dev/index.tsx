@@ -24,7 +24,7 @@ export default function DevScreen() {
     const [verboseLogging, setVerboseLogging] = useLocalSettingMutable('verboseLogging');
     const [consoleLoggingEnabled, setConsoleLoggingEnabled] = useLocalSettingMutable('consoleLoggingEnabled');
     const [experiments, setExperiments] = useSettingMutable('experiments');
-    const [markdownCopyV2, setMarkdownCopyV2] = useLocalSettingMutable('markdownCopyV2');
+    const [markdownCopyV2, setMarkdownCopyV2] = useSettingMutable('markdownCopyV2');
     const socketStatus = useSocketStatus();
     const anonymousId = sync.encryption!.anonID;
     const { theme } = useUnistyles();

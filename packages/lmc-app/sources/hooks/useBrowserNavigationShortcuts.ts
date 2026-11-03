@@ -9,6 +9,7 @@ import {
 } from '@/navigation/browserNavigation';
 import { useBrowserNavigationStore } from '@/navigation/browserNavigationStore';
 import { storage } from '@/sync/storage';
+import { sync } from '@/sync/sync';
 import { useGlobalSearchParams, usePathname, useRouter } from 'expo-router';
 import * as React from 'react';
 import { Platform } from 'react-native';
@@ -38,10 +39,10 @@ function runRouteForward(): boolean {
 
 function exitZenMode(): boolean {
     const state = storage.getState();
-    if (!state.localSettings.zenMode) {
+    if (!state.settings.zenMode) {
         return false;
     }
-    state.applyLocalSettings({ zenMode: false });
+    sync.applySettings({ zenMode: false });
     return true;
 }
 
