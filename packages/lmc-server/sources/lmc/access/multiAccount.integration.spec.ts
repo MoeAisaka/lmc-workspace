@@ -80,7 +80,7 @@ describe.skipIf(!enabled)('multi-account isolated database integration', () => {
     async function file(owner: User, keyMode: 'sealed' | 'legacy' = 'sealed') {
         const key = randomBytes(32), id = randomUUID(), secret = Buffer.from(owner.secret, 'base64url');
         const pub = libsodiumPublicKeyFromSecretKey(await deriveKey(secret, 'Happy EnCoder', ['content']));
-        const ownerKey = keyMode === 'sealed' ? Buffer.concat([Buffer.from([0]), libsodiumEncryptForPublicKey(key, pub)]) : encryptLegacy(key.toString('base64'), secret);
+        const ownerKey = keyMode === 'sealed' ? Buffer.concat([Buffer.from([0]), libsodiumEncryptForPublicKey(key, pub)]) : Buffer.from(encryptLegacy(key.toString('base64'), secret));
         await db.fileAsset.create({ data: { id, accountId: owner.id, keyMode, ownerKey, state: 'ready', size: BigInt(0), partCount: 1, manifest: randomBytes(40) } });
         return { id, key };
     }
