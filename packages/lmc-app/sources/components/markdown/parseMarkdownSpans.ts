@@ -1,8 +1,9 @@
 import type { MarkdownSpan, MarkdownSpanStyle } from "./parseMarkdown";
 import { findFileReferences, parseFileReference } from "./linkUtils";
+import { latexToPlainText, matchInlineMathAt } from "./mathUtils";
 
 const ASCII_WORD = /[A-Za-z0-9]/;
-const ESCAPABLE = /[\\`*_{}[\]()#+\-.!|~><&]/;
+const ESCAPABLE = /[\\`*_{}[\]()#+\-.!|~><&$]/;
 const HTML_BR_TAG = /^<br\s*\/?>/i;
 const HTML_AUTOLINK = /^<(https?:\/\/[^\s<>]+)>/i;
 const HTML_OPEN_TAG = /^<(b|strong|i|em|s|del|strike|code|kbd|a|ul|ol|sup|sub|u|ins|mark|span)((?:\s+[A-Za-z_:][\w:.-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*\s*)>/i;
@@ -70,6 +71,7 @@ function appendSpan(spans: MarkdownSpan[], styles: MarkdownSpanStyle[], text: st
     const prev = spans.at(-1);
     if (
         prev
+        && !prev.math
         && prev.url === url
         && prev.styles.length === styles.length
         && prev.styles.every((s, idx) => s === styles[idx])
@@ -78,6 +80,17 @@ function appendSpan(spans: MarkdownSpan[], styles: MarkdownSpanStyle[], text: st
         return;
     }
     spans.push({ styles: [...styles], text, url });
+}
+
+function appendMathSpan(
+    spans: MarkdownSpan[],
+    styles: MarkdownSpanStyle[],
+    content: string,
+    mode: 'inline' | 'display',
+    url: string | null,
+) {
+    if (!content) return;
+    spans.push({ styles: [...styles], text: content, url, math: mode });
 }
 
 /**
@@ -185,8 +198,22 @@ function matchMarkdownLink(src: string, openBracketIndex: number): { label: stri
     while (i < src.length) {
         const ch = src[i];
         if (ch === '\\' && i + 1 < src.length) {
+            if (src[i + 1] === '(' || src[i + 1] === '[') {
+                const math = matchInlineMathAt(src, i);
+                if (math) {
+                    i = math.endIndex;
+                    continue;
+                }
+            }
             i += 2;
             continue;
+        }
+        if (ch === '$') {
+            const math = matchInlineMathAt(src, i);
+            if (math) {
+                i = math.endIndex;
+                continue;
+            }
         }
         if (ch === '`') {
             let ticks = 0;
@@ -335,8 +362,22 @@ function findClosingDelimiter(src: string, startAfterOpen: number, delim: string
     while (i <= src.length - len) {
         const ch = src[i];
         if (ch === '\\' && i + 1 < src.length) {
+            if (src[i + 1] === '(' || src[i + 1] === '[') {
+                const math = matchInlineMathAt(src, i);
+                if (math) {
+                    i = math.endIndex;
+                    continue;
+                }
+            }
             i += 2;
             continue;
+        }
+        if (ch === '$') {
+            const math = matchInlineMathAt(src, i);
+            if (math) {
+                i = math.endIndex;
+                continue;
+            }
         }
         if (ch === '`') {
             let ticks = 0;
@@ -431,6 +472,15 @@ function tokenizeInline(
             i += 2;
             while (i < src.length && (src[i] === ' ' || src[i] === '\t')) i++;
             continue;
+        }
+        if (ch === '\\' && (src[i + 1] === '(' || src[i + 1] === '[')) {
+            const math = matchInlineMathAt(src, i);
+            if (math) {
+                flush();
+                appendMathSpan(spans, inheritedStyles, math.content, math.mode, inheritedUrl);
+                i = math.endIndex;
+                continue;
+            }
         }
         if (ch === '\\' && i + 1 < src.length && ESCAPABLE.test(src[i + 1])) {
             buffer += src[i + 1];
@@ -581,6 +631,17 @@ function tokenizeInline(
             continue;
         }
 
+        // 5b. Inline / display math (`$...$` and `$$...$$`)
+        if (ch === '$') {
+            const math = matchInlineMathAt(src, i);
+            if (math) {
+                flush();
+                appendMathSpan(spans, inheritedStyles, math.content, math.mode, inheritedUrl);
+                i = math.endIndex;
+                continue;
+            }
+        }
+
         // 6. Inline image `![alt](url)` inside a paragraph -> render as clickable link `[🖼 alt]`
         if (ch === '!' && src[i + 1] === '[' && !inheritedUrl) {
             const imgLink = matchMarkdownLink(src, i + 1);
@@ -689,7 +750,8 @@ export function spansLength(spans: MarkdownSpan[]): number {
     let currentLine = 0;
     for (const s of spans) {
         const ratio = s.styles.includes('code') ? CODE_CHAR_RATIO : 1;
-        for (const ch of s.text) {
+        const visibleText = s.math ? latexToPlainText(s.text) : s.text;
+        for (const ch of visibleText) {
             if (ch === '\n') {
                 if (currentLine > maxLine) maxLine = currentLine;
                 currentLine = 0;

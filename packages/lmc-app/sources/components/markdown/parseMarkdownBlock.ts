@@ -10,6 +10,7 @@ import type {
 import { parseMarkdownSpans } from "./parseMarkdownSpans";
 import { parseMarkdownDetails } from './parseMarkdownDetails';
 import { parseFollowupDirective } from './parseFollowupDirective';
+import { matchInlineMathAt, parseMathBlockAt } from './mathUtils';
 import { parseInteractiveFence } from 'lmc-wire';
 
 /**
@@ -25,6 +26,14 @@ function splitTableRow(line: string): string[] {
     while (i < trimmed.length) {
         const ch = trimmed[i];
         if (ch === '\\' && i + 1 < trimmed.length) {
+            if (trimmed[i + 1] === '(' || trimmed[i + 1] === '[') {
+                const inlineMath = matchInlineMathAt(trimmed, i, { forbidSpacedPipe: true });
+                if (inlineMath) {
+                    current += trimmed.slice(i, inlineMath.endIndex);
+                    i = inlineMath.endIndex;
+                    continue;
+                }
+            }
             if (trimmed[i + 1] === '|') {
                 current += '|';
             } else {
@@ -32,6 +41,14 @@ function splitTableRow(line: string): string[] {
             }
             i += 2;
             continue;
+        }
+        if (ch === '$') {
+            const inlineMath = matchInlineMathAt(trimmed, i, { forbidSpacedPipe: true });
+            if (inlineMath) {
+                current += trimmed.slice(i, inlineMath.endIndex);
+                i = inlineMath.endIndex;
+                continue;
+            }
         }
         if (ch === '`') {
             let ticks = 0;
@@ -226,7 +243,7 @@ function normalizeListDepths(indents: number[]): number[] {
     });
 }
 
-function isSpecialBlockStarter(line: string): boolean {
+function isSpecialBlockStarter(line: string, lines?: string[], lineIndex?: number): boolean {
     const trimmed = line.trim();
     if (!trimmed) return true;
     if (/^\s{0,3}#{1,6}\s+/.test(line)) return true;
@@ -235,6 +252,7 @@ function isSpecialBlockStarter(line: string): boolean {
     if (/^(?:\*\s*){3,}$|^(?:-\s*){3,}$|^(?:_\s*){3,}$/.test(trimmed)) return true;
     if (trimmed.startsWith('<options>') || trimmed.startsWith('<details')) return true;
     if (/^!\[([^\]]*)\]\(([^)]+)\)$/.test(trimmed)) return true;
+    if (lines && lineIndex !== undefined && parseMathBlockAt(lines, lineIndex) !== null) return true;
     return false;
 }
 
@@ -283,13 +301,24 @@ export function parseMarkdownBlock(markdown: string, options: MarkdownParseOptio
             const contentString = content.join('\n');
 
             const interactive = parseInteractiveFence(language);
+            const langLower = language?.toLowerCase() ?? null;
             if (interactive) {
                 blocks.push({ type: 'interactive', ...interactive, html: contentString, closed });
-            } else if (language === 'mermaid') {
+            } else if (langLower === 'mermaid') {
                 blocks.push({ type: 'mermaid', content: contentString });
+            } else if (langLower === 'math' || langLower === 'katex') {
+                blocks.push({ type: 'math', content: contentString });
             } else {
                 blocks.push({ type: 'code-block', language, content: contentString });
             }
+            continue;
+        }
+
+        // 2b. Standalone Display Math block (`$$...$$` or `\[...\]`, single-line or multi-line)
+        const mathBlock = parseMathBlockAt(lines, index - 1);
+        if (mathBlock) {
+            blocks.push({ type: 'math', content: mathBlock.content });
+            index = mathBlock.nextIndex;
             continue;
         }
 
@@ -393,7 +422,7 @@ export function parseMarkdownBlock(markdown: string, options: MarkdownParseOptio
                 // Indented paragraph continuation line belonging to the last list item
                 const nextIndent = expandLeadingSpaces(nextRaw);
                 const lastEntry = entries[entries.length - 1];
-                if (nextIndent >= lastEntry.indent + 2 && !isSpecialBlockStarter(nextRaw) && !nextRaw.includes('|')) {
+                if (nextIndent >= lastEntry.indent + 2 && !isSpecialBlockStarter(nextRaw, lines, index) && !nextRaw.includes('|')) {
                     lastEntry.content += ' ' + nextRaw.trim();
                     index++;
                     continue;

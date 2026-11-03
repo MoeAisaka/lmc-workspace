@@ -50,6 +50,9 @@ export type MarkdownBlock = {
     type: 'mermaid',
     content: string
 } | {
+    type: 'math',
+    content: string
+} | {
     /** D30: a sandboxed page the engine answered with, or a reference to one it wrote earlier. */
     type: 'interactive',
     id: string | null,
@@ -86,7 +89,8 @@ export type MarkdownSpanStyle = 'italic' | 'bold' | 'semibold' | 'code' | 'strik
 export type MarkdownSpan = {
     styles: MarkdownSpanStyle[],
     text: string,
-    url: string | null
+    url: string | null,
+    math?: 'inline' | 'display',
 }
 
 export function parseMarkdown(markdown: string, options: MarkdownParseOptions = {}) {

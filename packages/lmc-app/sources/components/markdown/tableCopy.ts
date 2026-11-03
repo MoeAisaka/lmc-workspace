@@ -1,4 +1,5 @@
 import type { MarkdownSpan } from './parseMarkdown';
+import { latexToPlainText } from './mathUtils';
 
 /**
  * A rendered table, taken out of the page two ways: as a real table (HTML for
@@ -9,9 +10,10 @@ import type { MarkdownSpan } from './parseMarkdown';
 type Cell = MarkdownSpan[];
 
 const escapeHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const spanDisplayText = (span: MarkdownSpan) => span.math ? latexToPlainText(span.text) : span.text;
 
 function spanToHtml(span: MarkdownSpan): string {
-    let html = escapeHtml(span.text);
+    let html = escapeHtml(spanDisplayText(span));
     if (span.styles.includes('code')) html = `<code>${html}</code>`;
     else html = html.replace(/\n/g, '<br>');
     if (span.styles.includes('strikethrough')) html = `<s>${html}</s>`;
@@ -22,7 +24,7 @@ function spanToHtml(span: MarkdownSpan): string {
     return html;
 }
 
-const cellText = (cell: Cell | undefined) => (cell ?? []).map((span) => span.text).join('');
+const cellText = (cell: Cell | undefined) => (cell ?? []).map(spanDisplayText).join('');
 
 export function tableToHtml(headers: Cell[], rows: Cell[][]): string {
     const cells = (row: Cell[], tag: 'th' | 'td') => headers.map((_, column) => `<${tag}>${(row[column] ?? []).map(spanToHtml).join('')}</${tag}>`).join('');
@@ -68,7 +70,7 @@ export function wrapCell(cell: Cell, width: number, header: boolean, measure: Me
     const newLine = () => { lines.push([]); used = 0; };
     for (const span of cell) {
         const style = { bold: header || span.styles.includes('bold') || span.styles.includes('semibold'), italic: span.styles.includes('italic'), code: span.styles.includes('code') };
-        for (const part of span.text.split(/(\n)/)) {
+        for (const part of spanDisplayText(span).split(/(\n)/)) {
             if (part === '\n') { newLine(); continue; }
             for (const token of tokens(part)) {
                 const run = { text: token, ...style, cjk: CJK.test(token) }, w = measure(run);

@@ -48,6 +48,17 @@ describe('copying a table as a table', () => {
         );
         expect(tableToTsv([[span('结论')]], [[brCell]])).toBe('结论\n❌ 不能！ Free 档仅开放入门小模型');
     });
+
+    it('converts LaTeX math spans to readable plain Unicode in HTML, TSV, and wrapped canvas runs', () => {
+        const mathCell: MarkdownSpan[] = [
+            { text: String.raw`\mathbf{36.5\text{cm}} + \alpha \le \beta`, styles: [], url: null, math: 'inline' },
+        ];
+        expect(tableToTsv([[span('尺寸')]], [[mathCell]])).toBe('尺寸\n36.5cm + α ≤ β');
+        expect(tableToHtml([[span('尺寸')]], [[mathCell]])).toBe(
+            '<table><thead><tr><th>尺寸</th></tr></thead><tbody><tr><td>36.5cm + α ≤ β</td></tr></tbody></table>'
+        );
+        expect(text(wrapCell(mathCell, 1000, false, measure))).toEqual(['36.5cm + α ≤ β']);
+    });
 });
 
 describe('wrapping a cell for the picture', () => {

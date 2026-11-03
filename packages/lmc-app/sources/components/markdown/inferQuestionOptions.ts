@@ -33,13 +33,13 @@ export function inferQuestionOptions(blocks: MarkdownBlock[]): MarkdownBlock[] {
 
     const prompt = blocks[start - 1];
     if (prompt?.type !== 'text') return blocks;
-    if (prompt.content.some(span => span.url || span.styles.includes('code'))) return blocks;
+    if (prompt.content.some(span => span.url || span.styles.includes('code') || span.math)) return blocks;
     const question = prompt.content.map(span => span.text).join('').trim();
     if (/^(?:>|例如|示例|例子|for example\b|example\b)/i.test(question) || question.length > 300) return blocks;
 
     const entries = (blocks.slice(start) as ListBlock[]).flatMap(block => block.items);
     if (entries.length < 2 || entries.length > 4) return blocks;
-    if (entries.some(item => item.depth !== 0 || item.checked !== undefined || item.spans.some(span => span.url || span.styles.includes('code')))) return blocks;
+    if (entries.some(item => item.depth !== 0 || item.checked !== undefined || item.spans.some(span => span.url || span.styles.includes('code') || span.math))) return blocks;
     const labels = entries.map(item => item.spans.map(span => span.text).join('').trim());
     if (labels.some(label => !label || label.length > 80 || /^[>\[]/.test(label) || /[\n。！？；;]/.test(label))) return blocks;
     if (new Set(labels).size !== labels.length) return blocks;

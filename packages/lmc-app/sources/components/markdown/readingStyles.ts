@@ -53,6 +53,53 @@ export const readingStyles = `
   text-decoration-thickness: 1px;
 }
 
+/* KaTeX math blocks & inline expressions */
+.katex .katex-mathml {
+  position: absolute;
+  clip: rect(1px, 1px, 1px, 1px);
+  clip-path: inset(50%);
+  padding: 0;
+  border: 0;
+  height: 1px;
+  width: 1px;
+  overflow: hidden;
+}
+.lmc-math-block {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 6px 2px;
+  box-sizing: border-box;
+}
+.lmc-math-block .katex-display {
+  margin: 0 auto;
+  width: max-content;
+  max-width: none;
+}
+.lmc-math-inline { display: inline; }
+.lmc-math-inline-display {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  vertical-align: middle;
+  padding: 2px 0;
+}
+.lmc-math-inline-display .katex-display { margin: 0; }
+[data-lmc-prose] .katex { font-size: 1.08em; color: inherit; }
+[data-lmc-prose] .katex .cjk_fallback {
+  font-family: var(--lmc-font-regular, -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif);
+  font-size: 0.92em;
+}
+[data-lmc-prose] .katex .mathbf .cjk_fallback,
+[data-lmc-prose] .katex .textbf .cjk_fallback {
+  font-family: var(--lmc-font-semiBold, -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif);
+  font-weight: 600;
+  font-synthesis: weight;
+}
+
 /* Lists, blockquotes, tables & callouts */
 [data-lmc-list-text="marker"] { font-variant-numeric: tabular-nums; user-select: none; }
 [data-lmc-prose] > [data-lmc-block="quote"] {

@@ -108,4 +108,57 @@ describe('parseMarkdownSpans file links', () => {
         const longestSingleLine = parseMarkdownSpans('第二行更长一些', false);
         expect(spansLength(multiLine)).toBe(spansLength(longestSingleLine));
     });
+
+    it('parses inline math ($...$, \\(...\\), $$...$$) including nested inside bold, italic, and links', () => {
+        const spans = parseMarkdownSpans(
+            String.raw`**加粗 $x_1 + x_2$** 与 *斜体 $a * b$*、链接 [$E=mc^2$](https://example.com) 及 \(\alpha + \beta\) 和行内 $$\sum_{i=1}^n i$$`,
+            false
+        );
+        expect(spans).toEqual([
+            { styles: ['bold'], text: '加粗 ', url: null },
+            { styles: ['bold'], text: 'x_1 + x_2', url: null, math: 'inline' },
+            { styles: [], text: ' 与 ', url: null },
+            { styles: ['italic'], text: '斜体 ', url: null },
+            { styles: ['italic'], text: 'a * b', url: null, math: 'inline' },
+            { styles: [], text: '、链接 ', url: null },
+            { styles: [], text: 'E=mc^2', url: 'https://example.com', math: 'inline' },
+            { styles: [], text: ' 及 ', url: null },
+            { styles: [], text: String.raw`\alpha + \beta`, url: null, math: 'inline' },
+            { styles: [], text: ' 和行内 ', url: null },
+            { styles: [], text: String.raw`\sum_{i=1}^n i`, url: null, math: 'display' },
+        ]);
+    });
+
+    it('avoids false positives on currency amounts, shell variables, escaped dollars, code spans, and footnotes', () => {
+        expect(
+            parseMarkdownSpans('满月 $100，Batch 仅 $1.00 输入 / $0.05 缓存命中 / $5.00 输出 per 1M', false)
+        ).toEqual([
+            { styles: [], text: '满月 $100，Batch 仅 $1.00 输入 / $0.05 缓存命中 / $5.00 输出 per 1M', url: null },
+        ]);
+
+        // Currency earlier on the same line must NOT block a real formula later on the line
+        expect(
+            parseMarkdownSpans('满月额度 $100，计算公式为 $x + y = 100$。', false)
+        ).toEqual([
+            { styles: [], text: '满月额度 $100，计算公式为 ', url: null },
+            { styles: [], text: 'x + y = 100', url: null, math: 'inline' },
+            { styles: [], text: '。', url: null },
+        ]);
+
+        expect(parseMarkdownSpans('区间 $10~$20，月费 $10/mo | $20/mo', false)).toEqual([
+            { styles: [], text: '区间 $10~$20，月费 $10/mo | $20/mo', url: null },
+        ]);
+
+        expect(parseMarkdownSpans('环境变量 $PATH:$HOME 与 ${FOO}/${BAR}，转义 \\$100，代码 `$x + y$`，脚注 \\[1\\]', false)).toEqual([
+            { styles: [], text: '环境变量 $PATH:$HOME 与 ${FOO}/${BAR}，转义 $100，代码 ', url: null },
+            { styles: ['code'], text: '$x + y$', url: null },
+            { styles: [], text: '，脚注 [1]', url: null },
+        ]);
+    });
+
+    it('measures spansLength of LaTeX math by rendered plain text instead of raw macro source', () => {
+        const mathSpans = parseMarkdownSpans(String.raw`$\mathbf{36.5\text{cm}}$`, false);
+        const plainSpans = parseMarkdownSpans('36.5cm', false);
+        expect(spansLength(mathSpans)).toBe(spansLength(plainSpans));
+    });
 });

@@ -692,6 +692,9 @@ importers:
       html2canvas:
         specifier: 1.4.1
         version: 1.4.1
+      katex:
+        specifier: ^0.16.45
+        version: 0.16.45
       libsodium-wrappers:
         specifier: 0.8.2
         version: 0.8.2
@@ -837,6 +840,9 @@ importers:
       '@stablelib/hex':
         specifier: ^2.0.1
         version: 2.0.1
+      '@types/katex':
+        specifier: ^0.16.8
+        version: 0.16.8
       '@types/react':
         specifier: ~19.1.10
         version: 19.1.17

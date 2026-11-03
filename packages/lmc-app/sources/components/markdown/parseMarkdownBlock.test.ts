@@ -199,3 +199,91 @@ describe('parseMarkdownBlock - table parsing', () => {
         ]);
     });
 });
+
+describe('parseMarkdownBlock - LaTeX display math & table pipe protection', () => {
+    it('parses single-line $$...$$ display math after a numbered list item (609cm dimension chain)', () => {
+        const formula = String.raw`\text{西墙展示柜 } \mathbf{36.5\text{cm}} + \text{展示柜前过道 } \mathbf{75\text{cm}} + \text{对坐半岛桌 } \mathbf{125\text{cm}} + \underbrace{\text{书房柜 } 35\text{cm} + \text{隔音芯 } 10\text{cm} + \text{主卧柜 } 35\text{cm}}_{\text{双面隔断柜墙 } \mathbf{80\text{cm}}} + \text{主卧床尾道 } \mathbf{84\text{cm}} + \text{大床靠背 } 209\text{cm} = 609\text{cm}`;
+        const md = [
+            '1. 书房东西双满墙柜 + 主卧满墙电视柜（横向 `609cm` 毫米级尺寸链）',
+            '',
+            `$$${formula}$$`,
+        ].join('\n');
+
+        const blocks = parseMarkdown(md);
+        expect(blocks).toHaveLength(2);
+        expect(blocks[0].type).toBe('numbered-list');
+        expect(blocks[1]).toEqual({
+            type: 'math',
+            content: formula,
+        });
+    });
+
+    it('parses multi-line $$...$$, \\[...\\], fenced math/katex blocks, and indented math inside lists', () => {
+        const md = [
+            '$$',
+            String.raw`\begin{aligned}`,
+            String.raw`a &= b + c \\`,
+            String.raw`d &= e + f`,
+            String.raw`\end{aligned}`,
+            '$$',
+            '',
+            String.raw`\[\int_0^\infty e^{-x^2}\,dx = \frac{\sqrt{\pi}}{2}\]`,
+            '',
+            '```math',
+            'E = mc^2',
+            '```',
+            '',
+            '1. 推导步骤',
+            '   $$x^2 + y^2 = r^2$$',
+        ].join('\n');
+
+        const blocks = parseMarkdown(md);
+        expect(blocks).toEqual([
+            {
+                type: 'math',
+                content: '\\begin{aligned}\na &= b + c \\\\\nd &= e + f\n\\end{aligned}',
+            },
+            {
+                type: 'math',
+                content: String.raw`\int_0^\infty e^{-x^2}\,dx = \frac{\sqrt{\pi}}{2}`,
+            },
+            {
+                type: 'math',
+                content: 'E = mc^2',
+            },
+            {
+                type: 'numbered-list',
+                items: [{ number: 1, depth: 0, spans: spans('推导步骤') }],
+            },
+            {
+                type: 'math',
+                content: 'x^2 + y^2 = r^2',
+            },
+        ]);
+    });
+
+    it('keeps pipes inside inline math ($|x - y|$ and \\(|a|\\)) from splitting GFM table cells', () => {
+        const md = [
+            '| 指标 | 约束表达式 |',
+            '|---|---|',
+            String.raw`| 误差界 | $|x - y| \le \varepsilon$ 且 \(\|A\|_2 = 1\) |`,
+        ].join('\n');
+
+        const blocks = parseMarkdown(md);
+        expect(blocks).toHaveLength(1);
+        const table = blocks[0];
+        if (table.type !== 'table') throw new Error('expected table');
+        expect(table.rows[0]).toHaveLength(2);
+        expect(table.rows[0][1]).toEqual([
+            { styles: [], text: String.raw`|x - y| \le \varepsilon`, url: null, math: 'inline' },
+            { styles: [], text: ' 且 ', url: null },
+            { styles: [], text: String.raw`\|A\|_2 = 1`, url: null, math: 'inline' },
+        ]);
+    });
+
+    it('keeps bare escaped numeric footnotes like \\[1\\] as text instead of display math', () => {
+        expect(parseMarkdown('\\[1\\]')).toEqual([
+            { type: 'text', content: spans('[1]') },
+        ]);
+    });
+});

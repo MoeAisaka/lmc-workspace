@@ -24,6 +24,7 @@ import { storeTempText } from '@/sync/persistence';
 import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { MermaidRenderer } from './MermaidRenderer';
+import { MathBlock, MathInline } from './MathRenderer';
 import { InteractiveBlock } from './InteractiveBlock';
 import { t } from '@/text';
 import { isHttpMarkdownLink, parseFileReference } from './linkUtils';
@@ -129,6 +130,8 @@ export const MarkdownView = React.memo((props: {
                         return <RenderCodeBlock content={block.content} language={block.language} key={index} first={first} last={last} selectable={selectable} />;
                     } else if (block.type === 'mermaid') {
                         return <MermaidRenderer content={block.content} key={index} />;
+                    } else if (block.type === 'math') {
+                        return <MathBlock content={block.content} first={first} last={last} selectable={selectable} imageExport={props.imageExport} key={index} />;
                     } else if (block.type === 'interactive') {
                         return props.imageExport ? <Text key={index} style={style.text}>{t('lmc.savedFiles.interactiveInOriginal')}</Text> : <InteractiveBlock block={block} sessionId={props.sessionId} key={index} />;
                     } else if (block.type === 'options' || block.type === 'followups') {
@@ -525,6 +528,16 @@ function RenderSpans(props: RenderSpanProps) {
     return (<>
         {props.spans.map((span, index) => {
             const isCode = span.styles.includes('code');
+            const contentNode = span.math ? (
+                <MathInline
+                    content={span.text}
+                    displayMode={span.math === 'display'}
+                    baseStyle={Platform.OS !== 'web' ? props.baseStyle : undefined}
+                    extraStyles={span.styles.map(s => style[s])}
+                    selectable={props.selectable}
+                />
+            ) : span.text;
+
             if (span.url) {
                 const imageSource = parseMarkdownImageSource(span.url);
                 const followable = isHttpMarkdownLink(span.url) || parseFileReference(span.url) !== null
@@ -545,8 +558,19 @@ function RenderSpans(props: RenderSpanProps) {
                             ? () => props.onLinkPress(span.url!)
                             : undefined}
                     >
-                        {span.text}
+                        {contentNode}
                     </Text>
+                );
+            } else if (span.math) {
+                return (
+                    <MathInline
+                        key={index}
+                        content={span.text}
+                        displayMode={span.math === 'display'}
+                        baseStyle={Platform.OS !== 'web' ? props.baseStyle : undefined}
+                        extraStyles={span.styles.map(s => style[s])}
+                        selectable={props.selectable}
+                    />
                 );
             } else {
                 return (
