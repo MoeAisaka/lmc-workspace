@@ -1,6 +1,7 @@
 import { assertSessionOwnerAvailable, SessionOwnershipConflict, SESSION_OWNERSHIP_CONFLICT } from './sessionOwnership';
 import { SESSION_START_RPC_TIMEOUT_MS } from 'lmc-wire';
 import type { SessionRefreshOptions } from './sessionRefresh';
+import { isTransientRefreshError } from '@/runtime/refreshDecision';
 /**
  * HTTP client helpers for daemon communication
  * Used by CLI commands to interact with running daemon
@@ -300,11 +301,35 @@ async function waitForProcessDeath(pid: number, timeout: number): Promise<void> 
   }
   throw new Error('Process did not die within timeout');
 }
-export async function prepareDaemonSessionRefresh(sessionId: string, pid: number, options: SessionRefreshOptions): Promise<{ error?: string }> {
+const PREPARE_REFRESH_RETRY_TIMEOUT_MS = 20_000;
+const PREPARE_REFRESH_RETRY_INTERVAL_MS = 250;
+
+export async function prepareDaemonSessionRefresh(
+  sessionId: string,
+  pid: number,
+  options: SessionRefreshOptions,
+  retry: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<{ error?: string }> {
   // The daemon lists processes and reads the session from the server first; on
   // a machine restarting several sessions that passed 10 s and the session was
   // left on the old engine. Asking again is safe: an accepted job is kept as is.
-  return daemonPost('/prepare-session-refresh', { sessionId, pid, options }, 45_000);
+  // Also ride out a daemon mid-handoff (when daemon.state.json is briefly absent
+  // or stale while the replacement Agent daemon boots).
+  const timeoutMs = retry.timeoutMs ?? PREPARE_REFRESH_RETRY_TIMEOUT_MS;
+  const intervalMs = retry.intervalMs ?? PREPARE_REFRESH_RETRY_INTERVAL_MS;
+  const deadline = Date.now() + timeoutMs;
+  const payload = { sessionId, pid, options };
+
+  while (true) {
+    const result = await daemonPost('/prepare-session-refresh', payload, 45_000);
+    if (!result?.error || !isTransientRefreshError(result.error)) {
+      return result;
+    }
+    if (Date.now() >= deadline) {
+      return result;
+    }
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+  }
 }
 
 /** Reconnect must prove the previous runner is gone before any server writes. */

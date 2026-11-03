@@ -27,9 +27,26 @@ export type RefreshDecision =
 
 const PENDING = new Set(['queued', 'refreshing', 'verifying']);
 
+/**
+ * Control-plane unavailability while the local daemon is restarting / handing
+ * off to a new Agent release. A runner (especially an older one without client
+ * retry) may stamp one of these into sessionConfigError during the brief gap
+ * when daemon.state.json is absent; once the replacement daemon is up, asking
+ * again clears the error and completes the handoff instead of stranding the session.
+ */
+export function isTransientRefreshError(error?: string): boolean {
+    if (!error) return false;
+    return error === 'No daemon running, no state file found'
+        || error === 'Daemon is not running, file is stale'
+        || (error.startsWith('Request failed: /prepare-session-refresh, ') && !/,\s*HTTP 4\d\d\b/.test(error));
+}
+
 export function decideRefresh(session: UpgradeSession, meta: RefreshMetadataView, alive: boolean, now: number): RefreshDecision {
     if (meta.matched && meta.sessionConfigState === 'applied') return { kind: 'complete' };
-    if (meta.sessionConfigState === 'error' && session.state !== 'pending') return { kind: 'blocked', error: meta.sessionConfigError || '会话刷新失败' };
+    const transientError = meta.sessionConfigState === 'error' && isTransientRefreshError(meta.sessionConfigError);
+    if (meta.sessionConfigState === 'error' && session.state !== 'pending' && !transientError) {
+        return { kind: 'blocked', error: meta.sessionConfigError || '会话刷新失败' };
+    }
     if (!meta.refreshSupported) return { kind: 'blocked', error: '当前会话不支持安全刷新，原会话已保留' };
 
     const pending = PENDING.has(meta.sessionConfigState ?? '');
@@ -49,7 +66,9 @@ export function decideRefresh(session: UpgradeSession, meta: RefreshMetadataView
     if (pending && meta.sessionConfigError) return { kind: 'ask', attempts: session.attempts ?? 0 };
 
     const attempts = (session.attempts ?? 0) + 1;
-    if (attempts > REFRESH_MAX_ATTEMPTS) return { kind: 'blocked', error: '会话多次未响应刷新请求，原会话已保留；请手动重启该会话' };
-    if (!pending && session.state === 'waiting' && attempts > 1) return { kind: 'blocked', error: '刷新后版本与目标不一致，请重试' };
+    if (attempts > REFRESH_MAX_ATTEMPTS) {
+        return { kind: 'blocked', error: transientError ? (meta.sessionConfigError || '会话多次未响应刷新请求，原会话已保留；请手动重启该会话') : '会话多次未响应刷新请求，原会话已保留；请手动重启该会话' };
+    }
+    if (!pending && !transientError && session.state === 'waiting' && attempts > 1) return { kind: 'blocked', error: '刷新后版本与目标不一致，请重试' };
     return { kind: 'ask', attempts };
 }

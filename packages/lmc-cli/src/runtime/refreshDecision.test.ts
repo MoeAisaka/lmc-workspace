@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decideRefresh, REFRESH_MAX_ATTEMPTS, REFRESH_REASK_MS } from './refreshDecision';
+import { decideRefresh, isTransientRefreshError, REFRESH_MAX_ATTEMPTS, REFRESH_REASK_MS } from './refreshDecision';
 
 const now = 1_000_000_000;
 const base = { matched: false, refreshSupported: true };
@@ -39,5 +39,28 @@ describe('decideRefresh', () => {
         const meta = { ...base, sessionConfigState: 'error', sessionConfigError: '上一轮的错' };
         expect(decideRefresh({ id: 's', state: 'pending' }, meta, true, now).kind).toBe('ask');
         expect(decideRefresh({ id: 's', state: 'waiting' }, meta, true, now)).toEqual({ kind: 'blocked', error: '上一轮的错' });
+    });
+
+    it('re-asks instead of blocking when a session hit a transient daemon-handoff absence', () => {
+        for (const transient of [
+            'No daemon running, no state file found',
+            'Daemon is not running, file is stale',
+            'Request failed: /prepare-session-refresh, fetch failed',
+            'Request failed: /prepare-session-refresh, HTTP 503',
+        ]) {
+            expect(isTransientRefreshError(transient)).toBe(true);
+            const meta = { ...base, sessionConfigState: 'error', sessionConfigError: transient };
+            expect(decideRefresh({ id: 's', state: 'waiting', attempts: 1 }, meta, true, now)).toEqual({ kind: 'ask', attempts: 2 });
+        }
+    });
+
+    it('still blocks transient daemon errors once max attempts are exhausted and never treats 4xx or auth errors as transient', () => {
+        expect(isTransientRefreshError('Request failed: /prepare-session-refresh, HTTP 400')).toBe(false);
+        expect(isTransientRefreshError('Claude 不支持 Codex 专属配置')).toBe(false);
+        const meta = { ...base, sessionConfigState: 'error', sessionConfigError: 'No daemon running, no state file found' };
+        expect(decideRefresh({ id: 's', state: 'waiting', attempts: REFRESH_MAX_ATTEMPTS }, meta, true, now)).toEqual({
+            kind: 'blocked',
+            error: 'No daemon running, no state file found',
+        });
     });
 });

@@ -1215,10 +1215,28 @@ export async function startDaemon(): Promise<void> {
       },
     });
 
+    let agentHandoffScheduled = false;
+    let handoffToSelectedAgent: (() => Promise<void>) | undefined;
+    const scheduleAgentHandoff = () => {
+      if (agentHandoffScheduled || shuttingDown) return;
+      agentHandoffScheduled = true;
+      setImmediate(() => {
+        void (async () => {
+          await upgradeManager.settled().catch(() => undefined);
+          await handoffToSelectedAgent?.();
+        })();
+      });
+    };
+
     const upgradeManager = new UpgradeManager(configuration.lmcHomeDir, {
       ready: () => runsSelectedAgent(),
       stage: stageRelease,
-      activate: activateRelease,
+      activate: async release => {
+        await activateRelease(release);
+        if (release.engine === 'agent' && !runsSelectedAgent()) {
+          scheduleAgentHandoff();
+        }
+      },
       inspect: async () => ({}),
       // Only the Agent's own catalog can be read without cost or effect; an
       // engine upgrade would have to reach npm to answer this, so it offers no
@@ -1243,6 +1261,13 @@ export async function startDaemon(): Promise<void> {
       // still watching the rollout. Re-asking is idempotent: the runner's own
       // refresh returns early when one is already pending.
       refresh: async (job,release) => {
+        // Never poke live sessions from an outgoing Agent daemon right before it
+        // deletes daemon.state.json to hand off: let the replacement daemon boot
+        // first and coordinate session refreshes with its control server online.
+        if(release.engine==='agent' && !runsSelectedAgent()){
+          scheduleAgentHandoff();
+          return {state:'pending',error:undefined};
+        }
         const tracked=findTrackedSessionById(job.id);
         if(!tracked?.encryption)return {state:'blocked',error:'缺少会话恢复身份，未停止原进程'};
         const {encryptionKey,encryptionVariant}=tracked.encryption;
@@ -1281,6 +1306,9 @@ export async function startDaemon(): Promise<void> {
     });
     const upgradeTimer=setInterval(()=>{void upgradeManager.tick().catch(error=>logger.warn('[UPGRADE] 状态协调失败',error));},5000);
     upgradeTimer.unref();
+    if(runsSelectedAgent()){
+      void upgradeManager.tick().catch(error=>logger.warn('[UPGRADE] 启动后状态协调失败',error));
+    }
     // Follow engine releases without waiting for someone to press upgrade:
     // a new model is listed only once the engine serving it is installed.
     const autoUpgrade=()=>{void checkEngineUpgrades({
@@ -1299,6 +1327,52 @@ export async function startDaemon(): Promise<void> {
     const autoUpgradeFirst=setTimeout(autoUpgrade,AUTO_UPGRADE.firstCheckMs);autoUpgradeFirst.unref();
     const autoUpgradeTimer=setInterval(autoUpgrade,AUTO_UPGRADE.intervalMs);autoUpgradeTimer.unref();
 
+    let restartOnStaleVersionAndHeartbeat: ReturnType<typeof setInterval> | undefined;
+    handoffToSelectedAgent = async () => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      // TODO: We probably do not want to keep this in-process self-restart logic long-term.
+      // A native service manager would make startup and upgrades much simpler: the CLI would
+      // ask the OS to start the latest daemon instead of hand-rolling respawn/kill behavior here.
+      logger.debug('[DAEMON RUN] Daemon bundle or selected Agent release changed, handing off to new daemon');
+
+      if (restartOnStaleVersionAndHeartbeat) clearInterval(restartOnStaleVersionAndHeartbeat);
+      clearInterval(upgradeTimer);
+      clearTimeout(autoUpgradeFirst);
+      clearInterval(autoUpgradeTimer);
+
+      // Release ownership BEFORE spawning the new daemon. Otherwise the spawned
+      // `lmc daemon start` reads our still-present daemon.state.json, sees
+      // isDaemonRunningCurrentlyInstalledLmcVersion() === true, and exits —
+      // leaving nothing running once we also exit.
+      stopModelDiscovery();
+      stopSystemDiagnostics();
+      stopResources();
+      stopAiTraffic();
+      stopEngineLogin();
+      apiMachine.shutdown();
+      await stopControlServer();
+      await cleanupDaemonState();
+      await releaseDaemonLock(daemonLockHandle);
+      await stopCaffeinate();
+
+      // When launchd supervises us (--supervised), KeepAlive respawns the new
+      // selected release directly; spawning an unsupervised `daemon start` races
+      // launchd and causes a second takeover kill moments later.
+      if (!startedBySupervisor) {
+        try {
+          spawnLmcCLI(['daemon', 'start'], {
+            detached: true,
+            stdio: 'ignore',
+            env: ambientEnvironment,
+          });
+        } catch (error) {
+          logger.debug('[DAEMON RUN] Failed to spawn new daemon, this is quite likely to happen during integration tests as we are cleaning out dist/ directory', error);
+        }
+      }
+
+      process.exit(0);
+    };
 
     // Every 60 seconds:
     // 1. Prune stale sessions
@@ -1307,7 +1381,7 @@ export async function startDaemon(): Promise<void> {
     // 4. Write heartbeat
     const heartbeatIntervalMs = parseInt(process.env.HAPPY_DAEMON_HEARTBEAT_INTERVAL || '60000');
     let heartbeatRunning = false
-    const restartOnStaleVersionAndHeartbeat = setInterval(async () => {
+    restartOnStaleVersionAndHeartbeat = setInterval(async () => {
       if (heartbeatRunning) {
         return;
       }
@@ -1346,38 +1420,8 @@ export async function startDaemon(): Promise<void> {
         }
       }
       if (bundleReplaced || !runsSelectedAgent()) {
-        shuttingDown = true;
-        // TODO: We probably do not want to keep this in-process self-restart logic long-term.
-        // A native service manager would make startup and upgrades much simpler: the CLI would
-        // ask the OS to start the latest daemon instead of hand-rolling respawn/kill behavior here.
-        logger.debug('[DAEMON RUN] Daemon bundle replaced on disk, handing off to new daemon');
-
-        clearInterval(restartOnStaleVersionAndHeartbeat);
-
-        // Release ownership BEFORE spawning the new daemon. Otherwise the spawned
-        // `lmc daemon start` reads our still-present daemon.state.json, sees
-        // isDaemonRunningCurrentlyInstalledLmcVersion() === true, and exits —
-        // leaving nothing running once we also exit.
-        stopModelDiscovery();
-        stopSystemDiagnostics();
-        stopEngineLogin();
-        apiMachine.shutdown();
-        await stopControlServer();
-        await cleanupDaemonState();
-        await releaseDaemonLock(daemonLockHandle);
-        await stopCaffeinate();
-
-        try {
-          spawnLmcCLI(['daemon', 'start'], {
-            detached: true,
-            stdio: 'ignore',
-            env: ambientEnvironment,
-          });
-        } catch (error) {
-          logger.debug('[DAEMON RUN] Failed to spawn new daemon, this is quite likely to happen during integration tests as we are cleaning out dist/ directory', error);
-        }
-
-        process.exit(0);
+        await handoffToSelectedAgent();
+        return;
       }
 
       // Before wrecklessly overriting the daemon state file, we should check if we are the ones who own it
