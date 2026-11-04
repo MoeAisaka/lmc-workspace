@@ -1,3 +1,4 @@
+import { fetchSessionMetadata } from './serverSessionMetadata';
 import { assertSessionOwnerAvailable } from './sessionOwnership';
 import { SessionRegistration } from './sessionRegistration';
 import { registerEngineLogin } from './registerEngineLogin';
@@ -744,30 +745,8 @@ export async function startDaemon(): Promise<void> {
 
     const resumesInFlight = new SingleFlight<SpawnSessionResult>();
 
-    const fetchServerSessionMetadata = async (sessionId: string, encryptionKey: Uint8Array, encryptionVariant: 'legacy' | 'dataKey'): Promise<Metadata | null> => {
-      try {
-        let cursor: string | undefined;
-        let matched: {id:string;metadata:string} | undefined;
-        do {
-          const response = await axios.get(`${configuration.serverUrl}/v2/sessions`, {
-            headers: { Authorization: `Bearer ${credentials.token}` },
-            params: {limit:200,...(cursor?{cursor}:{})},timeout:10_000,
-          });
-          const page=response.data as {sessions:{id:string;metadata:string}[];nextCursor?:string;hasNext?:boolean};
-          matched=page.sessions.find(s=>s.id===sessionId);
-          if(matched)break;
-          const next=page.hasNext?page.nextCursor:undefined;
-          if(next===cursor)break;
-          cursor=next;
-        }while(cursor);
-        if(!matched)return null;
-        const decrypted = decrypt(encryptionKey, encryptionVariant, decodeBase64(matched.metadata));
-        return decrypted as Metadata | null;
-      } catch (error) {
-        logger.debug(`[DAEMON RUN] Failed to fetch session metadata from server: ${error instanceof Error ? error.message : error}`);
-        return null;
-      }
-    };
+    const fetchServerSessionMetadata = (sessionId: string, encryptionKey: Uint8Array, encryptionVariant: 'legacy' | 'dataKey') =>
+      fetchSessionMetadata(sessionId, encryptionKey, encryptionVariant, credentials.token);
 
     const resumeSession = async (happySessionId: string, options?: { model?: string; permissionMode?: string; receiveSeq?: number; effort?: string; fastMode?: boolean; codexServiceTier?: CodexServiceTier; codexContextLimits?: CodexContextLimits; engine?: 'claude' | 'codex' | 'agy' }, canStart: () => boolean = () => true): Promise<SpawnSessionResult> => {
       // Resume is idempotent: one live process per session, always.
