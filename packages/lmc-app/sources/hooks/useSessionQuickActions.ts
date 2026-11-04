@@ -26,6 +26,7 @@ import { useRouter } from 'expo-router';
 import { useSession } from '@/sync/storage';
 import { DuplicateSheet } from '@/components/DuplicateSheet';
 import type { SessionActionShortcutId } from '@/keyboard/shortcuts';
+import { buildResumeCommand } from '@/utils/resumeCommand';
 import { isRigMetadata } from '@/sync/rig';
 
 export interface SessionActionItem {
@@ -84,7 +85,7 @@ function getResumeAvailability(session: Session, machine: Machine | null | undef
         };
     }
 
-    const hasBackendResumeId = Boolean(session.metadata?.claudeSessionId || session.metadata?.codexThreadId);
+    const hasBackendResumeId = buildResumeCommand(session.metadata ?? {}) !== null;
     if (!hasBackendResumeId) {
         const message = t('sessionInfo.resumeSessionMissingBackendId');
         return {

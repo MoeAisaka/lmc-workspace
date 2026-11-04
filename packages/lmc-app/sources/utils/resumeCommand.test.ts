@@ -29,6 +29,16 @@ describe('buildResumeCommand', () => {
         })).toBe(`Set-Location -LiteralPath 'C:\\Users\\test\\project'; happy codex --resume 019ccca5-726b-7c61-b914-16de27dfab6e`);
     });
 
+    it('resumes an Antigravity conversation on Windows using its own identifier', () => {
+        expect(buildResumeCommand({
+            path: 'D:\\Work\\Project', os: 'win32', flavor: 'agy', agyConversationId: 'agy-conversation-1',
+        })).toBe("Set-Location -LiteralPath 'D:\\Work\\Project'; lmc agy --resume agy-conversation-1");
+    });
+
+    it('refuses an Antigravity resume when only a previous engine identifier is present', () => {
+        expect(buildResumeCommand({ flavor: 'agy', claudeSessionId: 'previous-claude', codexThreadId: 'previous-codex' })).toBeNull();
+    });
+
     it('falls back to the bare resume command when no path is available', () => {
         expect(buildResumeCommand({
             flavor: 'claude',
