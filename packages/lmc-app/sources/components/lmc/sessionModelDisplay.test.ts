@@ -12,13 +12,13 @@ const session = (flavor: string, metadata: Record<string, unknown> = {}, picks: 
 
 describe('sidebar model display before any manual selection', () => {
     it.each([['codex', 'GPT-6.1 Sol'], ['claude', 'Opus 5.5']])('shows the %s configured default on first load', (flavor, modelName) => {
-        expect(resolveSessionModelDisplay(session(flavor), {}, translate)).toEqual({ modelName, effortName: 'Medium' });
+        expect(resolveSessionModelDisplay(session(flavor), {}, translate)).toEqual({ modelName, effortName: 'Medium', fastMode: false });
     });
 
     it('uses account defaults without writing a model pick into the session', () => {
         const input = session('claude');
         expect(resolveSessionModelDisplay(input, { claude: { modelMode: 'claude-fable-5-1', effortLevel: 'high' } }, translate))
-            .toEqual({ modelName: 'Fable 5.1', effortName: 'High' });
+            .toEqual({ modelName: 'Fable 5.1', effortName: 'High', fastMode: false });
         expect(input.modelMode).toBeNull();
         expect(input.metadata?.modelMode).toBeUndefined();
     });
@@ -26,13 +26,13 @@ describe('sidebar model display before any manual selection', () => {
     it('keeps explicit session settings ahead of account defaults', () => {
         expect(resolveSessionModelDisplay(session('claude', { modelMode: 'claude-opus-5[1m]', effortLevel: 'max' }),
             { claude: { modelMode: 'claude-fable-5-1', effortLevel: 'medium' } }, translate))
-            .toEqual({ modelName: 'Opus 5 [1M]', effortName: 'Max' });
+            .toEqual({ modelName: 'Opus 5 [1M]', effortName: 'Max', fastMode: false });
     });
 
     it('shows a local effort change while its metadata update is in flight', () => {
         expect(resolveSessionModelDisplay(session('codex', { modelMode: 'gpt-6-astra', effortLevel: 'medium' },
             { modelMode: 'gpt-6-astra', effortLevel: 'high' }), {}, translate))
-            .toEqual({ modelName: 'GPT-6 Astra', effortName: 'High' });
+            .toEqual({ modelName: 'GPT-6 Astra', effortName: 'High', fastMode: false });
     });
 
     it('keeps a custom model label and does not borrow a model from the previous engine', () => {
@@ -43,6 +43,25 @@ describe('sidebar model display before any manual selection', () => {
     });
 
     it('does not invent a Claude model for an unrelated engine', () => {
-        expect(resolveSessionModelDisplay(session('gemini'), {}, translate)).toEqual({ modelName: null, effortName: null });
+        expect(resolveSessionModelDisplay(session('gemini'), {}, translate)).toEqual({ modelName: null, effortName: null, fastMode: false });
     });
+
+    it.each([
+        ['codex', 'gpt-6-astra', true, true],
+        ['codex', 'gpt-6.1-sol', false, false],
+        ['claude', 'claude-opus-5-5', true, true],
+        ['claude', 'claude-fable-5-1', true, false],
+        ['agy', 'gemini-4-argon', true, false],
+    ])('only marks enabled Fast on supported %s / %s', (flavor, modelMode, fastMode, expected) => {
+        expect(resolveSessionModelDisplay(session(flavor, { modelMode, fastMode }), {}, translate).fastMode)
+            .toBe(expected);
+    });
+
+    it('reflects an unsynced local Fast toggle ahead of the saved metadata', () => {
+        expect(resolveSessionModelDisplay(session('codex', { fastMode: true }, { fastMode: false }), {}, translate).fastMode)
+            .toBe(false);
+        expect(resolveSessionModelDisplay(session('codex', { fastMode: false }, { fastMode: true }), {}, translate).fastMode)
+            .toBe(true);
+    });
+
 });

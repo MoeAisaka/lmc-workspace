@@ -274,6 +274,7 @@ type RowMeta = {
     engine?: 'claude' | 'codex' | 'agy' | null;
     /** Anything else worth a word on the second line: a model name, a task count. */
     extras?: string[];
+    fastMode?: boolean;
     /** A collapsible list under the row, with its open state; a chevron alone when there is no label. */
     toggle?: { open: boolean; onToggle: () => void; label?: string } | null;
 };
@@ -336,6 +337,7 @@ const SessionRow = React.memo(({ session, selected, now, onNavigate, engineBadge
                                 {!!meta!.device && <><Ionicons name="laptop-outline" size={12} color={colors.tertiary} /><Text numberOfLines={1} style={[styles.metaText, { color: colors.tertiary, maxWidth: 96 }]}>{meta!.device}</Text></>}
                                 {!!meta!.engine && <ProviderIcon kind={meta!.engine} size={12} />}
                                 {(meta!.extras ?? []).map((extra, index) => <Text key={index} numberOfLines={1} style={[styles.metaText, { color: colors.tertiary, flexShrink: 1 }]}>{extra}</Text>)}
+                                {meta!.fastMode && <SessionFastModeIcon />}
                             </View>
                             {meta!.toggle && (
                                 <Pressable accessibilityRole="button" accessibilityState={{ expanded: meta!.toggle.open }} onPress={(e) => { e.stopPropagation?.(); meta!.toggle!.onToggle(); }} hitSlop={6} style={({ pressed }) => [styles.toggle, pressed && { opacity: 0.6 }]}>
@@ -356,6 +358,19 @@ const SessionRow = React.memo(({ session, selected, now, onNavigate, engineBadge
         </View>
     );
 });
+
+const SessionFastModeIcon = () => {
+    const { theme } = useUnistyles();
+    return (
+        <Ionicons
+            name="flash"
+            size={12}
+            color={theme.dark ? '#FBBF24' : '#D97706'}
+            accessibilityLabel={t('localFeatures.fastModeActive')}
+            style={{ flexShrink: 0 }}
+        />
+    );
+};
 
 const ENGINE_ICONS: Record<string, number> = {
     claude: require('@/assets/images/icon-claude.png'),
@@ -404,7 +419,7 @@ const DeviceSection = React.memo(({ group, selectedSessionId, now, onNavigate, o
     const { theme } = useUnistyles();
     const agentDefaultOverrides = useSetting('agentDefaultOverrides');
     const catalogMachine = useMachine(group.machineId ?? '');
-    const modelNameOf = (session: Session) => resolveSessionModelDisplay(session, agentDefaultOverrides, t as any, catalogMachine?.metadata).modelName;
+    const modelDisplayOf = (session: Session) => resolveSessionModelDisplay(session, agentDefaultOverrides, t as any, catalogMachine?.metadata);
     const groupByEngine = useSetting('sessionListGroupByEngine');
     const colors = lmcColors(theme);
     const router = useRouter();
@@ -434,13 +449,14 @@ const DeviceSection = React.memo(({ group, selectedSessionId, now, onNavigate, o
     const chevronStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${-90 + progress.value * 90}deg` }] }));
 
     const buildRowMeta = (session: Session, includeEngine: boolean): RowMeta => {
-        const model = modelNameOf(session);
+        const { modelName: model, fastMode } = modelDisplayOf(session);
         const rawEngine = engineKeyForSession(session);
         const engine = includeEngine ? (rawEngine === 'other' ? null : rawEngine) : undefined;
         if (!group.shared) {
             return {
                 ...(includeEngine ? { engine } : {}),
                 extras: [model ?? ''].filter(Boolean),
+                fastMode,
             };
         }
         const accessBadge = session.accessActions?.includes('send')
@@ -456,6 +472,7 @@ const DeviceSection = React.memo(({ group, selectedSessionId, now, onNavigate, o
             device: session.metadata?.host?.trim() || null,
             ...(includeEngine ? { engine } : {}),
             extras: [accessBadge, model ?? '', showFolder ? folderSegment : ''].filter(Boolean),
+            fastMode,
         };
     };
 
@@ -571,7 +588,7 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
     const engineOf = (session: Session): 'claude' | 'codex' | 'agy' | null => { const k = engineKeyForSession(session); return k === 'other' ? null : k; };
     const hubSelected = group.hub.id === selectedSessionId;
     const agentDefaultOverrides = useSetting('agentDefaultOverrides');
-    const { modelName: hubModel, effortName: hubEffort } = resolveSessionModelDisplay(group.hub, agentDefaultOverrides, t as any, machines.find(machine => machine.id === group.hub.metadata?.machineId)?.metadata);
+    const { modelName: hubModel, effortName: hubEffort, fastMode: hubFastMode } = resolveSessionModelDisplay(group.hub, agentDefaultOverrides, t as any, machines.find(machine => machine.id === group.hub.metadata?.machineId)?.metadata);
     const orchestration = group.hub.metadata?.orchestration;
     const board: BoardEntry[] = orchestration?.role === 'hub' ? (orchestration.board ?? []) : [];
     const [, bump] = React.useState(0);
@@ -693,6 +710,7 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
                                 {hubModel}{hubEffort ? ` · ${hubEffort}` : ''}
                             </Text>
                         )}
+                        {hubFastMode && <SessionFastModeIcon />}
                     </View>
                 </Pressable>
                 {Platform.OS === 'web' && (
@@ -715,7 +733,7 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
                     renderRow={(session) => {
                         const tasks = tasksOf(session.id);
                         const open = isOpen(session.id);
-                        const { modelName, effortName } = resolveSessionModelDisplay(session, agentDefaultOverrides, t as any, machines.find(machine => machine.id === session.metadata?.machineId)?.metadata);
+                        const { modelName, effortName, fastMode } = resolveSessionModelDisplay(session, agentDefaultOverrides, t as any, machines.find(machine => machine.id === session.metadata?.machineId)?.metadata);
                         const modelSummary = [modelName, effortName].filter(Boolean).join(' · ');
                         return (
                             <View key={session.id}>
@@ -726,7 +744,7 @@ const HubSection = React.memo(({ group, machines, selectedSessionId, now, onNavi
                                     onNavigate={onNavigate}
                                     indent={28}
                                     alert={needsPerson(tasks)}
-                                    meta={{ device: deviceOf(session), engine: engineOf(session), extras: modelSummary ? [modelSummary] : [], toggle: tasks.length ? { open, onToggle: () => toggle(session.id) } : null }}
+                                    meta={{ device: deviceOf(session), engine: engineOf(session), extras: modelSummary ? [modelSummary] : [], fastMode, toggle: tasks.length ? { open, onToggle: () => toggle(session.id) } : null }}
                                 />
                                 {open && renderTaskRows(tasks, 48)}
                                 {pendingDuty.has(session.id) && (
