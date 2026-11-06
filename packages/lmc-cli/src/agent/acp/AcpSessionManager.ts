@@ -130,6 +130,10 @@ export class AcpSessionManager {
       return [];
     }
 
+    if (msg.type === 'event' && msg.name === 'output-complete') {
+      return this.flush();
+    }
+
     if (msg.type === 'model-output') {
       const text = msg.textDelta ?? '';
       if (!text) {

@@ -143,9 +143,14 @@ export class AgyStream {
         this.usageSteps.add(step.step_index);
         this.emit({ type: 'token-count', engine: 'agy', usage: step.usage, usageKey: `${this.conversation}:${step.step_index}`, scope: 'step' });
       }
-      if (step.step_type === 'agent_response' && typeof step.text_delta === 'string' && step.text_delta) {
-        this.output = true;
-        this.emit({ type: 'model-output', textDelta: step.text_delta });
+      if (step.step_type === 'agent_response') {
+        if (typeof step.text_delta === 'string' && step.text_delta) {
+          this.output = true;
+          this.emit({ type: 'model-output', textDelta: step.text_delta });
+        }
+        if (step.state === 'DONE' && this.output) {
+          this.emit({ type: 'event', name: 'output-complete', payload: null });
+        }
       }
       if (step.step_type === 'tool' && Number.isSafeInteger(step.step_index) && step.step_index >= 0) {
         const info = object(step.tool_info);

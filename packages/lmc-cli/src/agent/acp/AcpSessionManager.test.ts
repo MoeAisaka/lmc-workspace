@@ -155,6 +155,23 @@ describe('AcpSessionManager text mapping', () => {
     expect(mapper.mapMessage({ type: 'model-output', textDelta: '' })).toHaveLength(0);
     expect(mapper.mapMessage({ type: 'model-output' })).toHaveLength(0);
   });
+
+  it('flushes accumulated output immediately on output-complete without duplicating on endTurn()', () => {
+    const mapper = new AcpSessionManager();
+    const start = mapper.startTurn()[0];
+
+    expect(mapper.mapMessage({ type: 'model-output', textDelta: 'Progress ' })).toHaveLength(0);
+    expect(mapper.mapMessage({ type: 'model-output', textDelta: 'heartbeat 1' })).toHaveLength(0);
+
+    const midTurn = mapper.mapMessage({ type: 'event', name: 'output-complete', payload: null });
+    expect(midTurn).toHaveLength(1);
+    expect(midTurn[0].ev).toEqual({ t: 'text', text: 'Progress heartbeat 1' });
+    expect(midTurn[0].turn).toBe(start.turn);
+
+    const ended = mapper.endTurn('completed');
+    expect(ended).toHaveLength(1);
+    expect(ended[0].ev).toEqual({ t: 'turn-end', status: 'completed' });
+  });
 });
 
 describe('AcpSessionManager tool mapping', () => {

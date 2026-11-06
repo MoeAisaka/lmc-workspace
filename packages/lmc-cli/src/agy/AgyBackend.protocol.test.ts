@@ -31,7 +31,10 @@ describe('Antigravity structured protocol', () => {
     f.init('mine');
     const record = JSON.stringify({ event: 'step_update', step_update: { conversation_id: 'mine', step_index: 1, step_type: 'agent_response', state: 'ACTIVE', text_delta: 'Hello ' } });
     f.stdout.emit('data', record.slice(0, 23)); f.stdout.emit('data', record.slice(23) + '\n');
+    expect(f.messages.filter(m => m.type === 'event' && m.name === 'output-complete')).toHaveLength(0);
     f.line({ event: 'step_update', step_update: { conversation_id: 'mine', step_index: 1, step_type: 'agent_response', state: 'DONE', text_delta: 'world' } });
+    // Flushes completed step text immediately before process exit (so background schedule waits never hide completed text).
+    expect(f.messages.filter(m => m.type === 'event' && m.name === 'output-complete')).toHaveLength(1);
     f.result('mine'); f.child.emit('close', 0); await turn;
     expect(f.messages.filter(m => m.type === 'model-output').map(m => m.textDelta).join('')).toBe('Hello world');
     expect(f.calls[0]).toContain('stream-json');
