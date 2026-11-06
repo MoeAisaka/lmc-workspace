@@ -11,6 +11,7 @@ describe('shared account quota requests', () => {
         await cache.read('a');
         expect(request).toHaveBeenCalledTimes(1);
         await cache.read('a', true); expect(request).toHaveBeenCalledTimes(2);
+        expect(request).toHaveBeenLastCalledWith('a', true);
     });
     it('polls incomplete snapshots sooner, keeps sources isolated and preserves data on failure', async () => {
         let now = 1000;

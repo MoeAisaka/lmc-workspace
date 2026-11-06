@@ -60,3 +60,13 @@ describe('sanitized dashboard projection', () => {
         expect(fetch).not.toHaveBeenCalled(); fetch.mockRestore();
     });
 });
+
+
+it('propagates explicit refresh through the RPC cache while coalescing concurrent requests', async () => {
+    const read = vi.fn().mockResolvedValue(projectAccountQuota(null));
+    const handler = createAccountQuotaHandler(read);
+    await handler();
+    await Promise.all([(handler as any)({ force: true }), (handler as any)({ force: true })]);
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(read).toHaveBeenLastCalledWith(true);
+});

@@ -89,3 +89,14 @@ describe('Antigravity independent weekly pools', () => {
         expect(antigravityPoolRemaining({ ...p, groups: [] }, 'gemini', now)).toBeNull();
     });
 });
+
+
+describe('provider timestamp', () => {
+    it('labels failed reads with their actual check time without inventing a quota sample', async () => {
+        const { quotaTimestamp } = await import('./quotaDisplay');
+        expect(quotaTimestamp(provider(null, null, { engine: 'agy', status: 'region_restricted',
+            capturedAt: null, checkedAt: now, stale: true, refreshFailed: true }))).toEqual({ at: now, checked: true });
+        expect(quotaTimestamp(provider(10, 30, { checkedAt: now }))).toEqual({ at: now - 60000, checked: false });
+        expect(quotaTimestamp(provider(null, null, { capturedAt: null }))).toBeNull();
+    });
+});

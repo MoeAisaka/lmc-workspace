@@ -53,3 +53,19 @@ describe('quota isolation', () => {
         expect(credits).not.toHaveBeenCalled(); expect(agy).not.toHaveBeenCalled();
     });
 });
+
+
+it('does not let the outer cache prolong a failed native probe, and forwards manual refresh', async () => {
+    vi.useFakeTimers();
+    const good = { ...unavailableAgy('ready'), capturedAt: Date.now(), stale: false, refreshFailed: false };
+    const agy = vi.fn().mockResolvedValueOnce(unavailableAgy('region_restricted')).mockResolvedValue(good);
+    const read = createDashboardQuotaReader(async () => ({ providers: { agy: { enabled: true } } }),
+        async () => projectAccountQuota(null), async () => null, agy);
+    await read();
+    await vi.advanceTimersByTimeAsync(30001);
+    await read(); await vi.advanceTimersByTimeAsync(0);
+    expect((await read()).providers.find(p => p.engine === 'agy')?.status).toBe('ready');
+    expect(agy).toHaveBeenCalledTimes(2);
+    await (read as any)(true); await vi.advanceTimersByTimeAsync(0);
+    expect(agy).toHaveBeenCalledTimes(3); expect(agy).toHaveBeenLastCalledWith(true);
+});

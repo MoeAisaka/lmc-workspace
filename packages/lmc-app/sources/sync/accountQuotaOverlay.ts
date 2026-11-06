@@ -19,6 +19,9 @@ export function overlaySessionUsage(snapshot: AccountQuotaSnapshot | null, sessi
     return {
         ...snapshot,
         providers: snapshot.providers.map((provider) => {
+            // Antigravity's separate model pools cannot be refreshed by the
+            // ungrouped limits retained in historical session metadata.
+            if (provider.engine === 'agy') return provider;
             let newest: NonNullable<NonNullable<SessionUsage['agentState']>['usageLimits']> | null = null;
             for (const session of sessions) {
                 const limits = session.agentState?.usageLimits;

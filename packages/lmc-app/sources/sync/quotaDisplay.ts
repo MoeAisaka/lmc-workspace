@@ -97,3 +97,10 @@ export function antigravityPoolRemaining(provider: AccountQuotaProvider, group: 
     if (provider.engine !== 'agy' || provider.status !== 'ready' || quotaProviderStale(provider, now)) return null;
     return usableRemaining(provider.groups?.find(g => g.id === group)?.windows.find(w => w.id === 'seven_day'), now);
 }
+
+
+/** A failed check is not a successful quota sample. Keep their times distinct. */
+export function quotaTimestamp(provider: AccountQuotaProvider): { at: number; checked: boolean } | null {
+    if (provider.capturedAt) return { at: provider.capturedAt, checked: false };
+    return provider.checkedAt ? { at: provider.checkedAt, checked: true } : null;
+}

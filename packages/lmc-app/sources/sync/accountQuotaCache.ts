@@ -1,7 +1,7 @@
 import { type AccountQuotaSnapshot } from 'lmc-wire';
 
 /** Source-scoped, memory-only cache shared by rings, menu and usage view. */
-export function createAccountQuotaCache(request: (id: string) => Promise<AccountQuotaSnapshot>, now = Date.now) {
+export function createAccountQuotaCache(request: (id: string, force: boolean) => Promise<AccountQuotaSnapshot>, now = Date.now) {
     const entries = new Map<string, { snapshot?: AccountQuotaSnapshot; at: number; pending?: Promise<AccountQuotaSnapshot> }>();
     return {
         peek: (id: string) => entries.get(id)?.snapshot ?? null,
@@ -13,7 +13,7 @@ export function createAccountQuotaCache(request: (id: string) => Promise<Account
                 return Promise.resolve(entry.snapshot);
             }
             const current = entry;
-            current.pending = Promise.resolve().then(() => request(id)).then(snapshot => {
+            current.pending = Promise.resolve().then(() => request(id, force)).then(snapshot => {
                 current.snapshot = snapshot; current.at = now(); return snapshot;
             }).finally(() => { current.pending = undefined; });
             return current.pending;

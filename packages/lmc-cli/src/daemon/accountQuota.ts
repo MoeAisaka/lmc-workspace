@@ -105,9 +105,10 @@ export function createDashboardQuotaReader(
     let dashboardCache = createQuotaBackground<AccountQuotaSnapshot>(15_000, staleDashboard);
     const creditsCache = createQuotaBackground<Awaited<ReturnType<typeof readCredits>>>(60_000,
         previous => previous ? { ...previous, stale: true } : null);
-    const agyCache = createQuotaBackground<Awaited<ReturnType<typeof readAgy>>>(300_000,
+    const agyCache = createQuotaBackground<Awaited<ReturnType<typeof readAgy>>>(
+        previous => previous?.status === 'ready' ? 300_000 : 30_000,
         () => unavailableAgy('unavailable'));
-    return async (): Promise<AccountQuotaSnapshot> => {
+    return async (force = false): Promise<AccountQuotaSnapshot> => {
         // Fail closed before probing anything if this device is not a source.
         const settings = await readSettings();
         const nextKey = JSON.stringify(settings);
@@ -118,9 +119,9 @@ export function createDashboardQuotaReader(
         const agyEnabled = record(record(settings.providers).agy).enabled === true;
         const codexEnabled = record(record(settings.providers).codex).enabled !== false;
         const [dashboard, credits, agy] = await Promise.all([
-            dashboardCache(() => readDashboard(settings)),
+            dashboardCache(() => readDashboard(settings), force),
             codexEnabled ? creditsCache(readCredits) : Promise.resolve({ value: null, refreshing: false }),
-            agyEnabled ? agyCache(readAgy) : Promise.resolve({ value: undefined, refreshing: false }),
+            agyEnabled ? agyCache(() => readAgy(force), force) : Promise.resolve({ value: undefined, refreshing: false }),
         ]);
         const combined: AccountQuotaSnapshot = {
             providers: (dashboard.value ?? projectAccountQuota(null)).providers.map(p =>
@@ -141,10 +142,11 @@ export function createAccountQuotaHandler(read = readDashboardQuota) {
     let pending: Promise<Reply> | null = null;
     let last: Reply | null = null;
     let at = 0;
-    return () => {
-        if (last && Date.now() - at < (last.snapshot?.refreshing ? 1_000 : 15_000)) return Promise.resolve(last);
+    return (options?: { force?: boolean }) => {
+        const force = options?.force === true;
+        if (!force && last && Date.now() - at < (last.snapshot?.refreshing ? 1_000 : 15_000)) return Promise.resolve(last);
         if (pending) return pending;
-        pending = read().then(snapshot => ({ snapshot }), () => ({ error: 'unavailable' as const }))
+        pending = read(force).then(snapshot => ({ snapshot }), () => ({ error: 'unavailable' as const }))
             .then(result => { last = result; at = Date.now(); return result; }).finally(() => { pending = null; });
         return pending;
     };

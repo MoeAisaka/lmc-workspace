@@ -74,6 +74,7 @@ export const localFeatureEnglish = {
     "quotaCredits": ({ count }: { count: number }) => `Reset credits × ${count}`,
     "quotaExpires": ({ date }: { date: string }) => `Earliest expiry ${date}`,
     "quotaSampled": ({ date }: { date: string }) => `Sampled ${date}`,
+    "quotaChecked": ({ date }: { date: string }) => `Checked ${date}`,
 
     "loginContinue": "Continue sign-in",
     "loginViewRecovery": "View recovery",
@@ -305,6 +306,7 @@ export const localFeatureZhHans = {
     "quotaCredits": ({ count }: { count: number }) => `重置券 ${count} 张`,
     "quotaExpires": ({ date }: { date: string }) => `最早 ${date} 到期`,
     "quotaSampled": ({ date }: { date: string }) => `${date} 采样`,
+    "quotaChecked": ({ date }: { date: string }) => `${date} 检查`,
 
     "loginContinue": "继续登录",
     "loginViewRecovery": "查看恢复进度",
@@ -535,6 +537,7 @@ export const localFeatureZhHant = {
     "quotaCredits": ({ count }: { count: number }) => `重置券 ${count} 张`,
     "quotaExpires": ({ date }: { date: string }) => `最早 ${date} 到期`,
     "quotaSampled": ({ date }: { date: string }) => `${date} 采样`,
+    "quotaChecked": ({ date }: { date: string }) => `${date} 檢查`,
 
     "loginContinue": "继续登录",
     "loginViewRecovery": "查看恢复进度",

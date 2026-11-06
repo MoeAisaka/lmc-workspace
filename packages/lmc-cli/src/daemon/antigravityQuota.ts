@@ -50,8 +50,8 @@ export function createAgyQuotaReader(run = async (): Promise<unknown> => {
     catch (error: any) { try { return JSON.parse(error.stdout); } catch { return { status: 'ERROR' }; } }
 }) {
     let cached: AccountQuotaProvider | null = null, at = 0, pending: Promise<AccountQuotaProvider> | null = null;
-    return () => {
-        if (cached && Date.now() - at < 300_000) return Promise.resolve(cached);
+    return (force = false) => {
+        if (!force && cached && Date.now() - at < (cached.status === 'ready' ? 300_000 : 30_000)) return Promise.resolve(cached);
         if (pending) return pending;
         pending = run().then(raw => obj(raw).status === 'NOT_INSTALLED' ? unavailableAgy('not_installed') : projectAgyQuota(raw), () => unavailableAgy('unavailable'))
             .then(result => { cached = result; at = Date.now(); return result; }).finally(() => { pending = null; });

@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { projectAgyQuota, createAgyQuotaReader } from './antigravityQuota';
 import { applyQuotaConfiguration, projectAccountQuota } from './accountQuota';
+afterEach(() => vi.useRealTimers());
 const now = Date.now();
 const raw = () => ({ status: 'SUCCESS', num_turns: 0, command: { name: 'usage', data: { project_id: 'SECRET', groups: [
     { name: 'Gemini Models', buckets: [{ window: 'weekly', remaining_fraction: 0, reset_time: '2027-01-01T00:00:00Z' }] },
@@ -33,5 +34,26 @@ describe('Antigravity quota', () => {
     it('coalesces polling and caches unavailable as well as successful responses', async () => {
         const run=vi.fn().mockResolvedValue({status:'ERROR'}), read=createAgyQuotaReader(run);
         await Promise.all([read(),read()]);await read();expect(run).toHaveBeenCalledTimes(1);
+    });
+});
+
+
+describe('quota recovery after a transient rejection', () => {
+    it('retries failures after 30 seconds but keeps successful samples for five minutes', async () => {
+        vi.useFakeTimers();
+        const run = vi.fn().mockResolvedValueOnce({ status: 'ERROR', error: 'region restricted' }).mockResolvedValue(raw());
+        const read = createAgyQuotaReader(run);
+        expect((await read()).status).toBe('region_restricted');
+        await vi.advanceTimersByTimeAsync(29000); await read(); expect(run).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1001); expect((await read()).status).toBe('ready');
+        await vi.advanceTimersByTimeAsync(60000); await read(); expect(run).toHaveBeenCalledTimes(2);
+    });
+    it('lets an explicit refresh bypass a cached failure and remains single-flight', async () => {
+        const run = vi.fn().mockResolvedValueOnce({ status: 'ERROR' }).mockResolvedValue(raw());
+        const read = createAgyQuotaReader(run);
+        await read();
+        const results = await Promise.all([(read as any)(true), (read as any)(true)]);
+        expect(run).toHaveBeenCalledTimes(2);
+        expect(results.every(p => p.status === 'ready')).toBe(true);
     });
 });

@@ -28,3 +28,17 @@ describe('overlaySessionUsage', () => {
         expect(overlaySessionUsage(null, [session(3_000, 30)])).toBeNull();
     });
 });
+
+
+describe('Antigravity quota provenance', () => {
+    it('never stamps grouped account quota with an old ungrouped session reading', () => {
+        const unavailable: AccountQuotaSnapshot = { providers: [{ engine: 'agy', plan: null,
+            status: 'region_restricted', checkedAt: 9000, capturedAt: null, stale: true, refreshFailed: true,
+            resetCredits: null, windows: [], groups: [] }] };
+        expect(overlaySessionUsage(unavailable, [session(3000, 20, 'agy')])).toEqual(unavailable);
+        const ready: AccountQuotaSnapshot = { providers: [{ ...unavailable.providers[0], status: 'ready',
+            capturedAt: 9000, stale: false, refreshFailed: false,
+            groups: [{ id: 'gemini', windows: [{ id: 'seven_day', remaining: 40, resetsAt: 20000, durationMins: 10080, pending: false }] }] }] };
+        expect(overlaySessionUsage(ready, [session(10000, 10, 'agy')])).toEqual(ready);
+    });
+});

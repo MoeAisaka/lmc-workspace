@@ -7,8 +7,8 @@ import { apiSocket } from './apiSocket';
 import { createAccountQuotaCache } from './accountQuotaCache';
 
 // Memory only, keyed by the encrypted source device (never summed across devices).
-const cache = createAccountQuotaCache(async id => {
-    const reply = await apiSocket.machineRPC<{ snapshot?: unknown }, Record<string, never>>(id, 'account-quota', {});
+const cache = createAccountQuotaCache(async (id, force) => {
+    const reply = await apiSocket.machineRPC<{ snapshot?: unknown }, { force?: boolean }>(id, 'account-quota', force ? { force: true } : {});
     return AccountQuotaSnapshotSchema.parse(reply?.snapshot);
 });
 export function useAccountQuota() {

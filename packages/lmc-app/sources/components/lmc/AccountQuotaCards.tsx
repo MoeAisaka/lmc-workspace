@@ -7,7 +7,7 @@ import { Text } from '@/components/StyledText';
 import { ProviderIcon } from '@/components/ProviderIcon';
 import { Typography } from '@/constants/Typography';
 import { t, getCurrentLanguage, getDateLocale } from '@/text';
-import { exhaustedWindow, usageCreditLabel, quotaTone, quotaToneColor, resetCountdown, weeklyResetLabel } from '@/sync/quotaDisplay';
+import { exhaustedWindow, usageCreditLabel, quotaTimestamp, quotaTone, quotaToneColor, resetCountdown, weeklyResetLabel } from '@/sync/quotaDisplay';
 import { lmcColors } from './lmcColors';
 
 const styles = StyleSheet.create(theme => ({
@@ -39,11 +39,14 @@ const date = (value: number, now: number) => new Date(value).toLocaleString(getD
     hour: '2-digit', minute: '2-digit',
 });
 
-export function AccountQuotaCards({ snapshot, loading, failed, available, now, onRefresh }: {
-    snapshot: AccountQuotaSnapshot | null; loading: boolean; failed: boolean; available: boolean; now: number; onRefresh: () => void;
+export function AccountQuotaCards({ snapshot, loading, failed, available, now, onRefresh, columns = 1, renderProviderFooter }: {
+    snapshot: AccountQuotaSnapshot | null; loading: boolean; failed: boolean; available: boolean; now: number; onRefresh: () => void; columns?: 1 | 2 | 3 | 'auto';
+    renderProviderFooter?: (engine: AccountQuotaSnapshot['providers'][number]['engine']) => React.ReactNode;
 }) {
     const { theme } = useUnistyles();
     const colors = lmcColors(theme);
+    const [containerWidth, setContainerWidth] = React.useState(360);
+    const count = columns === 'auto' ? (containerWidth >= 950 ? 3 : containerWidth >= 620 ? 2 : 1) : columns;
     const purple = theme.dark ? '#AC98E9' : '#9981CF';
     const warn = theme.dark ? '#E6AE66' : '#A16C24';
     const chinese = getCurrentLanguage().startsWith('zh');
@@ -70,13 +73,14 @@ export function AccountQuotaCards({ snapshot, loading, failed, available, now, o
                 : t('localFeatures.quotaUnknown')}</Text>
         </View>;
     };
-    return <View style={styles.section} testID="account-quota-cards">
+    return <View style={styles.section} testID="account-quota-cards" onLayout={e => setContainerWidth(e.nativeEvent.layout.width)}>
         <View style={styles.heading}>
             <Text style={styles.label}>{t('localFeatures.quotaTitle')}</Text>
             <Pressable accessibilityRole="button" accessibilityLabel={t('localFeatures.quotaRefresh')} disabled={loading || !available} onPress={onRefresh} style={({ pressed }) => [styles.refresh, pressed && { backgroundColor: theme.colors.surfacePressed }]}>
                 {loading ? <ActivityIndicator size="small" color={colors.brand} /> : <Ionicons name="refresh-outline" size={16} color={available ? theme.colors.textSecondary : colors.placeholder} />}
             </Pressable>
         </View>
+        <View style={{ flexDirection: count === 1 ? 'column' : 'row', flexWrap: 'wrap', gap: 10, alignItems: 'flex-start' }}>
         {(snapshot?.providers ?? []).map(p => {
             const engine = p.engine;
             const weekly = p?.windows.find(w => w.id === 'seven_day');
@@ -90,7 +94,9 @@ export function AccountQuotaCards({ snapshot, loading, failed, available, now, o
             const showStatus = !p?.capturedAt || failed || p.refreshFailed || stale;
             const exhausted = exhaustedWindow(p, now);
             const credits = usageCreditLabel(p, now);
-            return <View key={engine} style={styles.card} testID={`quota-${engine}`}>
+            const timestamp = quotaTimestamp(p);
+            const timeLabel = timestamp ? t(timestamp.checked ? 'localFeatures.quotaChecked' : 'localFeatures.quotaSampled', { date: date(timestamp.at, now) }) : t('localFeatures.quotaWaiting');
+            return <View key={engine} style={[styles.card, { width: count === 3 ? '32%' : count === 2 ? '49%' : '100%', flexGrow: count === 1 ? 0 : 1 }]} testID={`quota-${engine}`}>
                 <View style={styles.provider}>
                     <ProviderIcon kind={engine} size={18} /><Text style={styles.name}>{engine === 'codex' ? 'Codex' : engine === 'agy' ? 'Antigravity' : 'Claude'}</Text>
                     {p?.plan && <Text numberOfLines={1} style={styles.plan}>{p.plan.toUpperCase()}</Text>}
@@ -98,12 +104,10 @@ export function AccountQuotaCards({ snapshot, loading, failed, available, now, o
                         accessibilityLabel={`${t('localFeatures.quotaUsageCredits', { value: credits })} · ${p?.usageCredits?.capturedAt ? t('localFeatures.quotaSampled', { date: date(p.usageCredits.capturedAt, now) }) : t('localFeatures.quotaUnknown')}`}>
                         {t('localFeatures.quotaUsageCredits', { value: credits })}
                     </Text>}
-                    <View style={styles.sampled} accessibilityLabel={p?.capturedAt
-                        ? `${showStatus ? `${t('localFeatures.quotaStale')} · ` : ''}${t('localFeatures.quotaSampled', { date: date(p.capturedAt, now) })}`
-                        : t('localFeatures.quotaWaiting')}>
-                        <Ionicons name={showStatus && p?.capturedAt ? 'alert-circle-outline' : 'time-outline'} size={11} color={showStatus && p?.capturedAt ? warn : theme.colors.textSecondary} />
-                        <Text numberOfLines={1} style={[styles.note, { flexShrink: 1, textAlign: 'right' }, showStatus && p?.capturedAt ? { color: warn } : undefined]}>
-                            {p?.capturedAt ? date(p.capturedAt, now) : t('localFeatures.quotaWaiting')}
+                    <View style={styles.sampled} accessibilityLabel={`${showStatus && !timestamp?.checked && timestamp ? `${t('localFeatures.quotaStale')} · ` : ''}${timeLabel}`}>
+                        <Ionicons name={showStatus && timestamp ? 'alert-circle-outline' : 'time-outline'} size={11} color={showStatus && timestamp ? warn : theme.colors.textSecondary} />
+                        <Text numberOfLines={1} style={[styles.note, { flexShrink: 1, textAlign: 'right' }, showStatus && timestamp ? { color: warn } : undefined]}>
+                            {timestamp ? (timestamp.checked ? timeLabel : date(timestamp.at, now)) : t('localFeatures.quotaWaiting')}
                         </Text>
                     </View>
                 </View>
@@ -144,8 +148,10 @@ export function AccountQuotaCards({ snapshot, loading, failed, available, now, o
                     {p.resetCredits.expiresAt && <Text style={[styles.note, styles.detailValue]}>{t('localFeatures.quotaExpires', { date: date(p.resetCredits.expiresAt, now) })}</Text>}
                 </View>}
                 </View>}
+                {renderProviderFooter?.(engine)}
             </View>;
         })}
+        </View>
         {/* Refresh failures keep the existing sample and layout. Status belongs
             in the header/footer, not in extra rows that make both cards jump. */}
         <Text numberOfLines={1} style={styles.note}>{!available ? t('localFeatures.quotaOffline') : failed ? t('localFeatures.quotaRetryHint') : t('localFeatures.quotaShared')}</Text>
