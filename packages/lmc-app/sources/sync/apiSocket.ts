@@ -70,6 +70,8 @@ class ApiSocket {
     private reconnectedListeners: Set<() => void> = new Set();
     private statusListeners: Set<(status: 'disconnected' | 'connecting' | 'connected' | 'error') => void> = new Set();
     private currentStatus: 'disconnected' | 'connecting' | 'connected' | 'error' = 'disconnected';
+    private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    private reconnectDelay = 1_000;
 
     //
     // Initialization
@@ -117,10 +119,10 @@ class ApiSocket {
     }
 
     disconnect() {
-        if (this.socket) {
-            this.socket.disconnect();
-            this.socket = null;
-        }
+        this.clearRejectedReconnect();
+        const socket = this.socket;
+        this.socket = null;
+        socket?.disconnect();
         this.updateStatus('disconnected');
     }
 
@@ -312,11 +314,35 @@ class ApiSocket {
         }
     }
 
+    private clearRejectedReconnect() {
+        if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+        this.reconnectDelay = 1_000;
+    }
+
+    private retryRejectedConnection(socket: Socket) {
+        // Socket.IO retries transport errors, but stops after middleware denial.
+        // Auth verification may fail transiently (e.g. a database outage), so
+        // retry the authenticated handshake without replacing the socket or
+        // losing buffered RPCs. Every attempt still requires server approval.
+        if (this.socket !== socket || socket.active || socket.connected || this.reconnectTimer !== null) return;
+        this.reconnectTimer = setTimeout(() => {
+            this.reconnectTimer = null;
+            if (this.socket !== socket || socket.active || socket.connected) return;
+            this.updateStatus('connecting');
+            socket.connect();
+        }, this.reconnectDelay);
+        this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30_000);
+    }
+
     private setupEventHandlers() {
-        if (!this.socket) return;
+        const socket = this.socket;
+        if (!socket) return;
 
         // Connection events
-        this.socket.on('connect', () => {
+        socket.on('connect', () => {
+            if (this.socket !== socket) return;
+            this.clearRejectedReconnect();
             if (this.isVerboseLogging()) {
                 console.log('🔌 SyncSocket: Connected, recovered: ' + this.socket?.recovered);
                 console.log('🔌 SyncSocket: Socket ID:', this.socket?.id);
@@ -327,7 +353,8 @@ class ApiSocket {
             }
         });
 
-        this.socket.on('disconnect', (reason) => {
+        socket.on('disconnect', (reason) => {
+            if (this.socket !== socket) return;
             if (this.isVerboseLogging()) {
                 console.log('🔌 SyncSocket: Disconnected', reason);
             }
@@ -335,14 +362,17 @@ class ApiSocket {
         });
 
         // Error events
-        this.socket.on('connect_error', (error) => {
+        socket.on('connect_error', (error) => {
+            if (this.socket !== socket) return;
             if (this.isVerboseLogging()) {
                 console.error('🔌 SyncSocket: Connection error', error);
             }
             this.updateStatus('error');
+            this.retryRejectedConnection(socket);
         });
 
-        this.socket.on('error', (error) => {
+        socket.on('error', (error) => {
+            if (this.socket !== socket) return;
             if (this.isVerboseLogging()) {
                 console.error('🔌 SyncSocket: Error', error);
             }
@@ -350,7 +380,8 @@ class ApiSocket {
         });
 
         // Message handling
-        this.socket.onAny((event, data) => {
+        socket.onAny((event, data) => {
+            if (this.socket !== socket) return;
             if (this.isVerboseLogging()) {
                 console.log(`📥 SyncSocket: Received event '${event}':`, JSON.stringify(data).substring(0, 200));
             }
