@@ -1,3 +1,4 @@
+import { reconnectSocketIfIdle } from './reconnectSocket';
 import { writeAttachmentParts } from '@/modules/common/attachmentParts';
 import { FileAssetInbox, publishFileAsset, type FileAssetPort, type OwnerFileKey } from '@/modules/common/fileAssets';
 import { FilePublications } from '@/modules/common/filePublications';
@@ -1422,7 +1423,7 @@ export class ApiSessionClient extends EventEmitter {
         if (this.closed || this.reconnectInterval) return;
 
         this.reconnectInterval = setInterval(() => {
-            if (this.closed || this.socket.connected) {
+            if (this.closed || (this.socket.connected && this.socket.active)) {
                 clearInterval(this.reconnectInterval!);
                 this.reconnectInterval = null;
                 return;
@@ -1432,14 +1433,14 @@ export class ApiSessionClient extends EventEmitter {
                 return;
             }
             logger.debug('[API] Attempting reconnect');
-            this.socket.connect();
+            reconnectSocketIfIdle(this.socket);
         }, 3000);
 
         if (shouldReconnect()) {
             logger.debug('[API] Network up + lid open — reconnecting in 1s');
             this.reconnectTimeout = setTimeout(() => {
                 this.reconnectTimeout = null;
-                if (!this.closed && !this.socket.connected && shouldReconnect()) this.socket.connect();
+                if (!this.closed && shouldReconnect()) reconnectSocketIfIdle(this.socket);
             }, 1000);
         }
     }

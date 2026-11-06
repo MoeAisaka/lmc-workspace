@@ -15,6 +15,8 @@ vi.mock('socket.io-client', () => ({
     io: mockIo
 }));
 
+vi.mock('@/daemon/quotaHistory', () => ({ startQuotaHistory: vi.fn(() => vi.fn()) }));
+
 vi.mock('@/configuration', () => ({
     configuration: {
         serverUrl: 'http://127.0.0.1:3005',
@@ -106,6 +108,8 @@ describe('ApiMachineClient socket reconnection', () => {
         mockShouldReconnect.mockReturnValue(true);
         socketHandlers = {};
         mockSocket = {
+            active: true,
+            disconnect: vi.fn(() => { mockSocket.connected = false; mockSocket.active = false; }),
             connected: false,
             connect: vi.fn(),
             on: vi.fn((event: string, handler: SocketHandler) => {
@@ -118,6 +122,7 @@ describe('ApiMachineClient socket reconnection', () => {
             emitWithAck: vi.fn(),
             close: vi.fn(),
             io: {
+                engine: { readyState: 'closed' },
                 on: vi.fn()
             }
         };
@@ -128,6 +133,47 @@ describe('ApiMachineClient socket reconnection', () => {
     afterEach(() => {
         vi.useRealTimers();
         vi.restoreAllMocks();
+    });
+
+    it('keeps both retry timers from overlapping a slow namespace handshake', async () => {
+        vi.useFakeTimers();
+        const client = new ApiMachineClient('fake-token', makeMachine());
+        client.connect();
+        mockSocket.connected = false;
+        mockSocket.active = true;
+        mockSocket.io.engine.readyState = 'open';
+        emitSocketEvent('disconnect', 'transport close');
+        await vi.advanceTimersByTimeAsync(7000);
+        expect(mockSocket.connect).not.toHaveBeenCalled();
+        mockSocket.io.engine.readyState = 'closed';
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(mockSocket.connect).toHaveBeenCalledOnce();
+        client.shutdown();
+    });
+
+    it('recovers a late rejection after another handshake already connected', async () => {
+        vi.useFakeTimers();
+        const client = new ApiMachineClient('fake-token', makeMachine());
+        client.connect();
+        mockSocket.connected = true;
+        mockSocket.active = false;
+        mockSocket.io.engine.readyState = 'closed';
+        emitSocketEvent('connect_error', new Error('Scope verification unavailable'));
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(mockSocket.disconnect).toHaveBeenCalledOnce();
+        expect(mockSocket.connect).toHaveBeenCalledOnce();
+        client.shutdown();
+    });
+
+    it('cancels the fast retry and ignores late errors after shutdown', async () => {
+        vi.useFakeTimers();
+        const client = new ApiMachineClient('fake-token', makeMachine());
+        client.connect();
+        emitSocketEvent('connect_error', new Error('offline'));
+        client.shutdown();
+        emitSocketEvent('connect_error', new Error('late'));
+        await vi.advanceTimersByTimeAsync(10000);
+        expect(mockSocket.connect).not.toHaveBeenCalled();
     });
 
     it('retries after initial socket connection error', async () => {

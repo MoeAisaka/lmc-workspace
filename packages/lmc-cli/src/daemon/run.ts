@@ -1,4 +1,5 @@
 import { fetchSessionMetadata } from './serverSessionMetadata';
+import { confirmExistingSessionResume } from './existingSessionResume';
 import { assertSessionOwnerAvailable } from './sessionOwnership';
 import { SessionRegistration } from './sessionRegistration';
 import { registerEngineLogin } from './registerEngineLogin';
@@ -753,7 +754,7 @@ export async function startDaemon(): Promise<void> {
       const live = findLiveSession(happySessionId);
       if (live) {
         logger.debug(`[DAEMON RUN] Session ${happySessionId} already running as PID ${live.pid}, not spawning a second process`);
-        return { type: 'success', sessionId: happySessionId };
+        return confirmExistingSessionResume(happySessionId, credentials.token);
       }
 
       // The daemon replaces itself when its bundle changes, and sessions are
@@ -771,7 +772,7 @@ export async function startDaemon(): Promise<void> {
       }
       if (orphanPid) {
         logger.debug(`[DAEMON RUN] Session ${happySessionId} still running as orphaned PID ${orphanPid}, not spawning a second process`);
-        return { type: 'success', sessionId: happySessionId };
+        return confirmExistingSessionResume(happySessionId, credentials.token);
       }
 
       // A replacement spawned through another path answers to neither check above.
@@ -788,7 +789,7 @@ export async function startDaemon(): Promise<void> {
       }
       if (providerPid) {
         logger.debug(`[DAEMON RUN] Session ${happySessionId} already resumed by PID ${providerPid} (provider session ${providerSessionId}), not spawning a second process`);
-        return { type: 'success', sessionId: happySessionId };
+        return confirmExistingSessionResume(happySessionId, credentials.token);
       }
 
       return resumesInFlight.run(

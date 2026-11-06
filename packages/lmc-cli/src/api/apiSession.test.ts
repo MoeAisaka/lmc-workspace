@@ -164,6 +164,8 @@ describe('ApiSessionClient v3 messages API migration', () => {
         socketHandlers = {};
         session = makeSession();
         mockSocket = {
+            active: true,
+            disconnect: vi.fn(() => { mockSocket.connected = false; mockSocket.active = false; }),
             connected: true,
             connect: vi.fn(),
             on: vi.fn((event: string, handler: SocketHandler) => {
@@ -172,6 +174,7 @@ describe('ApiSessionClient v3 messages API migration', () => {
                 }
                 socketHandlers[event].push(handler);
             }),
+            io: { engine: { readyState: 'closed' } },
             off: vi.fn(),
             emit: vi.fn(),
             emitWithAck: vi.fn(async () => ({ result: 'error' })),
@@ -187,6 +190,36 @@ describe('ApiSessionClient v3 messages API migration', () => {
     afterEach(() => {
         vi.useRealTimers();
         vi.restoreAllMocks();
+    });
+
+    it('keeps both retry timers from overlapping a slow namespace handshake', async () => {
+        vi.useFakeTimers();
+        const client = new ApiSessionClient('token', session);
+        mockSocket.connect.mockClear();
+        mockSocket.connected = false;
+        mockSocket.active = true;
+        mockSocket.io.engine.readyState = 'open';
+        emitSocketEvent('disconnect', 'transport close');
+        await vi.advanceTimersByTimeAsync(7000);
+        expect(mockSocket.connect).not.toHaveBeenCalled();
+        mockSocket.io.engine.readyState = 'closed';
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(mockSocket.connect).toHaveBeenCalledOnce();
+        await client.close();
+    });
+
+    it('recovers a late rejection after another handshake already connected', async () => {
+        vi.useFakeTimers();
+        const client = new ApiSessionClient('token', session);
+        mockSocket.connect.mockClear();
+        mockSocket.connected = true;
+        mockSocket.active = false;
+        mockSocket.io.engine.readyState = 'closed';
+        emitSocketEvent('connect_error', new Error('Scope verification unavailable'));
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(mockSocket.disconnect).toHaveBeenCalledOnce();
+        expect(mockSocket.connect).toHaveBeenCalledOnce();
+        await client.close();
     });
 
     it('rejects a strict metadata write on a hard error without announcing a configuration change', async () => {

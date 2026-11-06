@@ -1,3 +1,4 @@
+import { reconnectSocketIfIdle } from './reconnectSocket';
 import { validateCodexServiceTier, type CodexServiceTier } from '@/codex/serviceTier';
 import { spawnLogSummary, suppliedCredentialEngine } from '@/daemon/spawnCredentials';
 import { sharedRuntimeHandler } from '@/daemon/sharedRuntime';
@@ -130,6 +131,8 @@ export class ApiMachineClient {
     private rpcHandlerManager: RpcHandlerManager;
     private resumeSessionHandler: ((sessionId: string, options?: { model?: string; permissionMode?: string; codexServiceTier?: CodexServiceTier; codexContextLimits?: CodexContextLimits }) => Promise<SpawnSessionResult>) | null = null;
     private reconnectInterval: NodeJS.Timeout | null = null;
+    private reconnectTimeout: NodeJS.Timeout | null = null;
+    private closed = false;
     private declaredMetadata: Partial<MachineMetadata> | null = null;
 
     constructor(
@@ -506,6 +509,11 @@ export class ApiMachineClient {
             try { return (await this.socket.timeout(10_000).emitWithAck('quota-observation-v1', sample)).success === true; } catch { return false; }
         });
         this.socket.on('connect', () => {
+            if (this.closed) { this.socket.close(); return; }
+            if (this.reconnectTimeout) {
+                clearTimeout(this.reconnectTimeout);
+                this.reconnectTimeout = null;
+            }
             logger.debug('[API MACHINE] Connected to server');
 
             if (this.reconnectInterval) {
@@ -625,10 +633,10 @@ export class ApiMachineClient {
     }
 
     private startSmartReconnect() {
-        if (this.reconnectInterval) return;
+        if (this.closed || this.reconnectInterval) return;
 
         this.reconnectInterval = setInterval(() => {
-            if (this.socket.connected) {
+            if (this.closed || (this.socket.connected && this.socket.active)) {
                 clearInterval(this.reconnectInterval!);
                 this.reconnectInterval = null;
                 return;
@@ -638,12 +646,15 @@ export class ApiMachineClient {
                 return;
             }
             logger.debug('[API MACHINE] Attempting reconnect');
-            this.socket.connect();
+            reconnectSocketIfIdle(this.socket);
         }, 3000);
 
         if (shouldReconnect()) {
             logger.debug('[API MACHINE] Network up + lid open — reconnecting in 1s');
-            setTimeout(() => { if (!this.socket.connected) this.socket.connect() }, 1000);
+            this.reconnectTimeout = setTimeout(() => {
+                this.reconnectTimeout = null;
+                if (!this.closed && shouldReconnect()) reconnectSocketIfIdle(this.socket);
+            }, 1000);
         }
     }
 
@@ -656,6 +667,11 @@ export class ApiMachineClient {
     }
 
     shutdown() {
+        this.closed = true;
+        if (this.reconnectTimeout) {
+            clearTimeout(this.reconnectTimeout);
+            this.reconnectTimeout = null;
+        }
         this.stopQuotaHistory?.();
         logger.debug('[API MACHINE] Shutting down');
         this.stopKeepAlive();
