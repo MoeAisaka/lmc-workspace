@@ -12,6 +12,7 @@ import { openSavedFile } from '@/components/SavedFileDialog';
 import { filePublicationSchema } from 'lmc-wire';
 import { randomUUID } from 'expo-crypto';
 import { showToast } from '@/components/lmc/Toast';
+import { openSharedPublishedFile } from './openSharedPublishedFile';
 
 /**
  * The four things you can do with a file a session knows about.
@@ -85,6 +86,7 @@ export function chooseSessionFile({ sessionId, path, onPreview, onBusyChange }: 
     onPreview?: (path: string) => void;
     onBusyChange?: (path: string | null) => void;
 }) {
+    if (openSharedPublishedFile(sessionId, path)) return;
     const session = storage.getState().sessions[sessionId];
     const supported = session?.metadata?.sessionCapabilities?.resourceFiles === true;
     const root = session?.metadata?.path;

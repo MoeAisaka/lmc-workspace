@@ -6,6 +6,7 @@ import { decodeBase64ToBytes, fileName, isBinaryExtension, looksBinary } from '.
 import { t } from '@/text';
 import { loadMarkdownImage, loadSavedFileImage, parseMarkdownImageSource } from '@/utils/markdownImage';
 import { openImagePreview } from '@/components/ImagePreviewModal';
+import { openSharedPublishedFile } from './openSharedPublishedFile';
 
 /**
  * What pressing a file path does.
@@ -27,6 +28,7 @@ export async function openFileReference(sessionId: string | undefined, path: str
     }
     const name = fileName(path);
     try {
+        if (openSharedPublishedFile(sessionId, path)) return;
         const image = parseMarkdownImageSource(path);
         if (image) {
             const uri = image.kind === 'uri'
