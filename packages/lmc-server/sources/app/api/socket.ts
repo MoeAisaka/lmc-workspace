@@ -131,11 +131,18 @@ export function startSocket(app: Fastify) {
 
         // A read grant never authorizes impersonating the owning Agent. Scope
         // identifiers supplied in the handshake must belong to this account.
-        if (clientType === 'session-scoped' && !(await db.session.findFirst({ where: { id: sessionId, accountId: verified.userId }, select: { id: true } }))) {
-            return next(new Error('Session scope rejected'));
-        }
-        if (clientType === 'machine-scoped' && !(await db.machine.findFirst({ where: { id: machineId, accountId: verified.userId }, select: { id: true } }))) {
-            return next(new Error('Machine scope rejected'));
+        try {
+            if (clientType === 'session-scoped' && !(await db.session.findFirst({ where: { id: sessionId, accountId: verified.userId }, select: { id: true } }))) {
+                return next(new Error('Session scope rejected'));
+            }
+            if (clientType === 'machine-scoped' && !(await db.machine.findFirst({ where: { id: machineId, accountId: verified.userId }, select: { id: true } }))) {
+                return next(new Error('Machine scope rejected'));
+            }
+        } catch {
+            // Socket.IO does not consume a rejected async middleware promise.
+            // A transient database failure must deny this handshake, not crash
+            // the server or admit a client whose ownership was not verified.
+            return next(new Error('Scope verification unavailable'));
         }
 
         socket.data.userId = verified.userId;
