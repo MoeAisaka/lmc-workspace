@@ -9,6 +9,7 @@ import type { ArmedHandoffPort } from '@/utils/handoffPort';
 /** Only the runner's settled sendPrompt boundary may relinquish the session. */
 export function agySessionRefresh(session: ApiSessionClient, handoff: ArmedHandoffPort, boundary: {
     idle(): boolean; settings(): { model?: string; effort?: string; permissionMode?: string }; exit(): void;
+    retireBackend?(): Promise<void>;
     configureQueue?(request: unknown): boolean;
 }) {
     let settings: ReturnType<typeof readSwitchSettings> = {};
@@ -25,6 +26,11 @@ export function agySessionRefresh(session: ApiSessionClient, handoff: ArmedHando
             if (status !== 'ready') throw new Error(`无法核验 ${engine} 的认证或可用性，原会话已保留`);
         },
         prepare: async (receiveSeq, target) => {
+            // Confirm that the active Antigravity child has actually exited before
+            // arming a daemon refresh handoff so two processes never share the conversation DB.
+            if (boundary.retireBackend) {
+                await boundary.retireBackend();
+            }
             // A model selected in the chat UI may not have been sent in a turn
             // yet. Refresh must preserve that saved choice, not roll it back to
             // the last model that happened to execute a prompt.

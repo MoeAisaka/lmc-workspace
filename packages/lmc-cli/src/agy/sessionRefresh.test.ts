@@ -72,3 +72,42 @@ it('preserves a model selected before the next prompt across a runtime refresh',
     });
     expect(f.boundary.exit).toHaveBeenCalledOnce();
 });
+
+it('aborts session refresh before daemon handoff when backend child refuses to exit', async () => {
+    let metadata: any = {};
+    const handlers: Record<string, (value?: unknown) => Promise<any>> = {};
+    const session: any = {
+        sessionId: 'same-lmc-session',
+        rpcHandlerManager: { registerHandler: (name: string, handler: any) => { handlers[name] = handler; } },
+        pauseIncomingMessages: vi.fn(() => 77),
+        waitForIncomingDelivery: vi.fn(async () => {}),
+        resumeIncomingMessagesFrom: vi.fn(),
+        markRelaunching: vi.fn(),
+        sendSessionEvent: vi.fn(),
+        updateMetadata: vi.fn(async fn => { metadata = fn(metadata); }),
+        getMetadata: () => metadata,
+    };
+    const handoff: any = { arm: vi.fn(), disarm: vi.fn() };
+    const queue = createAgyTurnQueue();
+    const retireBackend = vi.fn(async () => {
+        throw new Error('Antigravity ACP server did not exit within shutdown timeout; refusing unsafe state transition');
+    });
+    const exit = vi.fn();
+    const refresh = agySessionRefresh(session, handoff, {
+        idle: () => true,
+        settings: () => ({ model: 'flash', permissionMode: 'default' }),
+        retireBackend,
+        exit,
+        configureQueue: (request: unknown) => applyQueueModeRequest(request, queue, session),
+    });
+
+    await handlers['configure-session']({ refreshCli: true });
+    await new Promise(resolve => setImmediate(resolve));
+    await refresh.drain();
+
+    expect(retireBackend).toHaveBeenCalledOnce();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
+    expect(session.resumeIncomingMessagesFrom).toHaveBeenCalledWith(77);
+    expect(metadata).toMatchObject({ sessionConfigState: 'error' });
+});

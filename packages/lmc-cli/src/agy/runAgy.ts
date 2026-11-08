@@ -30,7 +30,7 @@ import { initialMachineMetadata } from '@/daemon/run';
 import { createSessionMetadata } from '@/utils/createSessionMetadata';
 import { setupOfflineReconnection } from '@/utils/setupOfflineReconnection';
 import { notifyDaemonSessionStarted } from '@/daemon/controlClient';
-import type { Session as ApiSession } from '@/api/types';
+import type { Metadata, Session as ApiSession } from '@/api/types';
 import { UNKNOWN_RECONNECT_REVISION, refreshSessionRuntimeMetadata } from '@/utils/sessionRuntimeMetadata';
 import { consumePendingHandoff, createHandoffPort } from '@/utils/handoffPort';
 import { agySessionRefresh } from './sessionRefresh';
@@ -43,6 +43,7 @@ import type { AgentMessage } from '@/agent/core';
 import { normalizeRemotePermissionMode } from '@/claude/utils/permissionMode';
 import { AgyBackend } from './AgyBackend';
 import { inspectAgyCli } from './preflight';
+import { isAgyTurnCancelledError } from './stream';
 import { getSharedRuntime } from '@/daemon/sharedRuntime';
 import { prepareAgySharedAccountIsolation } from '@/daemon/sharedAccountIsolation';
 import { configuration } from '@/configuration';
@@ -67,8 +68,140 @@ export interface RunAgyOptions {
   resume?: string;
 }
 
+export class AgyRunnerShutdownPersistenceError extends Error {
+  readonly causeError: unknown;
+  readonly retryShutdown: () => Promise<{ refreshHandoff: boolean }>;
+
+  constructor(
+    causeError: unknown,
+    retryShutdown: () => Promise<{ refreshHandoff: boolean }>,
+  ) {
+    const detail = causeError instanceof Error ? causeError.message : String(causeError);
+    super(`Antigravity runner shutdown blocked on unacknowledged usage persistence: ${detail}`);
+    this.name = 'AgyRunnerShutdownPersistenceError';
+    this.causeError = causeError;
+    this.retryShutdown = retryShutdown;
+  }
+}
+
+export interface FinalizeAgyRunnerShutdownSession {
+  updateMetadata: (
+    updater: (metadata: Metadata) => Metadata,
+    opts?: { strict?: boolean },
+  ) => Promise<void> | void;
+  sendSessionDeath: () => void;
+  flush: () => Promise<void>;
+  close: () => Promise<void>;
+}
+
+export interface FinalizeAgyRunnerShutdownParams {
+  backend: Pick<
+    AgyBackend,
+    | 'dispose'
+    | 'offMessage'
+    | 'transferUnpersistedHandoffs'
+    | 'hasUnconfirmedChildExit'
+    | 'hasUnpersistedCloseState'
+  >;
+  onBackendMessage: (msg: AgentMessage) => void;
+  getSession: () => FinalizeAgyRunnerShutdownSession;
+  persistFallbackHandoff?: (
+    conversationId: string,
+    serializedHandoff: string | null,
+  ) => Promise<void>;
+  archiveRequested: boolean;
+  refreshHandoff: boolean;
+  onAfterBackendSettled?: () => void;
+}
+
+export async function finalizeAgyRunnerShutdown(
+  params: FinalizeAgyRunnerShutdownParams,
+): Promise<{ refreshHandoff: boolean }> {
+  let effectiveRefreshHandoff = params.refreshHandoff;
+  let disposeError: unknown = null;
+
+  try {
+    await params.backend.dispose();
+  } catch (firstErr) {
+    disposeError = firstErr;
+    if (params.backend.hasUnconfirmedChildExit) {
+      effectiveRefreshHandoff = false;
+      logger.debug('[agy] Backend dispose failed with unconfirmed child exit:', firstErr);
+    }
+
+    if (params.backend.hasUnpersistedCloseState || !params.backend.hasUnconfirmedChildExit) {
+      try {
+        await params.backend.dispose();
+        disposeError = null;
+      } catch (retryErr) {
+        disposeError = retryErr;
+        if (params.backend.hasUnconfirmedChildExit) {
+          effectiveRefreshHandoff = false;
+        }
+        let transferred = false;
+        if (!params.backend.hasUnconfirmedChildExit && params.persistFallbackHandoff) {
+          try {
+            transferred = await params.backend.transferUnpersistedHandoffs(
+              params.persistFallbackHandoff,
+            );
+          } catch (transferErr) {
+            logger.debug('[agy] Fallback usage handoff transfer failed:', transferErr);
+            transferred = false;
+          }
+        }
+        if (transferred) {
+          disposeError = null;
+        } else if (
+          params.backend.hasUnpersistedCloseState ||
+          !params.backend.hasUnconfirmedChildExit
+        ) {
+          // Do NOT detach `onBackendMessage` or close `session` while required usage
+          // persistence/transfer remains unacknowledged; keep the live owner retryable!
+          throw new AgyRunnerShutdownPersistenceError(retryErr, () =>
+            finalizeAgyRunnerShutdown({
+              ...params,
+              refreshHandoff: effectiveRefreshHandoff,
+            }),
+          );
+        }
+      }
+    }
+  }
+
+  params.backend.offMessage(params.onBackendMessage);
+  params.onAfterBackendSettled?.();
+
+  const currentSession = params.getSession();
+  try {
+    // Backend failure or normal shutdown must not archive a session.
+    if (params.archiveRequested && !disposeError) {
+      await currentSession.updateMetadata((currentMetadata) => ({
+        ...currentMetadata,
+        lifecycleState: 'archived',
+        lifecycleStateSince: Date.now(),
+        archivedBy: 'cli',
+        archiveReason: 'User terminated',
+      }));
+    }
+    if (!disposeError) {
+      currentSession.sendSessionDeath();
+    }
+    await currentSession.flush();
+    await currentSession.close();
+  } catch (error) {
+    logger.debug('[agy] Session close failed:', error);
+  }
+
+  if (disposeError) {
+    throw disposeError;
+  }
+
+  return { refreshHandoff: effectiveRefreshHandoff };
+}
+
 export async function runAgy(opts: RunAgyOptions): Promise<'stopped' | 'refresh-handoff' | 'killed'> {
-  if (!inspectAgyCli().readyForSignIn) throw new Error('Antigravity CLI is missing or incompatible. Install the current official CLI and run lmc agy --check.');
+  const cliInfo = inspectAgyCli();
+  if (!cliInfo.readyForSignIn) throw new Error('Antigravity CLI is missing or incompatible. Install the current official CLI and run lmc agy --check.');
   let modelCatalog = readModelCatalogs().agy;
   const currentCatalog = () => {
     const cached = readModelCatalogs().agy;
@@ -192,6 +325,7 @@ export async function runAgy(opts: RunAgyOptions): Promise<'stopped' | 'refresh-
   const refresh = agySessionRefresh(session, handoff, {
     idle: () => !turnActive && messageQueue.size() === 0,
     settings: () => ({ model: displayedModel, effort: currentEffort, permissionMode }),
+    retireBackend: () => backend.closeForHandoff(),
     configureQueue: request => applyQueueModeRequest(request, messageQueue, session),
     exit: () => { refreshHandoff = true; shouldExit = true; messageQueue.close(); abortController.abort(); },
   });
@@ -218,15 +352,39 @@ export async function runAgy(opts: RunAgyOptions): Promise<'stopped' | 'refresh-
   const contextUsage = new AgyContextUsageTracker(
     agyIsolation ? { agyHomeDir: agyIsolation.agyCliHomeDir } : undefined,
   );
+  const persistFallbackHandoff = async (
+    conversationId: string,
+    serializedHandoff: string | null,
+  ): Promise<void> => {
+    await session.updateMetadata(
+      (m) => {
+        const next = { ...(m.agyUsageHandoffs ?? {}) };
+        if (serializedHandoff === null) {
+          delete next[conversationId];
+        } else {
+          next[conversationId] = serializedHandoff;
+        }
+        return {
+          ...m,
+          agyUsageHandoffs: Object.keys(next).length > 0 ? next : undefined,
+        };
+      },
+      { strict: true },
+    );
+  };
   const backend = new AgyBackend({
     conversationId: activeConversationId,
     cwd: process.cwd(),
     permissionMode,
     model: displayedModel,
+    transport: cliInfo.supportsAcp === false ? 'print' : undefined,
     onConversationId: id => {
       activeConversationId = id;
       session.updateMetadata(m => ({ ...m, agyConversationId: id }));
     },
+    confirmUsageDurable: () => session.ensureUsageDurable(),
+    loadFallbackHandoff: (id) => session.getMetadata()?.agyUsageHandoffs?.[id] ?? null,
+    persistFallbackHandoff,
     env: nativeEnvironment,
     agyHomeDir: agyIsolation?.agyCliHomeDir,
     log,
@@ -264,14 +422,69 @@ export async function runAgy(opts: RunAgyOptions): Promise<'stopped' | 'refresh-
     }
 
     if (msg.type === 'token-count' && msg.scope === 'step' && typeof msg.usageKey === 'string') {
-      session.recordAgyUsage(msg.usage, msg.usageKey, usageTurn.model, usageTurn.startedAt);
+      const hasExplicitModel = 'usageModel' in msg && (typeof msg.usageModel === 'string' || msg.usageModel === null);
+      const stepModel = hasExplicitModel
+        ? (typeof msg.usageModel === 'string' && msg.usageModel ? msg.usageModel : null)
+        : usageTurn.model;
+      const hasExplicitStartedAt = 'usageStartedAt' in msg;
+      const stepStartedAt = hasExplicitStartedAt
+        ? (typeof msg.usageStartedAt === 'number' && Number.isFinite(msg.usageStartedAt) && msg.usageStartedAt > 0
+            ? msg.usageStartedAt
+            : undefined)
+        : (usageTurn.startedAt || undefined);
+      session.recordAgyUsage(msg.usage, msg.usageKey, stepModel, stepStartedAt);
       const colonIndex = msg.usageKey.indexOf(':');
       const stepConversationId = colonIndex > 0 ? msg.usageKey.slice(0, colonIndex) : activeConversationId;
       if (stepConversationId) activeConversationId = stepConversationId;
+      // Accounting adjustments (such as multi-step turn residuals) pass `contextUsage: null`
+      // so they never inflate the single-generation context window gauge, while credit-adjusted
+      // SQLite steps pass `contextUsage: rawStepUsage` to report true context fill.
+      if (msg.contextUsage !== null) {
+        const rawContextUsage =
+          msg.contextUsage !== undefined && typeof msg.contextUsage === 'object'
+            ? msg.contextUsage
+            : msg.usage;
+        const contextModel = hasExplicitModel
+          ? stepModel
+          : (usageTurn.model ?? displayedModel);
+        const usageEnvelope = contextUsage.buildStepUsageEnvelope(
+          rawContextUsage,
+          stepConversationId,
+          contextModel,
+          {
+            genIdx: typeof msg.genIdx === 'number' ? msg.genIdx : undefined,
+            stepIndex: typeof msg.stepIndex === 'number' ? msg.stepIndex : undefined,
+            contextWindowTokens:
+              typeof msg.contextWindowTokens === 'number' ? msg.contextWindowTokens : undefined,
+            belongsToCurrentTurn:
+              typeof msg.belongsToCurrentTurn === 'boolean' ? msg.belongsToCurrentTurn : undefined,
+          },
+        );
+        if (usageEnvelope) sendEnvelopes([usageEnvelope]);
+      }
+      return;
+    }
+    if (msg.type === 'token-count' && msg.scope === 'context') {
+      const stepConversationId =
+        typeof msg.conversationId === 'string' && msg.conversationId
+          ? msg.conversationId
+          : activeConversationId;
+      if (stepConversationId) activeConversationId = stepConversationId;
+      const hasExplicitModel = 'usageModel' in msg && (typeof msg.usageModel === 'string' || msg.usageModel === null);
+      const contextModel = hasExplicitModel
+        ? (typeof msg.usageModel === 'string' && msg.usageModel ? msg.usageModel : null)
+        : (usageTurn.model ?? displayedModel);
       const usageEnvelope = contextUsage.buildStepUsageEnvelope(
         msg.usage,
         stepConversationId,
-        usageTurn.model ?? displayedModel,
+        contextModel,
+        {
+          genIdx: typeof msg.genIdx === 'number' ? msg.genIdx : undefined,
+          contextWindowTokens:
+            typeof msg.contextWindowTokens === 'number' ? msg.contextWindowTokens : undefined,
+          belongsToCurrentTurn:
+            typeof msg.belongsToCurrentTurn === 'boolean' ? msg.belongsToCurrentTurn : undefined,
+        },
       );
       if (usageEnvelope) sendEnvelopes([usageEnvelope]);
       return;
@@ -370,6 +583,7 @@ export async function runAgy(opts: RunAgyOptions): Promise<'stopped' | 'refresh-
     consumeQueuedReport,
   });
   nativeEnvironment.HAPPY_HTTP_MCP_URL = happyServer.url;
+  agyIsolation?.syncWorkspaceMcpConfig();
   session.keepAlive(thinking, 'remote');
 
   const keepAliveInterval = setInterval(() => {
@@ -426,6 +640,7 @@ export async function runAgy(opts: RunAgyOptions): Promise<'stopped' | 'refresh-
       backend.setPermissionMode(batch.mode.permissionMode);
       if (hasTTY) messageBuffer.addMessage(`[MODEL:${batch.mode.model}]`, 'system');
       usageTurn = { id: randomUUID(), model: batch.mode.model, startedAt: Date.now() };
+      backend.setTurnStartedAt(usageTurn.startedAt);
       contextUsage.startTurn();
       log(`Incoming prompt: ${batch.message.slice(0, 200)}`);
       sendEnvelopes(sessionManager.startTurn());
@@ -434,9 +649,14 @@ export async function runAgy(opts: RunAgyOptions): Promise<'stopped' | 'refresh-
         await backend.sendPrompt(process.cwd(), batch.message);
         sendEnvelopes(sessionManager.endTurn('completed'));
       } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        log(`Turn ended: ${msg}`);
-        sendEnvelopes(sessionManager.endTurn('failed'));
+        if (isAgyTurnCancelledError(error)) {
+          log('Turn cancelled');
+          sendEnvelopes(sessionManager.endTurn('cancelled'));
+        } else {
+          const msg = error instanceof Error ? error.message : String(error);
+          log(`Turn ended: ${msg}`);
+          sendEnvelopes(sessionManager.endTurn('failed'));
+        }
       }
       thinking = false;
       session.keepAlive(false, 'remote');
@@ -454,37 +674,31 @@ export async function runAgy(opts: RunAgyOptions): Promise<'stopped' | 'refresh-
     agentMail.stop();
     stopWatchingConfiguration();
     clearInterval(keepAliveInterval);
-    reconnectionHandle?.cancel();
 
-    backend.offMessage(onBackendMessage);
-    await backend.dispose();
-    happyServer.stop();
-    if (process.stdin.isTTY) {
-      try { process.stdin.setRawMode(false); } catch {}
-    }
-    if (hasTTY) {
-      try { process.stdin.pause(); } catch {}
-    }
-    inkInstance?.unmount();
-    messageBuffer.clear();
-
-    try {
-      // Backend failure or normal shutdown must not archive a session.
-      if (archiveRequested) {
-        session.updateMetadata((currentMetadata) => ({
-          ...currentMetadata,
-          lifecycleState: 'archived',
-          lifecycleStateSince: Date.now(),
-          archivedBy: 'cli',
-          archiveReason: 'User terminated',
-        }));
-      }
-      session.sendSessionDeath();
-      await session.flush();
-      await session.close();
-    } catch (error) {
-      logger.debug('[agy] Session close failed:', error);
-    }
+    let afterSettledCleaned = false;
+    const shutdownOutcome = await finalizeAgyRunnerShutdown({
+      backend,
+      onBackendMessage,
+      getSession: () => session,
+      persistFallbackHandoff,
+      archiveRequested,
+      refreshHandoff,
+      onAfterBackendSettled: () => {
+        if (afterSettledCleaned) return;
+        afterSettledCleaned = true;
+        reconnectionHandle?.cancel();
+        happyServer.stop();
+        if (process.stdin.isTTY) {
+          try { process.stdin.setRawMode(false); } catch {}
+        }
+        if (hasTTY) {
+          try { process.stdin.pause(); } catch {}
+        }
+        inkInstance?.unmount();
+        messageBuffer.clear();
+      },
+    });
+    refreshHandoff = shutdownOutcome.refreshHandoff;
   }
 
   return refreshHandoff ? 'refresh-handoff' : archiveRequested ? 'killed' : 'stopped';

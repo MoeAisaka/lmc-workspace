@@ -491,6 +491,8 @@ export type Metadata = {
   claudeSessionId?: string, // Claude Code session ID
   codexThreadId?: string, // Codex app-server thread ID
   agyConversationId?: string, // ID emitted by this Antigravity process, never a cwd cache
+  /** Fallback durable Antigravity usage-ledger handoff blobs keyed by conversationId when local sidecar write fails. */
+  agyUsageHandoffs?: Record<string, string>,
   /**
    * A briefing waiting to be handed to the engine taking this session over.
    *

@@ -17,7 +17,7 @@ function setup(options: { conversationId?: string; printTimeout?: string } = {})
   const messages: AgentMessage[] = [], calls: { args: string[]; options: any }[] = [];
   const spawnFn = ((_cmd: string, args: string[], opts: any) => { calls.push({ args, options: opts }); return child; }) as unknown as SpawnFn;
   const onConversationId = vi.fn();
-  const backend = new AgyBackend({ cwd: '/work', permissionMode: 'default', spawnFn, onConversationId, ...options });
+  const backend = new AgyBackend({ cwd: '/work', permissionMode: 'default', transport: 'print', spawnFn, onConversationId, ...options });
   backend.onMessage(m => messages.push(m));
   const line = (event: unknown) => stdout.emit('data', JSON.stringify(event) + '\n');
   return { backend, child, stdout, stderr, messages, calls, line, onConversationId };
@@ -71,10 +71,12 @@ describe('AgyBackend lifecycle', () => {
     expect(f.messages.filter(m => m.type === 'status' && m.status === 'error')).toHaveLength(1);
   });
 
-  it('cancels only its own child', async () => {
-    const f = setup(); const turn = f.backend.sendPrompt('/work', 'hello'); const observed = expect(turn).rejects.toThrow();
+  it('cancels only its own child without emitting an error status', async () => {
+    const f = setup(); const turn = f.backend.sendPrompt('/work', 'hello'); const observed = expect(turn).rejects.toThrow(/cancelled/i);
     await f.backend.cancel(); expect(f.child.kill).toHaveBeenCalledWith('SIGTERM');
     f.child.emit('close', null); await observed;
+    expect(f.messages.filter(m => m.type === 'status' && m.status === 'error')).toHaveLength(0);
+    expect(f.messages.at(-1)).toMatchObject({ type: 'status', status: 'idle' });
   });
 
   it('does not pass a malformed protocol line off as an assistant reply', async () => {
@@ -140,7 +142,7 @@ describe('AgyBackend lifecycle', () => {
       return procs[idx++];
     }) as unknown as SpawnFn;
     const messages: AgentMessage[] = [];
-    const backend = new AgyBackend({ cwd: '/work', permissionMode: 'default', spawnFn, authRetryDelayMs: 5 });
+    const backend = new AgyBackend({ cwd: '/work', permissionMode: 'default', transport: 'print', spawnFn, authRetryDelayMs: 5 });
     backend.onMessage(m => messages.push(m));
 
     const turn = backend.sendPrompt('/work', 'investigate production logs');
@@ -193,7 +195,7 @@ describe('AgyBackend lifecycle', () => {
       return procs[idx++];
     }) as unknown as SpawnFn;
     const messages: AgentMessage[] = [];
-    const backend = new AgyBackend({ cwd: '/work', permissionMode: 'default', spawnFn, authRetryDelayMs: 5 });
+    const backend = new AgyBackend({ cwd: '/work', permissionMode: 'default', transport: 'print', spawnFn, authRetryDelayMs: 5 });
     backend.onMessage(m => messages.push(m));
 
     const turn = backend.sendPrompt('/work', 'first');
@@ -213,6 +215,7 @@ describe('AgyBackend lifecycle', () => {
     const slowBackend = new AgyBackend({
       cwd: '/work',
       permissionMode: 'default',
+      transport: 'print',
       spawnFn: ((_cmd: string, args: string[]) => { slowCalls.push(args); return slowProc; }) as unknown as SpawnFn,
       authRetryDelayMs: 60_000,
     });
@@ -244,6 +247,7 @@ describe('AgyBackend lifecycle', () => {
     const backend = new AgyBackend({
       cwd: '/work',
       permissionMode: 'bypassPermissions',
+      transport: 'print',
       conversationId: '47cca48f-7d13-44b7-adea-3bb0373e47eb',
       spawnFn,
       repairConversationMedia,
@@ -291,6 +295,7 @@ describe('AgyBackend lifecycle', () => {
     const backend = new AgyBackend({
       cwd: '/work',
       permissionMode: 'default',
+      transport: 'print',
       conversationId: 'clean-conv',
       spawnFn: ((_cmd: string, args: string[]) => { calls.push(args); return child; }) as unknown as SpawnFn,
       repairConversationMedia,
@@ -336,7 +341,7 @@ describe('AgyBackend lifecycle', () => {
       return procs[idx++];
     }) as unknown as SpawnFn;
     const messages: AgentMessage[] = [];
-    const backend = new AgyBackend({ cwd: '/work', permissionMode: 'bypassPermissions', spawnFn });
+    const backend = new AgyBackend({ cwd: '/work', permissionMode: 'bypassPermissions', transport: 'print', spawnFn });
     backend.onMessage(m => messages.push(m));
 
     const turn = backend.sendPrompt('/work', 'run multi-round replay');
@@ -400,6 +405,7 @@ describe('AgyBackend lifecycle', () => {
     const backend = new AgyBackend({
       cwd: '/work',
       permissionMode: 'default',
+      transport: 'print',
       spawnFn,
       maxBackgroundWakeupRetries: 1,
     });
@@ -427,5 +433,184 @@ describe('AgyBackend lifecycle', () => {
     await turn;
     expect(calls).toHaveLength(2);
     expect(messages.at(-1)).toMatchObject({ type: 'status', status: 'idle' });
+  });
+
+  it('never auto-retries --print after a tool step on 401, stream drop, or 400 media repair', async () => {
+    const makeProc = () => {
+      const stdout = Object.assign(new EventEmitter(), { setEncoding: () => {} });
+      const stderr = Object.assign(new EventEmitter(), { setEncoding: () => {} });
+      return Object.assign(new EventEmitter(), { pid: 5001, stdout, stderr, kill: vi.fn(() => true) });
+    };
+
+    for (const errLine of [
+      'AGY_ERROR: UNAUTHENTICATED (code 401): Request had invalid authentication credentials.\n',
+      'AGY_ERROR: stream idle timeout (5m0s)\n',
+      'AGY_ERROR: INVALID_ARGUMENT (code 400): Request contains an invalid argument.\n',
+    ]) {
+      const proc = makeProc();
+      let spawns = 0;
+      const repairSpy = vi.fn(() => ({ repairedCount: 1, repairedSteps: [4] }));
+      const backend = new AgyBackend({
+        cwd: '/work',
+        permissionMode: 'bypassPermissions',
+        transport: 'print',
+        conversationId: 'conv-print-tool',
+        authRetryDelayMs: 5,
+        transientStreamRetryDelaysMs: [5],
+        repairConversationMedia: repairSpy,
+        spawnFn: (() => {
+          spawns += 1;
+          return proc;
+        }) as unknown as SpawnFn,
+      });
+
+      const turn = backend.sendPrompt('/work', 'execute deployment script');
+      const observed = expect(turn).rejects.toThrow();
+      proc.stdout.emit('data', JSON.stringify({ event: 'init', conversation_id: 'conv-print-tool', init: {} }) + '\n');
+      proc.stdout.emit(
+        'data',
+        JSON.stringify({
+          event: 'step_update',
+          step_update: {
+            conversation_id: 'conv-print-tool',
+            step_index: 1,
+            step_type: 'tool',
+            state: 'DONE',
+            tool_name: 'run_command',
+            tool_info: { name: 'run_command', parameters: { CommandLine: './deploy.sh' }, output: 'ok' },
+          },
+        }) + '\n',
+      );
+      proc.stderr.emit('data', errLine);
+      proc.emit('exit', 1);
+      proc.emit('close', 1);
+      await observed;
+      expect(spawns).toBe(1);
+    }
+  });
+
+  it('survives runtime kill EPERM in --print mode and fails closed when an unkillable child refuses to exit', async () => {
+    vi.useFakeTimers();
+    try {
+      const stdout = Object.assign(new EventEmitter(), { setEncoding: () => {} });
+      const stderr = Object.assign(new EventEmitter(), { setEncoding: () => {} });
+      const unkillableChild: any = Object.assign(new EventEmitter(), {
+        pid: 9999,
+        stdout,
+        stderr,
+        kill: vi.fn((sig?: string) => {
+          unkillableChild.emit(
+            'error',
+            Object.assign(new Error(`kill EPERM (${sig ?? 'SIGTERM'})`), { code: 'EPERM', syscall: 'kill' }),
+          );
+          return false;
+        }),
+      });
+      let spawns = 0;
+      const backend = new AgyBackend({
+        cwd: '/work',
+        permissionMode: 'default',
+        transport: 'print',
+        printTimeout: '1s',
+        acpCloseSigtermMs: 50,
+        acpCloseSigkillMs: 50,
+        spawnFn: (() => {
+          spawns += 1;
+          return unkillableChild;
+        }) as unknown as SpawnFn,
+      });
+
+      const turn = backend.sendPrompt('/work', 'wedged print turn');
+      const observed = expect(turn).rejects.toThrow(/did not exit within shutdown timeout/);
+      stdout.emit('data', JSON.stringify({ event: 'init', conversation_id: 'conv-wedge', init: {} }) + '\n');
+
+      // Advance past 1s + 30s watchdog + 50ms SIGTERM + 50ms SIGKILL
+      await vi.advanceTimersByTimeAsync(32_000);
+      await observed;
+
+      expect(unkillableChild.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(unkillableChild.kill).toHaveBeenCalledWith('SIGKILL');
+      expect(spawns).toBe(1);
+
+      // Subsequent sendPrompt, closeForHandoff, and dispose must all fail closed without spawning!
+      await expect(backend.sendPrompt('/work', 'second turn')).rejects.toThrow(/did not exit within shutdown timeout/);
+      await expect(backend.closeForHandoff()).rejects.toThrow(/did not exit within shutdown timeout/);
+      await expect(backend.dispose()).rejects.toThrow(/did not exit within shutdown timeout/);
+      expect(spawns).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('never spawns a default print-window continuation on a failed --print attempt classified as unsafe_side_effects', async () => {
+    let toolSpawns = 0;
+    const backendAfterTool = new AgyBackend({
+      cwd: '/work',
+      permissionMode: 'default',
+      transport: 'print',
+      spawnFn: (() => {
+        toolSpawns += 1;
+        const stdout = Object.assign(new EventEmitter(), { setEncoding: () => {} });
+        const stderr = Object.assign(new EventEmitter(), { setEncoding: () => {} });
+        const child: any = Object.assign(new EventEmitter(), {
+          pid: 10001,
+          stdout,
+          stderr,
+          kill: vi.fn(() => true),
+        });
+        queueMicrotask(() => {
+          stdout.emit('data', JSON.stringify({ event: 'init', conversation_id: 'conv-print-unsafe', init: {} }) + '\n');
+          stdout.emit(
+            'data',
+            JSON.stringify({
+              event: 'step_update',
+              step_update: {
+                conversation_id: 'conv-print-unsafe',
+                step_index: 1,
+                step_type: 'tool',
+                tool_name: 'write_file',
+                state: 'DONE',
+              },
+            }) + '\n',
+          );
+          stderr.emit('data', '[agy] print timeout after 15m0s\n');
+          child.emit('exit', 1, null);
+          child.emit('close', 1, null);
+        });
+        return child;
+      }) as unknown as SpawnFn,
+    });
+
+    await expect(backendAfterTool.sendPrompt('/work', 'mutate once')).rejects.toThrow(/print timeout/);
+    expect(toolSpawns).toBe(1);
+
+    let malformedSpawns = 0;
+    const backendAfterMalformed = new AgyBackend({
+      cwd: '/work',
+      permissionMode: 'default',
+      transport: 'print',
+      spawnFn: (() => {
+        malformedSpawns += 1;
+        const stdout = Object.assign(new EventEmitter(), { setEncoding: () => {} });
+        const stderr = Object.assign(new EventEmitter(), { setEncoding: () => {} });
+        const child: any = Object.assign(new EventEmitter(), {
+          pid: 10002,
+          stdout,
+          stderr,
+          kill: vi.fn(() => true),
+        });
+        queueMicrotask(() => {
+          stdout.emit('data', JSON.stringify({ event: 'init', conversation_id: 'conv-print-malformed', init: {} }) + '\n');
+          stdout.emit('data', '{not-valid-json\n');
+          stderr.emit('data', '[agy] print timeout after 15m0s\n');
+          child.emit('exit', 1, null);
+          child.emit('close', 1, null);
+        });
+        return child;
+      }) as unknown as SpawnFn,
+    });
+
+    await expect(backendAfterMalformed.sendPrompt('/work', 'run turn')).rejects.toThrow();
+    expect(malformedSpawns).toBe(1);
   });
 });

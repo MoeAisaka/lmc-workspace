@@ -1058,9 +1058,29 @@ export class ApiSessionClient extends EventEmitter {
         this.enqueueMessage(content);
     }
 
-    recordAgyUsage(usage: unknown, turnId: string, model: string | null, startedAt: number) {
+    private droppedAgyUsageError: Error | null = null;
+
+    recordAgyUsage(usage: unknown, turnId: string, model: string | null, startedAt?: number) {
         const machineId = this.metadata?.machineId;
-        if (machineId) this.usageOutbox.enqueue(() => agyUsageRecord(usage, { sessionId: this.sessionId, machineId }, turnId, model, startedAt));
+        if (!machineId) {
+            this.droppedAgyUsageError = new Error('Cannot record Antigravity usage without session machineId');
+            return;
+        }
+        this.usageOutbox.enqueue(() => {
+            const rec = agyUsageRecord(usage, { sessionId: this.sessionId, machineId }, turnId, model, startedAt);
+            if (!rec) {
+                this.droppedAgyUsageError = new Error(`Rejected malformed Antigravity usage payload for ${turnId}`);
+            }
+            return rec;
+        });
+    }
+
+    async ensureUsageDurable(): Promise<void> {
+        if (this.droppedAgyUsageError) {
+            const err = this.droppedAgyUsageError;
+            throw err;
+        }
+        await this.usageOutbox.ensureDurable();
     }
 
     recordCodexUsage(message: unknown, model: string | null, activeTurn: boolean) {

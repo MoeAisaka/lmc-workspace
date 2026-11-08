@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildAgyArgs } from './cliArgs';
+import { buildAgyAcpArgs, buildAgyArgs, mapPermissionModeToAgyAcpMode } from './cliArgs';
 
 describe('buildAgyArgs', () => {
   it('lets the native CLI choose its available default instead of sending a model named default', () => {
@@ -62,5 +62,29 @@ describe('buildAgyArgs', () => {
     const idx = args.indexOf('--print-timeout');
     expect(idx).toBeGreaterThanOrEqual(0);
     expect(args[idx + 1]).toBe('10m');
+  });
+
+  it('builds agy acp --stdio argv and maps ACP modes safely for 1.5.3', () => {
+    expect(buildAgyAcpArgs({ permissionMode: 'default', addDirs: ['/work'] })).toEqual([
+      'acp',
+      '--stdio',
+      '--sandbox',
+      '--add-dir',
+      '/work',
+    ]);
+    expect(buildAgyAcpArgs({ permissionMode: 'bypassPermissions', addDirs: ['/work'] })).toEqual([
+      'acp',
+      '--stdio',
+      '--dangerously-skip-permissions',
+      '--add-dir',
+      '/work',
+    ]);
+    expect(mapPermissionModeToAgyAcpMode('default')).toBe('default');
+    expect(mapPermissionModeToAgyAcpMode('acceptEdits')).toBe('accept-edits');
+    expect(mapPermissionModeToAgyAcpMode('safe-yolo')).toBe('accept-edits');
+    expect(mapPermissionModeToAgyAcpMode('auto', ['default', 'accept-edits', 'plan'])).toBe('accept-edits');
+    expect(mapPermissionModeToAgyAcpMode('auto', ['default', 'accept-edits', 'plan', 'auto'])).toBe('auto');
+    expect(mapPermissionModeToAgyAcpMode('plan')).toBe('plan');
+    expect(mapPermissionModeToAgyAcpMode('read-only')).toBe('plan');
   });
 });

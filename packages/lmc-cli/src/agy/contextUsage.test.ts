@@ -9,7 +9,9 @@ import {
   normalizeAgyDisplayModelId,
   parseAgyGenMetadataRow,
   readAgyConversationGenMetadata,
+  type AgyGenMetadataRow,
 } from './contextUsage';
+import { AgyStream } from './stream';
 
 const requireFromHere = createRequire(import.meta.url);
 
@@ -204,6 +206,7 @@ describe('contextUsage', () => {
           maxContextTokens: 256000,
           modelDisplayName: 'Gemini 4 Argon (High)',
           normalizedModelId: 'gemini-4-argon-high',
+          stepIndices: [1, 2],
         },
       },
     ];
@@ -218,6 +221,7 @@ describe('contextUsage', () => {
       { input_tokens: 11899, cache_read_tokens: 238965, output_tokens: 528, total_tokens: 12427 },
       'conv-1',
       'gemini-4-argon-high',
+      { stepIndex: 1 },
     );
     expect(env1?.time).toBe(10_000);
     expect(env1?.usage).toEqual({
@@ -233,6 +237,7 @@ describe('contextUsage', () => {
       { input_tokens: 4783, cache_read_tokens: 47465, output_tokens: 1503, total_tokens: 6286 },
       'conv-1',
       'gemini-4-argon-high',
+      { stepIndex: 2 },
     );
     expect(env2?.time).toBe(10_001);
     expect(env2?.usage).toEqual({
@@ -252,6 +257,7 @@ describe('contextUsage', () => {
       { input_tokens: 7002, cache_read_tokens: 5583, output_tokens: 11, total_tokens: 7013 },
       'conv-1',
       'claude-opus-5-5-low',
+      { stepIndex: 3 },
     );
     expect(claudeStepBeforeFlush?.usage).toEqual({
       input_tokens: 7002,
@@ -268,6 +274,7 @@ describe('contextUsage', () => {
           maxContextTokens: 840000,
           modelDisplayName: 'Claude Opus 5.5 (Low)',
           normalizedModelId: 'claude-opus-5-5-low',
+          stepIndices: [3],
         },
       },
       ...fakeRows,
@@ -279,6 +286,525 @@ describe('contextUsage', () => {
       cache_read_input_tokens: 5583,
       output_tokens: 11,
       context_window: 840000,
+    });
+  });
+
+  it('fails closed on unsafe >53-bit protobuf token counters or truncated trailing tags without partial emission', () => {
+    // 1. ModelUsageStats with inputTokens = 2^53 (unsafe JS integer) + valid outputTokens = 12 -> usage must be undefined!
+    const unsafeUsageFields = Buffer.concat([
+      encodeVarintField(2, 1n << 53n),
+      encodeVarintField(3, 12),
+    ]);
+    const unsafeBlob = encodeBytesField(1, encodeBytesField(4, unsafeUsageFields));
+    expect(parseAgyGenMetadataRow(unsafeBlob)?.usage).toBeUndefined();
+
+    // 2. ModelUsageStats with valid outputTokens = 12 followed by truncated varint [0x10, 0x80] -> usage must be undefined!
+    const truncatedUsageFields = Buffer.concat([
+      encodeVarintField(3, 12),
+      Buffer.from([0x10, 0x80]),
+    ]);
+    const truncatedBlob = encodeBytesField(1, encodeBytesField(4, truncatedUsageFields));
+    expect(parseAgyGenMetadataRow(truncatedBlob)?.usage).toBeUndefined();
+
+    // 3. ContextWindowMetadata with valid maxContextTokens = 256000 followed by truncated varint [0x08, 0x80] -> must drop window!
+    const truncatedCw = Buffer.concat([
+      encodeVarintField(4, 256000),
+      Buffer.from([0x08, 0x80]),
+    ]);
+    const truncatedCwBlob = encodeBytesField(1, encodeBytesField(9, encodeBytesField(10, truncatedCw)));
+    expect(parseAgyGenMetadataRow(truncatedCwBlob)).toBeNull();
+
+    // 4. Enclosing ChatModelMetadata with valid field 4 (outputTokens=12) followed by truncated tag [0x80] -> null!
+    expect(parseAgyGenMetadataRow(Uint8Array.from([0x0a, 0x05, 0x22, 0x02, 0x18, 0x0c, 0x80]))).toBeNull();
+
+    // 5. Enclosing root CortexStepGeneratorMetadata with valid field 1 followed by truncated tag [0x80] -> null!
+    expect(parseAgyGenMetadataRow(Uint8Array.from([0x0a, 0x04, 0x22, 0x02, 0x18, 0x0c, 0x80]))).toBeNull();
+
+    // 6. Enclosing ChatStartMetadata with valid field 10 followed by truncated tag [0x80] -> null!
+    const validCwField10 = encodeBytesField(10, encodeVarintField(4, 200000));
+    const truncatedChatStart = Buffer.concat([validCwField10, Buffer.from([0x80])]);
+    expect(parseAgyGenMetadataRow(encodeBytesField(1, encodeBytesField(9, truncatedChatStart)))).toBeNull();
+  });
+
+  it('pairs delayed known-owner row usage with its own generation window instead of an unlabeled newer head row (R6-P2-2)', () => {
+    let fakeRows: AgyGenMetadataRow[] = [
+      // Unlabeled head row 2 created by Turn B (M-B, 1,000,000 window, no usage yet)
+      {
+        idx: 2,
+        summary: {
+          maxContextTokens: 1_000_000,
+        },
+      },
+      // Delayed row 1 owned by Turn A (M-A, 128,000 window, 4,500 / 250 usage)
+      {
+        idx: 1,
+        summary: {
+          usage: { inputTokens: 4500, outputTokens: 250, cacheReadTokens: 0 },
+          maxContextTokens: 128_000,
+          modelDisplayName: 'Model A',
+          normalizedModelId: 'model-a',
+          stepIndices: [0],
+        },
+      },
+    ];
+
+    const tracker = new AgyContextUsageTracker({
+      readGenMetadata: () => fakeRows,
+      now: () => 20_000,
+    });
+
+    // Turn B begins
+    tracker.startTurn();
+
+    // During Turn B, delayed Row 1 (`genIdx: 1`, `belongsToCurrentTurn: false`) emits:
+    // MUST pair A's 4500/250 numerator with A's 128,000 denominator (never B's 1,000,000!)
+    // AND must NOT mark Turn B's `lastTurnStep.emittedWithWindow = true`!
+    const delayedEnvA = tracker.buildStepUsageEnvelope(
+      { input_tokens: 4500, output_tokens: 250, cache_read_tokens: 0, total_tokens: 4750 },
+      'conv-r6-p2-2',
+      'model-a',
+      {
+        genIdx: 1,
+        contextWindowTokens: 128_000,
+        belongsToCurrentTurn: false,
+      },
+    );
+    expect(delayedEnvA?.usage).toEqual({
+      input_tokens: 4500,
+      output_tokens: 250,
+      context_window: 128_000,
+    });
+
+    // Even if `contextWindowTokens` were omitted on the event, `genIdx: 1` + `belongsToCurrentTurn: false`
+    // still refuses to borrow unlabeled head row 2's 1,000,000 window.
+    const trackerNoExplicitWindow = new AgyContextUsageTracker({
+      readGenMetadata: () => fakeRows,
+      now: () => 21_000,
+    });
+    trackerNoExplicitWindow.startTurn();
+    const delayedEnvFallback = trackerNoExplicitWindow.buildStepUsageEnvelope(
+      { input_tokens: 4500, output_tokens: 250, cache_read_tokens: 0, total_tokens: 4750 },
+      'conv-r6-p2-2',
+      'model-a',
+      {
+        genIdx: 1,
+        belongsToCurrentTurn: false,
+      },
+    );
+    expect(delayedEnvFallback?.usage).toEqual({
+      input_tokens: 4500,
+      output_tokens: 250,
+      context_window: 128_000,
+    });
+
+    // Now Row 2 finishes in SQLite right before Turn B's terminal `reconcileTurnEndEnvelope`:
+    // because delayed Row 1 did NOT poison `lastTurnStep` or bump `lastEmittedDbIdx` to 2,
+    // Turn B's terminal reconciliation emits Row 2 with B's 1,000,000 window!
+    fakeRows = [
+      {
+        idx: 2,
+        summary: {
+          usage: { inputTokens: 9200, outputTokens: 600, cacheReadTokens: 0 },
+          maxContextTokens: 1_000_000,
+        },
+      },
+      fakeRows[1],
+    ];
+    const reconciledB = tracker.reconcileTurnEndEnvelope('conv-r6-p2-2', 'model-b');
+    expect(reconciledB?.usage).toEqual({
+      input_tokens: 9200,
+      output_tokens: 600,
+      context_window: 1_000_000,
+    });
+  });
+
+  it('bounds terminal backfill and model-window cache lookups strictly to the step generation without borrowing future denominators (R7-P2-1)', () => {
+    // Counterexample 1a (explicit `genIdx: 1`):
+    // Generation 1 emits step usage without a context window; SQLite later contains unlabeled
+    // Generation 2 (1,000,000) and Generation 1 (128,000). `reconcileTurnEndEnvelope()` MUST emit 128,000!
+    let rowsAcp: AgyGenMetadataRow[] = [];
+    const trackerAcp = new AgyContextUsageTracker({
+      readGenMetadata: () => rowsAcp,
+      now: () => 30_000,
+    });
+    trackerAcp.startTurn();
+    const step1NoWin = trackerAcp.buildStepUsageEnvelope(
+      { input_tokens: 4100, output_tokens: 210, cache_read_tokens: 0, total_tokens: 4310 },
+      'conv-r7-p2-1-acp',
+      'model-a',
+      { genIdx: 1, belongsToCurrentTurn: true },
+    );
+    expect(step1NoWin?.usage).toEqual({
+      input_tokens: 4100,
+      output_tokens: 210,
+    });
+
+    rowsAcp = [
+      { idx: 2, summary: { maxContextTokens: 1_000_000 } },
+      {
+        idx: 1,
+        summary: {
+          usage: { inputTokens: 4100, outputTokens: 210, cacheReadTokens: 0 },
+          maxContextTokens: 128_000,
+          modelDisplayName: 'Model A',
+          normalizedModelId: 'model-a',
+        },
+      },
+    ];
+    const backfilledAcp = trackerAcp.reconcileTurnEndEnvelope('conv-r7-p2-1-acp', 'model-a');
+    expect(backfilledAcp?.usage).toEqual({
+      input_tokens: 4100,
+      output_tokens: 210,
+      context_window: 128_000,
+    });
+
+    // Counterexample 1b (print-mode `stepIndex: 7` correlated strictly via SQLite `stepIndices: [7]`):
+    let rowsPrint: AgyGenMetadataRow[] = [];
+    const trackerPrint = new AgyContextUsageTracker({
+      readGenMetadata: () => rowsPrint,
+      now: () => 31_000,
+    });
+    trackerPrint.startTurn();
+    const printStep1 = trackerPrint.buildStepUsageEnvelope(
+      { input_tokens: 4100, output_tokens: 210, cache_read_tokens: 0, total_tokens: 4310 },
+      'conv-r7-p2-1-print',
+      'model-a',
+      { stepIndex: 7 },
+    );
+    expect(printStep1?.usage).toEqual({
+      input_tokens: 4100,
+      output_tokens: 210,
+    });
+
+    rowsPrint = [
+      { idx: 2, summary: { maxContextTokens: 1_000_000, stepIndices: [8] } },
+      { idx: 1, summary: { maxContextTokens: 128_000, stepIndices: [7] } },
+    ];
+    const backfilledPrint = trackerPrint.reconcileTurnEndEnvelope('conv-r7-p2-1-print', 'model-a');
+    expect(backfilledPrint?.usage).toEqual({
+      input_tokens: 4100,
+      output_tokens: 210,
+      context_window: 128_000,
+    });
+
+    // Counterexample 2a (same-model context-window change across generations + cache eviction):
+    // Generation 0 observed `gemini-4-argon-high` at 128,000; Generation 2 observed `gemini-4-argon-high`
+    // at 1,000,000; Generation 1 (`gemini-4-argon-high`) lacks `maxContextTokens`.
+    // Resolving Generation 1 MUST use Generation 0's 128,000 (even if Generation 0 scrolled out of SQLite's
+    // `LIMIT 16` slice and exists only in `modelWindowHistory`) and NEVER Generation 2's 1,000,000!
+    let rowsSameModel: AgyGenMetadataRow[] = [
+      {
+        idx: 0,
+        summary: {
+          usage: { inputTokens: 1000, outputTokens: 50, cacheReadTokens: 0 },
+          maxContextTokens: 128_000,
+          modelDisplayName: 'Gemini 4 Argon (High)',
+          normalizedModelId: 'gemini-4-argon-high',
+        },
+      },
+    ];
+    const trackerSameModel = new AgyContextUsageTracker({
+      readGenMetadata: () => rowsSameModel,
+      now: () => 32_000,
+    });
+    expect(
+      trackerSameModel.buildResumeUsageEnvelope('conv-r7-same-model', 'gemini-4-argon-high')?.usage,
+    ).toEqual({
+      input_tokens: 1000,
+      output_tokens: 50,
+      context_window: 128_000,
+    });
+
+    // Simulate idx=0 scrolling out of active SQLite slice while future idx=2 has 1,000,000 and idx=1 has no window:
+    rowsSameModel = [
+      {
+        idx: 2,
+        summary: {
+          usage: { inputTokens: 9000, outputTokens: 400, cacheReadTokens: 0 },
+          maxContextTokens: 1_000_000,
+          modelDisplayName: 'Gemini 4 Argon (High)',
+          normalizedModelId: 'gemini-4-argon-high',
+        },
+      },
+      {
+        idx: 1,
+        summary: {
+          usage: { inputTokens: 3500, outputTokens: 150, cacheReadTokens: 0 },
+          modelDisplayName: 'Gemini 4 Argon (High)',
+          normalizedModelId: 'gemini-4-argon-high',
+        },
+      },
+    ];
+    trackerSameModel.startTurn();
+    const gen1FromCache = trackerSameModel.buildStepUsageEnvelope(
+      { input_tokens: 3500, output_tokens: 150, cache_read_tokens: 0, total_tokens: 3650 },
+      'conv-r7-same-model',
+      'gemini-4-argon-high',
+      { genIdx: 1, belongsToCurrentTurn: true },
+    );
+    expect(gen1FromCache?.usage).toEqual({
+      input_tokens: 3500,
+      output_tokens: 150,
+      context_window: 128_000,
+    });
+
+    // Counterexample 2b (absence of historical evidence must NOT borrow future denominator):
+    const rowsFutureOnly: AgyGenMetadataRow[] = [
+      {
+        idx: 2,
+        summary: {
+          usage: { inputTokens: 9000, outputTokens: 400, cacheReadTokens: 0 },
+          maxContextTokens: 1_000_000,
+          modelDisplayName: 'Gemini 4 Argon (High)',
+          normalizedModelId: 'gemini-4-argon-high',
+        },
+      },
+      {
+        idx: 1,
+        summary: {
+          usage: { inputTokens: 3500, outputTokens: 150, cacheReadTokens: 0 },
+          modelDisplayName: 'Gemini 4 Argon (High)',
+          normalizedModelId: 'gemini-4-argon-high',
+        },
+      },
+    ];
+    const trackerNoHistory = new AgyContextUsageTracker({
+      readGenMetadata: () => rowsFutureOnly,
+      now: () => 33_000,
+    });
+    trackerNoHistory.startTurn();
+    const gen1NoHistory = trackerNoHistory.buildStepUsageEnvelope(
+      { input_tokens: 3500, output_tokens: 150, cache_read_tokens: 0, total_tokens: 3650 },
+      'conv-r7-no-history',
+      'gemini-4-argon-high',
+      { genIdx: 1, belongsToCurrentTurn: true },
+    );
+    expect(gen1NoHistory?.usage).toEqual({
+      input_tokens: 3500,
+      output_tokens: 150,
+    });
+    expect(
+      trackerNoHistory.reconcileTurnEndEnvelope('conv-r7-no-history', 'gemini-4-argon-high'),
+    ).toBeNull();
+  });
+
+  it('never borrows a future generation context window on unidentified print-mode steps and resolves identical-counter generations strictly by stepIndices (R8-P2-3)', () => {
+    // 0. Verify AgyStream carries `stepIndex` on print-mode `step_update` token-count events:
+    const streamMessages: any[] = [];
+    const stream = new AgyStream(
+      (msg) => streamMessages.push(msg),
+      () => {},
+      'conv-r8-p2-3',
+    );
+    stream.push(
+      `${JSON.stringify({
+        event: 'step_update',
+        step_update: {
+          conversation_id: 'conv-r8-p2-3',
+          step_index: 3,
+          step_type: 'agent_response',
+          state: 'DONE',
+          usage: { input_tokens: 4100, output_tokens: 210, cache_read_tokens: 0 },
+        },
+      })}\n`,
+    );
+    const stepTokenMsg = streamMessages.find((m) => m.type === 'token-count' && m.scope === 'step');
+    expect(stepTokenMsg).toBeDefined();
+    expect(stepTokenMsg.stepIndex).toBe(3);
+    expect(stepTokenMsg.usageKey).toBe('conv-r8-p2-3:3');
+
+    // 1. Exact R8-P2-3 counterexample:
+    // Print-mode generation-1 usage event (`stepIndex: 3`, no `genIdx`) arrives while SQLite has no metadata row;
+    // at terminal reconciliation, SQLite contains ONLY an unlabeled generation-2 row (`maxContextTokens = 1_000_000`)
+    // while generation 1's row is still unavailable -> MUST NOT fabricate `1_000_000` denominator!
+    let rowsMissingGen1: AgyGenMetadataRow[] = [];
+    const trackerMissingGen1 = new AgyContextUsageTracker({
+      readGenMetadata: () => rowsMissingGen1,
+      now: () => 40_000,
+    });
+    trackerMissingGen1.startTurn();
+    const envStep = trackerMissingGen1.buildStepUsageEnvelope(
+      stepTokenMsg.usage,
+      'conv-r8-p2-3',
+      'model-a',
+      { stepIndex: stepTokenMsg.stepIndex },
+    );
+    expect(envStep?.usage).toEqual({
+      input_tokens: 4100,
+      output_tokens: 210,
+    });
+
+    rowsMissingGen1 = [
+      {
+        idx: 2,
+        summary: {
+          maxContextTokens: 1_000_000,
+        },
+      },
+    ];
+    expect(trackerMissingGen1.reconcileTurnEndEnvelope('conv-r8-p2-3', 'model-a')).toBeNull();
+
+    // Even if `idx: 2` also has coincidentally identical counters `4100 / 210` without `stepIndices: [3]`,
+    // `reconcileTurnEndEnvelope` still refuses to guess generation identity!
+    rowsMissingGen1 = [
+      {
+        idx: 2,
+        summary: {
+          usage: { inputTokens: 4100, outputTokens: 210, cacheReadTokens: 0 },
+          maxContextTokens: 1_000_000,
+          stepIndices: [5],
+        },
+      },
+    ];
+    expect(trackerMissingGen1.reconcileTurnEndEnvelope('conv-r8-p2-3', 'model-a')).toBeNull();
+
+    // 2. Two generations with IDENTICAL usage counters (`4100 / 210 / 0`) and DIFFERENT windows (`128_000` vs `1_000_000`):
+    // `stepIndex: 3` (`idx: 1`) and `stepIndex: 5` (`idx: 2`) resolve strictly to their own generation's denominator!
+    const identicalCounterRows: AgyGenMetadataRow[] = [
+      {
+        idx: 2,
+        summary: {
+          usage: { inputTokens: 4100, outputTokens: 210, cacheReadTokens: 0 },
+          maxContextTokens: 1_000_000,
+          stepIndices: [5],
+        },
+      },
+      {
+        idx: 1,
+        summary: {
+          usage: { inputTokens: 4100, outputTokens: 210, cacheReadTokens: 0 },
+          maxContextTokens: 128_000,
+          stepIndices: [3],
+        },
+      },
+    ];
+    const trackerIdentical = new AgyContextUsageTracker({
+      readGenMetadata: () => identicalCounterRows,
+      now: () => 41_000,
+    });
+    trackerIdentical.startTurn();
+    const g1 = trackerIdentical.buildStepUsageEnvelope(
+      { input_tokens: 4100, output_tokens: 210, cache_read_tokens: 0, total_tokens: 4310 },
+      'conv-r8-identical',
+      'model-a',
+      { stepIndex: 3 },
+    );
+    expect(g1?.usage).toEqual({
+      input_tokens: 4100,
+      output_tokens: 210,
+      context_window: 128_000,
+    });
+
+    const g2 = trackerIdentical.buildStepUsageEnvelope(
+      { input_tokens: 4100, output_tokens: 210, cache_read_tokens: 0, total_tokens: 4310 },
+      'conv-r8-identical',
+      'model-b',
+      { stepIndex: 5 },
+    );
+    expect(g2?.usage).toEqual({
+      input_tokens: 4100,
+      output_tokens: 210,
+      context_window: 1_000_000,
+    });
+
+    // And an event with NO `genIdx` and NO `stepIndex` never guesses either row:
+    const gUnknown = trackerIdentical.buildStepUsageEnvelope(
+      { input_tokens: 4100, output_tokens: 210, cache_read_tokens: 0, total_tokens: 4310 },
+      'conv-r8-identical',
+      'model-a',
+    );
+    expect(gUnknown?.usage).toEqual({
+      input_tokens: 4100,
+      output_tokens: 210,
+    });
+  });
+
+  it('rejects out-of-order print steps and refuses labeled window fallback on unidentified events after high-water mark advances (R9-P2-3)', () => {
+    const labeledRows: AgyGenMetadataRow[] = [
+      {
+        idx: 2,
+        summary: {
+          usage: { inputTokens: 8200, outputTokens: 400, cacheReadTokens: 0 },
+          maxContextTokens: 1_000_000,
+          modelDisplayName: 'Model A',
+          normalizedModelId: 'model-a',
+          stepIndices: [5, 6],
+        },
+      },
+      {
+        idx: 1,
+        summary: {
+          usage: { inputTokens: 3100, outputTokens: 150, cacheReadTokens: 0 },
+          maxContextTokens: 128_000,
+          modelDisplayName: 'Model A',
+          normalizedModelId: 'model-a',
+          stepIndices: [3],
+        },
+      },
+    ];
+
+    const tracker = new AgyContextUsageTracker({
+      readGenMetadata: () => labeledRows,
+      now: () => 50_000,
+    });
+    tracker.startTurn();
+
+    // 1. Print step 5 arrives first -> resolves to Generation 2 (`1,000,000`) and advances `lastEmittedDbIdx` to 2:
+    const envStep5 = tracker.buildStepUsageEnvelope(
+      { input_tokens: 8000, output_tokens: 200, cache_read_tokens: 0, total_tokens: 8200 },
+      'conv-r9-p2-3',
+      'model-a',
+      { stepIndex: 5 },
+    );
+    expect(envStep5?.usage).toEqual({
+      input_tokens: 8000,
+      output_tokens: 200,
+      context_window: 1_000_000,
+    });
+
+    // 2. Delayed print step 3 (`idx: 1`) arrives AFTER step 5 (`idx: 2`):
+    // Must resolve step 3's true identity (`idx: 1`) BEFORE applying the ordering guard,
+    // rejecting the stale event (`null`) instead of borrowing Gen 2's `1,000,000` window!
+    const delayedStep3 = tracker.buildStepUsageEnvelope(
+      { input_tokens: 3100, output_tokens: 150, cache_read_tokens: 0, total_tokens: 3250 },
+      'conv-r9-p2-3',
+      'model-a',
+      { stepIndex: 3 },
+    );
+    expect(delayedStep3).toBeNull();
+
+    // 3. Subsequent step 6 within the SAME generation 2 (`stepIndices: [5, 6]`) still resolves cleanly,
+    // while delayed replay of step 5 after step 6 is rejected:
+    const envStep6 = tracker.buildStepUsageEnvelope(
+      { input_tokens: 8200, output_tokens: 400, cache_read_tokens: 0, total_tokens: 8600 },
+      'conv-r9-p2-3',
+      'model-a',
+      { stepIndex: 6 },
+    );
+    expect(envStep6?.usage).toEqual({
+      input_tokens: 8200,
+      output_tokens: 400,
+      context_window: 1_000_000,
+    });
+    expect(
+      tracker.buildStepUsageEnvelope(
+        { input_tokens: 8000, output_tokens: 200, cache_read_tokens: 0, total_tokens: 8200 },
+        'conv-r9-p2-3',
+        'model-a',
+        { stepIndex: 5 },
+      ),
+    ).toBeNull();
+
+    // 4. An unidentified event (no `genIdx`, no `stepIndex`) with `activeModel = 'model-a'`
+    // MUST NOT borrow labeled Generation 2's `1,000,000` window merely because `lastEmittedDbIdx` is 2!
+    const unidentified = tracker.buildStepUsageEnvelope(
+      { input_tokens: 2900, output_tokens: 90, cache_read_tokens: 0, total_tokens: 2990 },
+      'conv-r9-p2-3',
+      'model-a',
+    );
+    expect(unidentified?.usage).toEqual({
+      input_tokens: 2900,
+      output_tokens: 90,
     });
   });
 });

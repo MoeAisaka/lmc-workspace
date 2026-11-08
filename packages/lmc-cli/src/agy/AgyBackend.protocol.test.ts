@@ -9,7 +9,7 @@ function fixture() {
   const child = Object.assign(new EventEmitter(), { stdout, stderr, kill: vi.fn(() => true) });
   const calls: string[][] = [];
   const spawnFn = ((_bin: string, args: string[]) => { calls.push(args); return child; }) as unknown as SpawnFn;
-  const backend = new AgyBackend({ cwd: '/work', permissionMode: 'default', spawnFn });
+  const backend = new AgyBackend({ cwd: '/work', permissionMode: 'default', transport: 'print', spawnFn });
   const messages: AgentMessage[] = [];
   backend.onMessage(m => messages.push(m));
   const line = (value: unknown) => stdout.emit('data', JSON.stringify(value) + '\n');

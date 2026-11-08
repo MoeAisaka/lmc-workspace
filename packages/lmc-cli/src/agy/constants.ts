@@ -97,6 +97,24 @@ export function resolveAgyPrintTimeout(explicit?: string): string {
 }
 
 /**
+ * Transport mode for driving the official Antigravity CLI:
+ * - `'acp'` (default on `agy >= 1.5.x`): persistent `agy acp --stdio` JSON-RPC server
+ *   kept warm across turns with native `session/resume` (zero replay) and `session/cancel`.
+ * - `'print'`: legacy per-turn `agy --print --output-format stream-json` fallback.
+ */
+export type AgyTransport = 'acp' | 'print';
+
+export const DEFAULT_AGY_TRANSPORT: AgyTransport = 'acp';
+
+export function resolveAgyTransport(explicit?: AgyTransport): AgyTransport {
+  if (explicit === 'acp' || explicit === 'print') return explicit;
+  const fromEnv = process.env.LMC_AGY_TRANSPORT?.trim().toLowerCase();
+  if (fromEnv === 'print') return 'print';
+  if (fromEnv === 'acp') return 'acp';
+  return DEFAULT_AGY_TRANSPORT;
+}
+
+/**
  * Path to agy's per-workspace conversation cache. agy records the most recent
  * conversation id for each cwd here; print mode does not echo the id, so this is
  * how we recover it for `--conversation`-based resume.

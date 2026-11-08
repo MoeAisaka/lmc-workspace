@@ -1,8 +1,59 @@
+import type { spawn } from 'node:child_process';
 import type { AgentMessage } from '@/agent/core/AgentBackend';
+
+/** Signature of node's `spawn`, injectable so tests can supply a fake process. */
+export type SpawnFn = typeof spawn;
+
+const MAX_STDERR_BUFFER = 16 * 1024;
+const STDERR_HEAD_BYTES = 4 * 1024;
+
+export function appendBoundedStderr(current: string, chunk: string, maxChars: number = MAX_STDERR_BUFFER): string {
+  if (!chunk) return current;
+  const combined = current + chunk;
+  if (combined.length <= maxChars) return combined;
+  const marker = '\n...\n';
+  const headLen = Math.min(STDERR_HEAD_BYTES, Math.floor((maxChars - marker.length) / 2));
+  const tailLen = Math.max(0, maxChars - headLen - marker.length);
+  return combined.slice(0, headLen) + marker + combined.slice(combined.length - tailLen);
+}
+
+export function extractAgyStderrError(stderrText: string): string | null {
+  if (!stderrText.trim()) return null;
+  for (const rawLine of stderrText.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (/^AGY_ERROR:\s*/i.test(line)) {
+      return line.replace(/^AGY_ERROR:\s*/i, '').trim() || line;
+    }
+    if (/^\[agy\]\s*print timeout\b/i.test(line)) {
+      return line;
+    }
+    if (/^(?:panic|fatal error):/i.test(line)) {
+      return line;
+    }
+  }
+  return null;
+}
 
 const object = (v: unknown): Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, any> : {};
 const MAX_LINE = 2 * 1024 * 1024;
 export const GENERIC_AGY_RESULT_ERROR = 'Antigravity did not complete the turn; check Google login, model access and quota in the native CLI';
+
+export class AgyTurnCancelledError extends Error {
+  readonly code = 'AGY_TURN_CANCELLED';
+
+  constructor(message = 'Antigravity turn cancelled') {
+    super(message);
+    this.name = 'AgyTurnCancelledError';
+  }
+}
+
+export function isAgyTurnCancelledError(err: unknown): err is AgyTurnCancelledError {
+  return (
+    err instanceof AgyTurnCancelledError ||
+    (err instanceof Error && (err as { code?: unknown }).code === 'AGY_TURN_CANCELLED')
+  );
+}
 
 export function sanitizeAgyDiagnostic(raw: string): string {
   return raw
@@ -26,6 +77,20 @@ export function isTransientAgyAuthError(raw: string | null | undefined): boolean
 export function isInvalidArgumentAgyError(raw: string | null | undefined): boolean {
   if (!raw) return false;
   return /\bINVALID_ARGUMENT\b|\bcode\s*400\b|\bRequest contains an invalid argument\b/i.test(raw);
+}
+
+/**
+ * Identify transient upstream gRPC/HTTP2/SSE drops (e.g. `stream idle timeout (5m0s)`,
+ * `The stream was interrupted`, `unexpected EOF`, `UNAVAILABLE (code 503)`, `rst_stream`)
+ * that are safe to retry automatically on the existing native conversation.
+ */
+export function isTransientAgyStreamError(raw: string | null | undefined): boolean {
+  if (!raw) return false;
+  if (isTransientAgyAuthError(raw) || isInvalidArgumentAgyError(raw)) return false;
+  if (/\bRESOURCE_EXHAUSTED\b|\bcode\s*429\b|\bquota\b|\brate[ -]?limit/i.test(raw)) return false;
+  return /\bstream idle timeout\b|\bThe stream was interrupted\b|\bunexpected EOF\b|\bECONNRESET\b|\bETIMEDOUT\b|\bUNAVAILABLE\b[\s\S]*\bcode\s*503\b|\bINTERNAL\b[\s\S]*\brst_stream\b|\bACP server exited unexpectedly\b/i.test(
+    raw,
+  );
 }
 
 export function formatAgyTurnError(rawError: string | null | undefined, fallback: string = GENERIC_AGY_RESULT_ERROR): string {
@@ -55,6 +120,7 @@ export class AgyStream {
   private output = false;
   private ended = false;
   private initSeen = false;
+  private toolSeen = false;
   private resultStatus: string | null = null;
   private resultError: string | null = null;
   private resultFinishedReason: string | null = null;
@@ -73,6 +139,10 @@ export class AgyStream {
 
   get didInit(): boolean {
     return this.initSeen;
+  }
+
+  get sawToolActivity(): boolean {
+    return this.toolSeen;
   }
 
   getResultError(): string | null {
@@ -95,9 +165,16 @@ export class AgyStream {
     if (this.buffer.length > MAX_LINE) throw new Error('Antigravity stream record exceeds the supported limit');
   }
 
-  finish(opts: AgyFinishOptions = {}): void {
-    if (this.buffer.trim()) this.line(this.buffer.trim());
+  flushPendingLine(): void {
+    const pending = this.buffer.trim();
     this.buffer = '';
+    if (pending) {
+      this.line(pending);
+    }
+  }
+
+  finish(opts: AgyFinishOptions = {}): void {
+    this.flushPendingLine();
     if (!this.ended) {
       if (opts.stderrError) throw new Error(formatAgyTurnError(opts.stderrError));
       throw new Error('Antigravity ended without a successful result; retry after checking its login and CLI version');
@@ -141,7 +218,14 @@ export class AgyStream {
       this.identify(step.conversation_id);
       if (step.state === 'DONE' && step.usage && Number.isSafeInteger(step.step_index) && step.step_index >= 0 && !this.usageSteps.has(step.step_index)) {
         this.usageSteps.add(step.step_index);
-        this.emit({ type: 'token-count', engine: 'agy', usage: step.usage, usageKey: `${this.conversation}:${step.step_index}`, scope: 'step' });
+        this.emit({
+          type: 'token-count',
+          engine: 'agy',
+          usage: step.usage,
+          usageKey: `${this.conversation}:${step.step_index}`,
+          stepIndex: step.step_index,
+          scope: 'step',
+        });
       }
       if (step.step_type === 'agent_response') {
         if (typeof step.text_delta === 'string' && step.text_delta) {
@@ -151,6 +235,9 @@ export class AgyStream {
         if (step.state === 'DONE' && this.output) {
           this.emit({ type: 'event', name: 'output-complete', payload: null });
         }
+      }
+      if (step.step_type === 'tool' || step.tool_info !== undefined || step.tool_name !== undefined) {
+        this.toolSeen = true;
       }
       if (step.step_type === 'tool' && Number.isSafeInteger(step.step_index) && step.step_index >= 0) {
         const info = object(step.tool_info);

@@ -16,6 +16,51 @@ const SKIP_PERMISSION_MODES: ReadonlySet<PermissionMode> = new Set<PermissionMod
   'bypassPermissions',
 ]);
 
+export function isSkipPermissionsMode(mode: PermissionMode): boolean {
+  return SKIP_PERMISSION_MODES.has(mode);
+}
+
+export type AgyAcpModeId = 'default' | 'accept-edits' | 'plan' | 'auto';
+
+/**
+ * Map an LMC `PermissionMode` onto `agy acp`'s session execution mode.
+ * `agy 1.5.3` ACP advertises `default`, `accept-edits`, and `plan`; `'auto'` is
+ * only selected when explicitly advertised by `availableModeIds`, falling back
+ * to `'accept-edits'` otherwise.
+ */
+export function mapPermissionModeToAgyAcpMode(
+  mode: PermissionMode,
+  availableModeIds?: readonly string[],
+): AgyAcpModeId {
+  if (mode === 'plan' || mode === 'read-only') return 'plan';
+  if (mode === 'auto' && availableModeIds?.includes('auto')) return 'auto';
+  if (mode === 'acceptEdits' || mode === 'safe-yolo' || mode === 'auto') return 'accept-edits';
+  return 'default';
+}
+
+export interface BuildAgyAcpArgsOptions {
+  /** LMC permission mode governing `--dangerously-skip-permissions` vs `--sandbox`. */
+  permissionMode: PermissionMode;
+  /** Directories to expose to agy via repeatable `--add-dir`. */
+  addDirs?: string[];
+}
+
+/**
+ * Build the startup argv for a persistent `agy acp --stdio` server process.
+ */
+export function buildAgyAcpArgs(opts: BuildAgyAcpArgsOptions): string[] {
+  const args: string[] = ['acp', '--stdio'];
+  if (isSkipPermissionsMode(opts.permissionMode)) {
+    args.push('--dangerously-skip-permissions');
+  } else {
+    args.push('--sandbox');
+  }
+  for (const dir of opts.addDirs ?? []) {
+    args.push('--add-dir', dir);
+  }
+  return args;
+}
+
 export interface BuildAgyArgsOptions {
   /** The user prompt for this turn. */
   prompt: string;
