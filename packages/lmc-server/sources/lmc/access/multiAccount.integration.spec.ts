@@ -379,4 +379,80 @@ describe.skipIf(!enabled)('multi-account isolated database integration', () => {
         expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1);
         expect(await db.account.count({ where: { role: 'admin', enabled: true } })).toBe(1);
     });
+    it.each(['sealed', 'legacy'] as const)('authorizes %s files published or delivered in a shared session without static file grants and revokes with the session', async mode => {
+        const shared = await session(a), privateSession = await session(a);
+        await shareSession(shared.id, 0, [b]);
+        const published = await file(a, mode), runtime = await file(a, mode), delivered = await file(a, mode);
+        const pendingDelivery = await file(a, mode), privateAsset = await file(a, mode), uploading = await file(a, mode);
+        const partBytes = Buffer.from('encrypted-published-part-' + mode);
+        const sha256 = createHash('sha256').update(partBytes).digest('hex');
+        await putLocalFile(`assets/${published.id}/${sha256}.enc`, partBytes);
+        await db.fileAssetPart.create({ data: { assetId: published.id, index: 0, size: partBytes.length, sha256 } });
+        await db.fileAsset.update({ where: { id: runtime.id }, data: { runtimeSessionId: shared.id } });
+        await db.fileAsset.update({ where: { id: uploading.id }, data: { state: 'uploading' } });
+        await db.sessionMessage.createMany({
+            data: [
+                { sessionId: shared.id, seq: 2, localId: 'file-published:' + published.id, content: { t: 'encrypted', c: 'synthetic-published' } },
+                { sessionId: shared.id, seq: 3, localId: 'file-published:' + uploading.id, content: { t: 'encrypted', c: 'synthetic-uploading' } },
+                { sessionId: privateSession.id, seq: 2, localId: 'file-published:' + privateAsset.id, content: { t: 'encrypted', c: 'synthetic-private' } },
+            ],
+        });
+        await db.fileDelivery.createMany({
+            data: [
+                { id: randomUUID(), accountId: a.id, sessionId: shared.id, assetId: delivered.id, ciphertext: randomBytes(40), state: 'received' },
+                { id: randomUUID(), accountId: a.id, sessionId: shared.id, assetId: pendingDelivery.id, ciphertext: randomBytes(40), state: 'pending' },
+            ],
+        });
+
+        const seed = await deriveKey(Buffer.from(b.secret, 'base64url'), 'Happy EnCoder', ['content']);
+        const secret = createHash('sha512').update(seed).digest().subarray(0, 32);
+        for (const item of [published, runtime, delivered]) {
+            const res = await app.inject({ url: '/v1/files/' + item.id, headers: headers(b) });
+            expect(res.statusCode).toBe(200);
+            const body = res.json();
+            expect(body).toMatchObject({ id: item.id, shared: true, keyMode: 'sealed' });
+            const wrapped = Buffer.from(body.ownerKey, 'base64');
+            expect(Buffer.from(nacl.box.open(wrapped.slice(57), wrapped.slice(33, 57), wrapped.slice(1, 33), secret)!)).toEqual(item.key);
+        }
+        const partRes = await app.inject({ url: `/v1/files/${published.id}/parts/0`, headers: headers(b) });
+        expect(partRes.statusCode).toBe(200);
+        expect(partRes.rawPayload).toEqual(partBytes);
+
+        const list = (await app.inject({ url: '/v1/files', headers: headers(b) })).json();
+        const listedIds = list.files.map((f: any) => f.id);
+        expect(listedIds).toEqual(expect.arrayContaining([published.id, runtime.id, delivered.id]));
+        for (const hidden of [privateAsset.id, pendingDelivery.id, uploading.id]) {
+            expect(listedIds).not.toContain(hidden);
+            expect((await app.inject({ url: '/v1/files/' + hidden, headers: headers(b) })).statusCode).toBe(404);
+        }
+
+        // Cross-account localId spoofing in another owner's session must never unlock foreign files.
+        const forgedSession = await session(b);
+        await resourcesService.set(b.id, 'session', forgedSession.id, { version: 0, adminManaged: false, grants: [{ accountId: c.id, actions: ['read'] }] });
+        await db.sessionMessage.create({ data: { sessionId: forgedSession.id, seq: 2, localId: 'file-published:' + privateAsset.id, content: { t: 'encrypted', c: 'forged-card' } } });
+        for (const user of [b, c]) {
+            expect((await app.inject({ url: '/v1/files/' + privateAsset.id, headers: headers(user) })).statusCode).toBe(404);
+            expect((await app.inject({ url: '/v1/files', headers: headers(user) })).body).not.toContain(privateAsset.id);
+        }
+
+        // Device credentials, unrelated members, and admins without explicit grants remain denied.
+        const bDevice = { ...b, token: await lmcAuth.createToken(b.id) };
+        for (const denied of [bDevice, c, admin]) {
+            expect((await app.inject({ url: '/v1/files/' + published.id, headers: headers(denied) })).statusCode).toBe(404);
+            expect((await app.inject({ url: `/v1/files/${published.id}/parts/0`, headers: headers(denied) })).statusCode).toBe(404);
+        }
+        expect((await app.inject({ url: '/v1/files', headers: headers(bDevice) })).body).not.toContain(published.id);
+        expect((await app.inject({ method: 'POST', url: `/v1/files/${published.id}/abort`, headers: headers(b) })).statusCode).toBe(404);
+        expect((await app.inject({ method: 'POST', url: `/v1/files/${published.id}/deliveries`, headers: headers(b), payload: { id: randomUUID(), sessionId: forgedSession.id, ciphertext: Buffer.alloc(100).toString('base64') } })).statusCode).toBe(404);
+        await expect(resourcesService.set(b.id, 'file', published.id, { version: 0, adminManaged: false, grants: [{ accountId: c.id, actions: ['read'] }] })).rejects.toMatchObject({ status: 403 });
+
+        // Revoking session read access immediately revokes all session-derived file reads.
+        await shareSession(shared.id, 1, []);
+        for (const item of [published, runtime, delivered]) {
+            expect((await app.inject({ url: '/v1/files/' + item.id, headers: headers(b) })).statusCode).toBe(404);
+        }
+        expect((await app.inject({ url: `/v1/files/${published.id}/parts/0`, headers: headers(b) })).statusCode).toBe(404);
+        const afterRevoke = (await app.inject({ url: '/v1/files', headers: headers(b) })).body;
+        for (const item of [published, runtime, delivered]) expect(afterRevoke).not.toContain(item.id);
+    });
 });

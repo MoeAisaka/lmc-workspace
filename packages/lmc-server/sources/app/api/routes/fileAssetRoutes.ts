@@ -107,22 +107,22 @@ export function fileAssetRoutes(app: Fastify) {
         preHandler: app.authenticate, schema: { querystring: z.object({ before: uuid.optional() }) },
     }, async (request, reply) => {
         reply.header('Cache-Control', 'private, no-store');
-        const before = request.query.before ? await readableFile(request.userId, request.query.before) : null;
+        const before = request.query.before ? await readableFile(request.userId, request.query.before, request.authKind) : null;
         if (request.query.before && !before) return reply.code(404).send({ error: 'File not found' });
         const files = await db.fileAsset.findMany({
-            where: { state: 'ready', AND: [{ OR: [{ accountId: request.userId }, { id: { in: await sharedFileIds(request.userId) } }] }, ...(before ? [{ OR: [{ createdAt: { lt: before.createdAt } }, { createdAt: before.createdAt, id: { lt: before.id } }] }] : [])] },
+            where: { state: 'ready', AND: [{ OR: [{ accountId: request.userId }, { id: { in: await sharedFileIds(request.userId, request.authKind) } }] }, ...(before ? [{ OR: [{ createdAt: { lt: before.createdAt } }, { createdAt: before.createdAt, id: { lt: before.id } }] }] : [])] },
             orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 31,
         });
-        const authorized = await Promise.all(files.slice(0, 30).map(file => readableFile(request.userId, file.id)));
+        const authorized = await Promise.all(files.slice(0, 30).map(file => readableFile(request.userId, file.id, request.authKind)));
         return { files: authorized.filter((f): f is NonNullable<typeof f> => !!f).map(f => ({ ...fileJson(f), shared: f.accountId !== request.userId })), next: files.length > 30 ? files[29].id : null };
     });
     app.get('/v1/files/:id', { preHandler: app.authenticate, schema: { params: idParams } }, async (request, reply) => {
         reply.header('Cache-Control', 'private, no-store');
-        const file = await readableFile(request.userId, request.params.id);
+        const file = await readableFile(request.userId, request.params.id, request.authKind);
         return file ? reply.send({ ...fileJson(file), shared: file.accountId !== request.userId }) : reply.code(404).send({ error: 'File not found' });
     });
     app.get('/v1/files/:id/parts/:index', { preHandler: app.authenticate, schema: { params: partParams } }, async (request, reply) => {
-        const file = await readableFile(request.userId, request.params.id);
+        const file = await readableFile(request.userId, request.params.id, request.authKind);
         if (!file) return reply.code(404).send({ error: 'File not found' });
         const part = await db.fileAssetPart.findUnique({ where: { assetId_index: { assetId: file.id, index: request.params.index } } });
         if (!part) return reply.code(404).send({ error: 'Part not found' });
@@ -142,7 +142,7 @@ export function fileAssetRoutes(app: Fastify) {
             bytes = Buffer.concat(chunks);
         }
         if (bytes.length !== part.size || createHash('sha256').update(bytes).digest('hex') !== part.sha256) return reply.code(503).send({ error: 'Stored part is damaged' });
-        if (file.accountId !== request.userId && !await readableFile(request.userId, file.id)) return reply.code(404).send({ error: 'File not found' });
+        if (file.accountId !== request.userId && !await readableFile(request.userId, file.id, request.authKind)) return reply.code(404).send({ error: 'File not found' });
         return reply.type('application/octet-stream').send(bytes);
     });
 

@@ -111,20 +111,119 @@ export const resourcesService = {
     },
 };
 
+const PUBLISHED_FILE_PREFIX = 'file-published:';
+const ASSET_UUID_RE = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+
+async function readableSharedSessionIdsForOwner(actor: Awaited<ReturnType<typeof loadActor>>, ownerAccountId: string): Promise<string[]> {
+    const sessionPolicies = await db.lmcResourcePolicy.findMany({
+        where: {
+            kind: 'session',
+            ownerAccountId,
+            grants: { some: { accountId: actor.id, account: { enabled: true } } },
+        },
+        include: { grants: { where: { accountId: actor.id } } },
+        take: 1000,
+    });
+    const candidateIds = sessionPolicies
+        .filter(sp => {
+            const g = sp.grants[0];
+            if (!g?.keyEnvelope) return false;
+            const p: Policy = {
+                ownerAccountId: sp.ownerAccountId,
+                version: sp.version,
+                adminManaged: sp.adminManaged,
+                grants: [{ accountId: g.accountId, actions: actions(g.actions) }],
+            };
+            return canAccess(actor, p, 'read');
+        })
+        .map(sp => sp.resourceId);
+    if (!candidateIds.length) return [];
+    const sessions = await db.session.findMany({
+        where: { id: { in: candidateIds }, accountId: ownerAccountId, dataEncryptionKey: { not: null } },
+        select: { id: true },
+    });
+    return sessions.map(s => s.id);
+}
+
 /** Each file read rechecks the resource, recipient and current grant. */
-export async function readableFile(accountId: string, id: string) {
+export async function readableFile(accountId: string, id: string, authKind?: string) {
     const file = await db.fileAsset.findFirst({ where: { id, state: 'ready' } });
     if (!file) return null;
     if (file.accountId === accountId) return file;
-    if (!multiAccountEnabled()) return null;
+    if (!multiAccountEnabled() || (authKind && authKind !== 'web')) return null;
     const actor = await loadActor(accountId);
     const { policy, stored } = await policyFor('file', id, file.accountId, db);
     const grant = stored?.grants.find(g => g.accountId === accountId);
-    if (!canAccess(actor, policy, 'read') || !grant?.keyEnvelope) return null;
-    return { ...file, ownerKey: grant.keyEnvelope, keyMode: 'sealed' };
+    if (canAccess(actor, policy, 'read') && grant?.keyEnvelope) {
+        return { ...file, ownerKey: grant.keyEnvelope, keyMode: 'sealed' };
+    }
+    const sessionIds = await readableSharedSessionIdsForOwner(actor, file.accountId);
+    if (!sessionIds.length) return null;
+    const linked = Boolean(file.runtimeSessionId && sessionIds.includes(file.runtimeSessionId))
+        || Boolean(await db.sessionMessage.findFirst({ where: { sessionId: { in: sessionIds }, localId: PUBLISHED_FILE_PREFIX + file.id }, select: { id: true } }))
+        || Boolean(await db.fileDelivery.findFirst({ where: { accountId: file.accountId, assetId: file.id, sessionId: { in: sessionIds }, state: 'received' }, select: { id: true } }));
+    if (!linked) return null;
+    try {
+        const ownerKey = await lmcAuth.rewrapResourceKey(db, file, accountId);
+        return { ...file, ownerKey: new Uint8Array(ownerKey), keyMode: 'sealed' };
+    } catch {
+        return null;
+    }
 }
-export async function sharedFileIds(accountId: string): Promise<string[]> {
-    if (!multiAccountEnabled()) return [];
-    const policies = await db.lmcResourcePolicy.findMany({ where: { kind: 'file', grants: { some: { accountId } } }, include: { grants: { where: { accountId } } }, take: 1000 });
-    return policies.filter(p => p.grants.some(g => actions(g.actions).includes('read') && g.keyEnvelope)).map(p => p.resourceId);
+export async function sharedFileIds(accountId: string, authKind?: string): Promise<string[]> {
+    if (!multiAccountEnabled() || (authKind && authKind !== 'web')) return [];
+    const actor = await db.account.findUnique({ where: { id: accountId }, select: { id: true, role: true, enabled: true } });
+    if (!actor?.enabled) return [];
+    const [filePolicies, sessionPolicies] = await Promise.all([
+        db.lmcResourcePolicy.findMany({ where: { kind: 'file', grants: { some: { accountId } } }, include: { grants: { where: { accountId } } }, take: 1000 }),
+        db.lmcResourcePolicy.findMany({ where: { kind: 'session', grants: { some: { accountId } } }, include: { grants: { where: { accountId } } }, take: 1000 }),
+    ]);
+    const ids = new Set<string>(
+        filePolicies.filter(p => p.grants.some(g => actions(g.actions).includes('read') && g.keyEnvelope)).map(p => p.resourceId),
+    );
+    const readableSessions = sessionPolicies.filter(p => p.grants.some(g => actions(g.actions).includes('read') && g.keyEnvelope));
+    if (readableSessions.length > 0) {
+        const expectedOwnerBySession = new Map(readableSessions.map(p => [p.resourceId, p.ownerAccountId]));
+        const validSessions = await db.session.findMany({
+            where: { id: { in: [...expectedOwnerBySession.keys()] }, dataEncryptionKey: { not: null } },
+            select: { id: true, accountId: true },
+        });
+        const ownerBySession = new Map(validSessions.filter(s => expectedOwnerBySession.get(s.id) === s.accountId).map(s => [s.id, s.accountId]));
+        if (ownerBySession.size > 0) {
+            const sessionIds = [...ownerBySession.keys()];
+            const owners = [...new Set(ownerBySession.values())];
+            const [runtimeAssets, publishedMsgs, receivedDeliveries] = await Promise.all([
+                db.fileAsset.findMany({ where: { accountId: { in: owners }, state: 'ready', runtimeSessionId: { in: sessionIds } }, select: { id: true, accountId: true, runtimeSessionId: true }, take: 1000 }),
+                db.sessionMessage.findMany({ where: { sessionId: { in: sessionIds }, localId: { startsWith: PUBLISHED_FILE_PREFIX } }, select: { sessionId: true, localId: true }, take: 1000 }),
+                db.fileDelivery.findMany({ where: { accountId: { in: owners }, sessionId: { in: sessionIds }, state: 'received' }, select: { sessionId: true, accountId: true, assetId: true }, orderBy: { createdAt: 'desc' }, take: 1000 }),
+            ]);
+            for (const a of runtimeAssets) {
+                if (a.runtimeSessionId && ownerBySession.get(a.runtimeSessionId) === a.accountId) ids.add(a.id);
+            }
+            const expectedOwnersByAsset = new Map<string, Set<string>>();
+            const addCandidate = (assetId: string, ownerId: string | undefined) => {
+                if (!ownerId) return;
+                let set = expectedOwnersByAsset.get(assetId);
+                if (!set) { set = new Set(); expectedOwnersByAsset.set(assetId, set); }
+                set.add(ownerId);
+            };
+            for (const m of publishedMsgs) {
+                const assetId = m.localId?.slice(PUBLISHED_FILE_PREFIX.length);
+                if (assetId && ASSET_UUID_RE.test(assetId)) addCandidate(assetId, ownerBySession.get(m.sessionId));
+            }
+            for (const d of receivedDeliveries) {
+                if (ownerBySession.get(d.sessionId) === d.accountId) addCandidate(d.assetId, d.accountId);
+            }
+            if (expectedOwnersByAsset.size > 0) {
+                const assets = await db.fileAsset.findMany({
+                    where: { id: { in: [...expectedOwnersByAsset.keys()] }, accountId: { in: owners }, state: 'ready' },
+                    select: { id: true, accountId: true },
+                });
+                for (const a of assets) {
+                    if (expectedOwnersByAsset.get(a.id)?.has(a.accountId)) ids.add(a.id);
+                }
+            }
+        }
+    }
+    return [...ids];
 }

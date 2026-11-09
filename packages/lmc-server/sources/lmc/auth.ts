@@ -69,8 +69,8 @@ export const lmcAuth = {
         const secret = Buffer.from(open(owner.lmcSecret, accountId), 'base64url');
         try { return wrapResourceKey(secret, key); } finally { secret.fill(0); }
     },
-    /** Internal only: caller has checked the resource ACL in this transaction. */
-    async rewrapResourceKey(tx: Prisma.TransactionClient, file: { accountId: string; ownerKey: Uint8Array; keyMode: string }, recipientId: string) {
+    /** Internal only: caller has checked the resource ACL before rewrapping. */
+    async rewrapResourceKey(tx: Pick<Prisma.TransactionClient, 'account'>, file: { accountId: string; ownerKey: Uint8Array; keyMode: string }, recipientId: string) {
         const owner = await tx.account.findUnique({ where: { id: file.accountId }, select: { lmcSecret: true } });
         const recipient = await tx.account.findUnique({ where: { id: recipientId }, select: { lmcSecret: true, enabled: true } });
         if (!owner?.lmcSecret || !recipient?.lmcSecret || !recipient.enabled) throw new Error('Account key unavailable');
