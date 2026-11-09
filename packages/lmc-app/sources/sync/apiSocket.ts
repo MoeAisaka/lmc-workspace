@@ -126,6 +126,27 @@ class ApiSocket {
         this.updateStatus('disconnected');
     }
 
+    /**
+     * Trigger an immediate reconnect if the socket is currently inactive
+     * (e.g. waiting in slow rejected-handshake backoff or idle after mobile/web resume).
+     * Leaves active Socket.IO transport handshakes untouched.
+     */
+    ensureConnected() {
+        const socket = this.socket;
+        if (!socket) {
+            if (this.config) {
+                this.connect();
+            }
+            return;
+        }
+        if (socket.connected || socket.active) {
+            return;
+        }
+        this.clearRejectedReconnect();
+        this.updateStatus('connecting');
+        socket.connect();
+    }
+
     //
     // Listener Management
     //

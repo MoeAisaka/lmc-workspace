@@ -116,6 +116,8 @@ export interface AgyBackendOptions {
   maxBackgroundWakeupRetries?: number;
   /** Idle check interval (ms) for flushing mid-turn ACP text once SQLite confirms the planner step reached DONE. Defaults to 300ms. */
   midTurnFlushMs?: number;
+  /** Idle poll interval (ms) for streaming Antigravity autonomous reactive wakeups between prompts. Defaults to 1000ms. */
+  autonomousPollMs?: number;
   /** Safety grace window (ms) after `session/cancel` before force-recycling a wedged ACP server. */
   acpCancelGraceMs?: number;
   /** Grace window (ms) after SIGTERM before escalating ACP shutdown to SIGKILL. */
@@ -323,6 +325,7 @@ export class AgyBackend implements AgentBackend {
               }
             },
             midTurnFlushMs: opts.midTurnFlushMs,
+            autonomousPollMs: opts.autonomousPollMs,
             cancelGraceMs: opts.acpCancelGraceMs,
             closeSigtermMs: opts.acpCloseSigtermMs,
             closeSigkillMs: opts.acpCloseSigkillMs,

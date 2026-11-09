@@ -221,6 +221,14 @@ class Sync {
     // Generic locking mechanism
     private recalculationLockCount = 0;
     private lastRecalculationTime = 0;
+    private lastForegroundCatchUpAt = 0;
+    private lastRealtimeSocketEventAt = 0;
+    private readonly lastSessionMessageSyncAt = new Map<string, number>();
+    private foregroundViewingWatchdog: ReturnType<typeof setInterval> | null = null;
+    private static readonly FOREGROUND_CATCHUP_THROTTLE_MS = 1_500;
+    private static readonly VIEWING_SESSION_WATCHDOG_MS = 12_000;
+    private static readonly VIEWING_SESSION_STALE_MS = 10_000;
+    private static readonly VIEWING_SESSIONS_LIST_STALE_MS = 30_000;
 
     constructor() {
         this.sessionsSync = new InvalidateSync(this.fetchSessions);
@@ -253,6 +261,7 @@ class Sync {
             apiSocket.sendAppState(getCurrentAppState());
 
             if (nextAppState === 'active') {
+                apiSocket.ensureConnected();
                 const shouldFailAfterResume = this.backgroundSendStartedAt !== null
                     && this.hasPendingOutboxMessages()
                     && (Date.now() - this.backgroundSendStartedAt) >= Sync.BACKGROUND_SEND_TIMEOUT_MS;
@@ -297,18 +306,87 @@ class Sync {
             }
         });
 
-        // Web/desktop: AppState alone doesn't capture tab focus/visibility.
-        // Notify server when the tab becomes hidden, regains visibility,
-        // or window focus changes — so push routing can suppress only when
-        // the user is actually looking at this client.
+        // Web/desktop: AppState alone doesn't capture tab focus/visibility, bfcache
+        // pageshow, or cellular/Wi-Fi network transitions on mobile Safari.
+        // Notify server of focus state AND catch up sessions + the open chat on resume.
         if (Platform.OS === 'web' && typeof document !== 'undefined') {
-            const broadcast = () => {
+            const handleWebVisibilityOrFocus = () => {
+                const nextState = getCurrentAppState();
+                apiSocket.sendAppState(nextState);
+                if (document.visibilityState === 'visible') {
+                    this.catchUpForegroundState();
+                }
+            };
+            const handleWebBlur = () => {
                 apiSocket.sendAppState(getCurrentAppState());
             };
-            document.addEventListener('visibilitychange', broadcast);
-            window.addEventListener('focus', broadcast);
-            window.addEventListener('blur', broadcast);
+            const handleWebOnline = () => {
+                if (document.visibilityState === 'visible') {
+                    this.catchUpForegroundState();
+                } else {
+                    apiSocket.ensureConnected();
+                }
+            };
+            document.addEventListener('visibilitychange', handleWebVisibilityOrFocus);
+            window.addEventListener('focus', handleWebVisibilityOrFocus);
+            window.addEventListener('pageshow', handleWebVisibilityOrFocus);
+            window.addEventListener('online', handleWebOnline);
+            window.addEventListener('blur', handleWebBlur);
         }
+    }
+
+    private isClientVisibleInForeground(): boolean {
+        if (Platform.OS === 'web') {
+            return typeof document === 'undefined' || document.visibilityState === 'visible';
+        }
+        return this.appState === 'active';
+    }
+
+    private catchUpForegroundState = () => {
+        apiSocket.ensureConnected();
+        if (!this.credentials) return;
+        const now = Date.now();
+        if (now - this.lastForegroundCatchUpAt < Sync.FOREGROUND_CATCHUP_THROTTLE_MS) {
+            return;
+        }
+        this.lastForegroundCatchUpAt = now;
+        this.sessionsSync.invalidate();
+        this.machinesSync.invalidate();
+        const viewingSessionId = storage.getState().currentViewingSessionId;
+        if (viewingSessionId) {
+            this.onSessionVisible(viewingSessionId);
+        }
+    };
+
+    private ensureForegroundViewingWatchdog(): void {
+        if (this.foregroundViewingWatchdog !== null) return;
+        const timer = setInterval(() => {
+            if (!this.credentials || !this.isClientVisibleInForeground()) {
+                return;
+            }
+            const state = storage.getState();
+            const viewingSessionId = state.currentViewingSessionId;
+            if (!viewingSessionId) {
+                return;
+            }
+            const session = state.sessions[viewingSessionId];
+            if (!session) {
+                return;
+            }
+            const now = Date.now();
+            const isLiveSession = Boolean(session.thinking || session.active);
+            const lastMsgSync = this.lastSessionMessageSyncAt.get(viewingSessionId) ?? 0;
+            if (isLiveSession && now - lastMsgSync >= Sync.VIEWING_SESSION_STALE_MS) {
+                apiSocket.ensureConnected();
+                this.getMessagesSync(viewingSessionId).invalidate();
+            }
+            if (isLiveSession && now - this.lastRealtimeSocketEventAt >= Sync.VIEWING_SESSIONS_LIST_STALE_MS) {
+                this.lastRealtimeSocketEventAt = now;
+                this.sessionsSync.invalidate();
+            }
+        }, Sync.VIEWING_SESSION_WATCHDOG_MS);
+        (timer as unknown as { unref?: () => void }).unref?.();
+        this.foregroundViewingWatchdog = timer;
     }
 
     async create(credentials: AuthCredentials, encryption: Encryption, accountId?: string) {
@@ -343,6 +421,7 @@ class Sync {
 
         // Subscribe to updates
         this.subscribeToUpdates();
+        this.ensureForegroundViewingWatchdog();
 
         // Sync initial PostHog opt-out state with stored settings
         if (tracking) {
@@ -403,6 +482,7 @@ class Sync {
             this.sessionLastSeq.delete(evicted);
             this.sessionOldestSeq.delete(evicted);
             this.sessionMessageQueue.delete(evicted);
+            this.lastSessionMessageSyncAt.delete(evicted);
         }
     }
 
@@ -2291,6 +2371,7 @@ class Sync {
             }
 
             if (this.encryption.getSessionEncryption(sessionId) !== encryption || !storage.getState().sessions[sessionId]) return;
+            this.lastSessionMessageSyncAt.set(sessionId, Date.now());
             storage.getState().applyMessagesLoaded(sessionId);
             log.log(`💬 fetchMessages completed for session ${sessionId}`);
 
@@ -2728,9 +2809,11 @@ class Sync {
             return;
         }
         const updateData = validatedUpdate.data;
+        this.lastRealtimeSocketEventAt = Date.now();
         console.log(`🔄 Sync: Validated update type: ${updateData.body.t}`);
 
         if (updateData.body.t === 'new-message') {
+            this.lastSessionMessageSyncAt.set(updateData.body.sid, Date.now());
 
             // Get encryption — may not be ready if sessions are still syncing
             let encryption = this.encryption.getSessionEncryption(updateData.body.sid);

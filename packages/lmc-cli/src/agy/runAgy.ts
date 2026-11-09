@@ -313,6 +313,29 @@ export async function runAgy(opts: RunAgyOptions): Promise<'stopped' | 'refresh-
   let abortController = new AbortController();
   let thinking = false;
   let turnActive = false;
+  let autonomousTurnActive = false;
+  let autonomousCancelRequested = false;
+  const autonomousSettledWaiters: Array<() => void> = [];
+  const notifyAutonomousTurnSettled = () => {
+    if (autonomousSettledWaiters.length === 0) return;
+    const waiters = autonomousSettledWaiters.splice(0, autonomousSettledWaiters.length);
+    for (const resolve of waiters) {
+      resolve();
+    }
+  };
+  const waitForAutonomousTurnSettled = (signal: AbortSignal): Promise<void> => {
+    if (!autonomousTurnActive || shouldExit || signal.aborted) {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      const done = () => {
+        signal.removeEventListener('abort', done);
+        resolve();
+      };
+      signal.addEventListener('abort', done, { once: true });
+      autonomousSettledWaiters.push(done);
+    });
+  };
 
   let usageTurn = { id: '', model: null as string | null, startedAt: 0 };
   let displayedModel = initialSelection.model;
@@ -323,11 +346,11 @@ export async function runAgy(opts: RunAgyOptions): Promise<'stopped' | 'refresh-
     return id ? { engine: 'Antigravity', id } : null;
   });
   const refresh = agySessionRefresh(session, handoff, {
-    idle: () => !turnActive && messageQueue.size() === 0,
+    idle: () => !turnActive && !autonomousTurnActive && messageQueue.size() === 0,
     settings: () => ({ model: displayedModel, effort: currentEffort, permissionMode }),
     retireBackend: () => backend.closeForHandoff(),
     configureQueue: request => applyQueueModeRequest(request, messageQueue, session),
-    exit: () => { refreshHandoff = true; shouldExit = true; messageQueue.close(); abortController.abort(); },
+    exit: () => { refreshHandoff = true; shouldExit = true; messageQueue.close(); abortController.abort(); notifyAutonomousTurnSettled(); },
   });
   const sharedRuntime = getSharedRuntime();
   const agyIsolation = sharedRuntime
@@ -505,9 +528,32 @@ export async function runAgy(opts: RunAgyOptions): Promise<'stopped' | 'refresh-
         thinking = nextThinking;
         session.keepAlive(thinking, 'remote');
       }
+      if (msg.status === 'running' && !turnActive && !autonomousTurnActive) {
+        autonomousTurnActive = true;
+        autonomousCancelRequested = false;
+        usageTurn = { id: randomUUID(), model: displayedModel, startedAt: Date.now() };
+        contextUsage.startTurn();
+        sendEnvelopes(sessionManager.startTurn());
+        abortController.abort();
+        abortController = new AbortController();
+      }
       if (msg.status === 'error' && msg.detail) {
         messageBuffer.addMessage(`Error: ${msg.detail}`, 'status');
         sendEnvelopes(sessionManager.mapMessage({ type: 'model-output', textDelta: `\nAntigravity: ${msg.detail}\n` }));
+      }
+      if ((msg.status === 'idle' || msg.status === 'error') && !turnActive && autonomousTurnActive) {
+        const endStatus =
+          msg.status === 'error'
+            ? 'failed'
+            : autonomousCancelRequested
+              ? 'cancelled'
+              : 'completed';
+        autonomousTurnActive = false;
+        autonomousCancelRequested = false;
+        sendEnvelopes(sessionManager.endTurn(endStatus));
+        session.sendSessionEvent({ type: 'ready' });
+        notifyAutonomousTurnSettled();
+        void refresh.drain();
       }
     }
 
@@ -554,10 +600,10 @@ export async function runAgy(opts: RunAgyOptions): Promise<'stopped' | 'refresh-
     const intent = readMessageIntent(message.meta);
     if (intent === 'interrupt') {
       messageQueue.unshift(prompt, mode, undefined, { key: message.localKey });
-      if (turnActive) await handleAbort();
+      if (turnActive || autonomousTurnActive) await handleAbort();
     } else {
       messageQueue.push(prompt, mode, undefined, { key: message.localKey });
-      if (intent === 'steer' && turnActive) session.sendSessionEvent({ type: 'message', message: 'Antigravity 原生 CLI 暂不支持向执行中的回合追加消息，已排队等待下一轮。' });
+      if (intent === 'steer' && (turnActive || autonomousTurnActive)) session.sendSessionEvent({ type: 'message', message: 'Antigravity 原生 CLI 暂不支持向执行中的回合追加消息，已排队等待下一轮。' });
     }
   });
   const agentMail = startAgentMail(session, opts.credentials.token, () => {
@@ -592,6 +638,9 @@ export async function runAgy(opts: RunAgyOptions): Promise<'stopped' | 'refresh-
 
   async function handleAbort() {
     log('Abort requested');
+    if (autonomousTurnActive && !turnActive) {
+      autonomousCancelRequested = true;
+    }
     try {
       await backend.cancel();
     } catch (error) {
@@ -601,10 +650,11 @@ export async function runAgy(opts: RunAgyOptions): Promise<'stopped' | 'refresh-
     session.keepAlive(false, 'remote');
     abortController.abort();
     abortController = new AbortController();
+    notifyAutonomousTurnSettled();
   }
 
   session.rpcHandlerManager.registerHandler('abort', handleAbort);
-  registerQueueControlHandlers(session, messageQueue, { isBusy: () => turnActive, interrupt: handleAbort });
+  registerQueueControlHandlers(session, messageQueue, { isBusy: () => turnActive || autonomousTurnActive, interrupt: handleAbort });
   registerKillSessionHandler(session.rpcHandlerManager, async () => {
     archiveRequested = true;
     shouldExit = true;
@@ -627,6 +677,10 @@ export async function runAgy(opts: RunAgyOptions): Promise<'stopped' | 'refresh-
     }
 
     while (!shouldExit) {
+      while (autonomousTurnActive && !shouldExit) {
+        await waitForAutonomousTurnSettled(abortController.signal);
+      }
+      if (shouldExit) break;
       const waitSignal = abortController.signal;
       const batch = await messageQueue.waitForMessagesAndGetAsString(waitSignal);
       if (!batch) {
@@ -635,6 +689,11 @@ export async function runAgy(opts: RunAgyOptions): Promise<'stopped' | 'refresh-
         break;
       }
 
+      if (autonomousTurnActive) {
+        autonomousTurnActive = false;
+        autonomousCancelRequested = false;
+        notifyAutonomousTurnSettled();
+      }
       turnActive = true;
       backend.setModel(batch.mode.model);
       backend.setPermissionMode(batch.mode.permissionMode);

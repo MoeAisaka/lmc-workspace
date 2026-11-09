@@ -102,4 +102,21 @@ describe('socket recovery after a rejected handshake', () => {
         vi.advanceTimersByTime(1_000);
         expect(socket.connect).toHaveBeenCalledTimes(8);
     });
+
+    it('immediately reconnects an inactive socket on ensureConnected without disturbing active connections', () => {
+        socket.reject();
+        // Sitting in rejected backoff (`active === false, connected === false`):
+        expect(socket.connect).not.toHaveBeenCalled();
+        apiSocket.ensureConnected();
+        expect(socket.connect).toHaveBeenCalledTimes(1);
+
+        // While connecting (`active === true`), ensureConnected is a no-op:
+        apiSocket.ensureConnected();
+        expect(socket.connect).toHaveBeenCalledTimes(1);
+
+        // Once connected (`connected === true`), ensureConnected is a no-op:
+        socket.accept();
+        apiSocket.ensureConnected();
+        expect(socket.connect).toHaveBeenCalledTimes(1);
+    });
 });

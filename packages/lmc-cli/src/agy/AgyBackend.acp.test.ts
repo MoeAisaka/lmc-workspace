@@ -4190,4 +4190,345 @@ describe('AgyBackend persistent ACP mode', () => {
       rmSync(tmpHome, { recursive: true, force: true });
     }
   });
+
+  it('streams Antigravity autonomous reactive wakeups live while idle and skips duplicate replay via session/resume on next prompt', async () => {
+    const tmpHome = mkdtempSync(join(tmpdir(), 'lmc-agy-autonomous-wakeup-'));
+    try {
+      const convId = 'conv-autonomous-wakeup-777';
+      const db = openTestConversationDb(tmpHome, convId);
+      const logsDir = join(tmpHome, 'brain', convId, '.system_generated', 'logs');
+      mkdirSync(logsDir, { recursive: true });
+      const transcriptFullPath = join(logsDir, 'transcript_full.jsonl');
+
+      const appendTranscriptStep = (entry: Record<string, unknown>) => {
+        writeFileSync(transcriptFullPath, JSON.stringify(entry) + '\n', { flag: 'a', encoding: 'utf8' });
+      };
+
+      // Simulate native `ACPServer`'s `RecordStepSeen` cursor:
+      // - `session/new` starts cursor at -1
+      // - `session/resume` advances cursor to current `MAX(idx)` in `steps` (`SkipHistory`)
+      // - `session/prompt` replays any unseen steps `> seenStepCursor` BEFORE emitting the new turn!
+      let acpServerSeenStepCursor = -1;
+      let resumeCalls = 0;
+
+      const proc = createMockAcpProcess((msg, p) => {
+        if (msg.method === 'initialize') {
+          p.send({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: 1 } });
+        } else if (msg.method === 'session/new') {
+          p.send({ jsonrpc: '2.0', id: msg.id, result: sessionCatalogPayload(convId) });
+        } else if (msg.method === 'session/resume') {
+          resumeCalls += 1;
+          const maxRow = db.prepare('SELECT COALESCE(MAX(idx), -1) AS maxIdx FROM steps').get() as { maxIdx: number };
+          acpServerSeenStepCursor = maxRow.maxIdx;
+          p.send({ jsonrpc: '2.0', id: msg.id, result: sessionCatalogPayload(convId) });
+        } else if (msg.method === 'session/set_mode' || msg.method === 'session/set_model') {
+          p.send({ jsonrpc: '2.0', id: msg.id, result: {} });
+        } else if (msg.method === 'session/prompt') {
+          const promptText = msg.params?.prompt?.[0]?.text ?? '';
+          if (promptText === 'Launch async replay') {
+            db.prepare('INSERT INTO steps (idx, step_type, status) VALUES (0, 14, 3), (1, 15, 3)').run();
+            const gen1 = buildGenMetadataBlob(120, 30, 0, { stepIndices: [1], maxContextTokens: 200_000 });
+            db.prepare('INSERT INTO gen_metadata (idx, data, size) VALUES (1, ?, ?)').run(gen1, gen1.byteLength);
+            appendTranscriptStep({ step_index: 0, source: 'USER_EXPLICIT', type: 'USER_INPUT', status: 'DONE', content: promptText });
+            appendTranscriptStep({ step_index: 1, source: 'MODEL', type: 'PLANNER_RESPONSE', status: 'DONE', content: '已启动后台回放，等待通知。' });
+            acpServerSeenStepCursor = 1;
+            p.send({
+              jsonrpc: '2.0',
+              method: 'session/update',
+              params: {
+                sessionId: convId,
+                update: {
+                  sessionUpdate: 'agent_message_chunk',
+                  content: { type: 'text', text: '已启动后台回放，等待通知。' },
+                },
+              },
+            });
+            p.send({
+              jsonrpc: '2.0',
+              id: msg.id,
+              result: { stopReason: 'end_turn', usage: { inputTokens: 120, outputTokens: 30, totalTokens: 150 } },
+            });
+          } else if (promptText === '继续下一步') {
+            // Replays unseen autonomous steps ONLY if `session/resume` was forgotten!
+            if (acpServerSeenStepCursor < 5) {
+              p.send({
+                jsonrpc: '2.0',
+                method: 'session/update',
+                params: {
+                  sessionId: convId,
+                  update: {
+                    sessionUpdate: 'agent_message_chunk',
+                    content: { type: 'text', text: 'DUPLICATE_REPLAY_BUG: 后台回放任务已完成！' },
+                  },
+                },
+              });
+            }
+            db.prepare('INSERT INTO steps (idx, step_type, status) VALUES (6, 14, 3), (7, 15, 3)').run();
+            const gen3 = buildGenMetadataBlob(650, 45, 0, { stepIndices: [7], maxContextTokens: 200_000 });
+            db.prepare('INSERT INTO gen_metadata (idx, data, size) VALUES (3, ?, ?)').run(gen3, gen3.byteLength);
+            appendTranscriptStep({ step_index: 6, source: 'USER_EXPLICIT', type: 'USER_INPUT', status: 'DONE', content: promptText });
+            appendTranscriptStep({ step_index: 7, source: 'MODEL', type: 'PLANNER_RESPONSE', status: 'DONE', content: '收到，开始下一步分析。' });
+            acpServerSeenStepCursor = 7;
+            p.send({
+              jsonrpc: '2.0',
+              method: 'session/update',
+              params: {
+                sessionId: convId,
+                update: {
+                  sessionUpdate: 'agent_message_chunk',
+                  content: { type: 'text', text: '收到，开始下一步分析。' },
+                },
+              },
+            });
+            p.send({
+              jsonrpc: '2.0',
+              id: msg.id,
+              result: { stopReason: 'end_turn', usage: { inputTokens: 650, outputTokens: 45, totalTokens: 695 } },
+            });
+          }
+        }
+      });
+
+      const emitted: AgentMessage[] = [];
+      const sessionManager = new AcpSessionManager();
+      const envelopes: any[] = [];
+      const backend = new AgyBackend({
+        cwd: '/work',
+        permissionMode: 'default',
+        model: 'gemini-4-argon-medium',
+        agyHomeDir: tmpHome,
+        autonomousPollMs: 30,
+        midTurnFlushMs: 25,
+        spawnFn: (() => proc) as unknown as SpawnFn,
+      });
+
+      let turnActive = false;
+      let autonomousActive = false;
+      backend.onMessage((msg) => {
+        emitted.push(msg);
+        if (msg.type === 'status' && msg.status === 'running' && !turnActive && !autonomousActive) {
+          autonomousActive = true;
+          envelopes.push(...sessionManager.startTurn());
+        }
+        envelopes.push(...sessionManager.mapMessage(msg));
+        if (msg.type === 'status' && msg.status === 'idle' && !turnActive && autonomousActive) {
+          autonomousActive = false;
+          envelopes.push(...sessionManager.endTurn('completed'));
+        }
+      });
+
+      await backend.startSession();
+      turnActive = true;
+      envelopes.push(...sessionManager.startTurn());
+      await backend.sendPrompt('/work', 'Launch async replay');
+      envelopes.push(...sessionManager.endTurn('completed'));
+      turnActive = false;
+
+      // Now `agy acp --stdio` is completely silent on stdout while a background task wakes `agy`!
+      db.prepare('INSERT INTO steps (idx, step_type, status) VALUES (2, 101, 3), (3, 15, 3), (4, 132, 3), (5, 15, 3)').run();
+      const gen2 = buildGenMetadataBlob(500, 80, 100, { stepIndices: [3, 5], maxContextTokens: 200_000 });
+      db.prepare('INSERT INTO gen_metadata (idx, data, size) VALUES (2, ?, ?)').run(gen2, gen2.byteLength);
+      appendTranscriptStep({
+        step_index: 2,
+        source: 'SYSTEM',
+        type: 'SYSTEM_MESSAGE',
+        status: 'DONE',
+        content: 'Background task finished: WAKE_MARKER_777',
+      });
+      appendTranscriptStep({
+        step_index: 3,
+        source: 'MODEL',
+        type: 'PLANNER_RESPONSE',
+        status: 'DONE',
+        thinking: '检查后台任务输出文件',
+        content: '正在汇总回放结果……',
+        tool_calls: [{ name: 'read_file', args: { Path: '/work/replay.json' } }],
+      });
+      appendTranscriptStep({
+        step_index: 4,
+        source: 'MODEL',
+        type: 'GENERIC',
+        status: 'DONE',
+        content: '{"sharpe": 2.41}',
+      });
+      appendTranscriptStep({
+        step_index: 5,
+        source: 'MODEL',
+        type: 'PLANNER_RESPONSE',
+        status: 'DONE',
+        content: '后台回放任务已完成！Sharpe = 2.41。',
+      });
+
+      await vi.waitFor(
+        () => {
+          const hasAutonomousText = envelopes.some(
+            (e) => e.ev?.t === 'text' && !e.ev.thinking && String(e.ev.text).includes('后台回放任务已完成！Sharpe = 2.41。'),
+          );
+          expect(hasAutonomousText).toBe(true);
+          expect(autonomousActive).toBe(false);
+        },
+        { timeout: 2_000 },
+      );
+
+      // Verify autonomous step usage was emitted live with `belongsToCurrentTurn: true`!
+      const autoUsage = emitted.find(
+        (m): m is Extract<AgentMessage, { type: 'token-count' }> =>
+          m.type === 'token-count' && m.scope === 'step' && m.usageKey === `${convId}:sql:2`,
+      );
+      expect(autoUsage).toBeDefined();
+      expect(autoUsage?.belongsToCurrentTurn).toBe(true);
+      expect((autoUsage?.usage as any)?.input_tokens).toBe(500);
+      expect((autoUsage?.usage as any)?.output_tokens).toBe(80);
+
+      // Verify tool-call + tool-result envelopes were emitted during autonomous wakeup:
+      expect(envelopes.some((e) => e.ev?.t === 'tool-call-start' && e.ev.name === 'read_file')).toBe(true);
+      expect(envelopes.some((e) => e.ev?.t === 'tool-call-end')).toBe(true);
+
+      // Now send Turn 2: `AgyAcpSession` MUST invoke `session/resume` first so `ACPServer` skips steps 2..5!
+      turnActive = true;
+      envelopes.push(...sessionManager.startTurn());
+      await backend.sendPrompt('/work', '继续下一步');
+      envelopes.push(...sessionManager.endTurn('completed'));
+      turnActive = false;
+
+      expect(resumeCalls).toBe(1);
+      const assistantTexts = envelopes
+        .filter((e) => e.ev?.t === 'text' && !e.ev.thinking)
+        .map((e) => String(e.ev.text));
+      expect(assistantTexts).toEqual([
+        '已启动后台回放，等待通知。',
+        '正在汇总回放结果……',
+        '后台回放任务已完成！Sharpe = 2.41。',
+        '收到，开始下一步分析。',
+      ]);
+      expect(assistantTexts.some((t) => t.includes('DUPLICATE_REPLAY_BUG'))).toBe(false);
+
+      db.close();
+      await backend.dispose();
+    } finally {
+      rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+
+  it('flushes mid-turn ERROR_MESSAGE banners immediately and keeps polling past 10 intervals without splitting RUNNING steps', async () => {
+    const tmpHome = mkdtempSync(join(tmpdir(), 'lmc-agy-midturn-error-flush-'));
+    try {
+      const convId = 'conv-midturn-error-flush-1';
+      const db = openTestConversationDb(tmpHome, convId);
+      let finishPrompt!: () => void;
+
+      const proc = createMockAcpProcess((msg, p) => {
+        if (msg.method === 'initialize') {
+          p.send({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: 1 } });
+        } else if (msg.method === 'session/new') {
+          p.send({ jsonrpc: '2.0', id: msg.id, result: sessionCatalogPayload(convId) });
+        } else if (msg.method === 'session/set_mode' || msg.method === 'session/set_model') {
+          p.send({ jsonrpc: '2.0', id: msg.id, result: {} });
+        } else if (msg.method === 'session/prompt') {
+          // 1. Insert USER_INPUT (0) and terminal ERROR_MESSAGE (1, step_type=17, status=3, no gen_metadata)
+          db.prepare('INSERT INTO steps (idx, step_type, status) VALUES (0, 14, 3), (1, 17, 3)').run();
+          p.send({
+            jsonrpc: '2.0',
+            method: 'session/update',
+            params: {
+              sessionId: convId,
+              update: {
+                sessionUpdate: 'agent_message_chunk',
+                content: { type: 'text', text: '\n⚠️ The stream was interrupted. Please continue the task you were working on.\n' },
+              },
+            },
+          });
+          finishPrompt = () => {
+            p.send({
+              jsonrpc: '2.0',
+              id: msg.id,
+              result: { stopReason: 'end_turn', usage: { inputTokens: 200, outputTokens: 50, totalTokens: 250 } },
+            });
+          };
+        }
+      });
+
+      const sessionManager = new AcpSessionManager();
+      const envelopes: any[] = [];
+      const backend = new AgyBackend({
+        cwd: '/work',
+        permissionMode: 'default',
+        agyHomeDir: tmpHome,
+        midTurnFlushMs: 15,
+        autonomousPollMs: 0,
+        spawnFn: (() => proc) as unknown as SpawnFn,
+      });
+      backend.onMessage((msg) => {
+        envelopes.push(...sessionManager.mapMessage(msg));
+      });
+
+      await backend.startSession();
+      envelopes.push(...sessionManager.startTurn());
+      const promptPromise = backend.sendPrompt('/work', 'Run long analysis');
+
+      // 1. ERROR_MESSAGE (`step_type = 17, status = 3`) flushes mid-turn without needing `gen_metadata`!
+      await vi.waitFor(
+        () => {
+          const texts = envelopes.filter((e) => e.ev?.t === 'text' && !e.ev.thinking);
+          expect(texts).toHaveLength(1);
+          expect(texts[0].ev.text).toContain('The stream was interrupted');
+        },
+        { timeout: 1_000 },
+      );
+
+      // 2. Retry `PLANNER_RESPONSE` (`idx = 2, step_type = 15, status = 8` RUNNING) streams 2 chunks and pauses >12 polls:
+      db.prepare('INSERT INTO steps (idx, step_type, status) VALUES (2, 15, 8)').run();
+      proc.send({
+        jsonrpc: '2.0',
+        method: 'session/update',
+        params: {
+          sessionId: convId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: '## 阶段结论\n\n第一部分' },
+          },
+        },
+      });
+      await new Promise((r) => setTimeout(r, 220)); // >12 fast polls while status === 8!
+      // MUST NOT have split the in-flight Markdown message!
+      expect(envelopes.filter((e) => e.ev?.t === 'text' && !e.ev.thinking)).toHaveLength(1);
+
+      proc.send({
+        jsonrpc: '2.0',
+        method: 'session/update',
+        params: {
+          sessionId: convId,
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: '与第二部分完整合并。' },
+          },
+        },
+      });
+      await new Promise((r) => setTimeout(r, 220)); // >12 polls again before SQLite commits DONE!
+      expect(envelopes.filter((e) => e.ev?.t === 'text' && !e.ev.thinking)).toHaveLength(1);
+
+      // Now SQLite commits `status = 3` (`DONE`) + `gen_metadata` AFTER >10 polls:
+      // Adaptive slow poll (`1000ms` floor when >10 polls) still flushes mid-turn!
+      db.prepare('UPDATE steps SET status = 3 WHERE idx = 2').run();
+      const gen1 = buildGenMetadataBlob(200, 50, 0, { stepIndices: [2], maxContextTokens: 200_000 });
+      db.prepare('INSERT INTO gen_metadata (idx, data, size) VALUES (1, ?, ?)').run(gen1, gen1.byteLength);
+
+      await vi.waitFor(
+        () => {
+          const texts = envelopes.filter((e) => e.ev?.t === 'text' && !e.ev.thinking);
+          expect(texts).toHaveLength(2);
+          expect(texts[1].ev.text).toBe('## 阶段结论\n\n第一部分与第二部分完整合并。');
+        },
+        { timeout: 2_500 },
+      );
+
+      finishPrompt();
+      await promptPromise;
+      envelopes.push(...sessionManager.endTurn('completed'));
+      db.close();
+      await backend.dispose();
+    } finally {
+      rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
 });

@@ -551,21 +551,121 @@ export function readAgyConversationStateSnapshot(
 }
 
 const AGY_STEP_TYPE_PLANNER_RESPONSE = 15;
+const AGY_STEP_TYPE_ERROR_MESSAGE = 17;
+const AGY_STEP_TYPE_SYSTEM_MESSAGE = 101;
 const AGY_STEP_STATUS_DONE = 3;
+
+export interface AgyAutonomousWakeupProbe {
+  dbExists: boolean;
+  readOk: boolean;
+  hasSystemWakeup: boolean;
+  maxStepIdx: number;
+  latestStep: { idx: number; stepType: number; status: number } | null;
+}
+
+/**
+ * Probe Antigravity's SQLite `steps` table while `agy acp --stdio` is between `session/prompt`
+ * RPCs to detect autonomous reactive wakeups (`step_type === 101`, `SYSTEM_MESSAGE` from finished
+ * background tasks, subagents, or timers) and observe the latest step's lifecycle status.
+ */
+export function probeAgyAutonomousWakeupState(
+  conversationId: string | null | undefined,
+  afterStepIdx: number,
+  opts: { agyHomeDir?: string } = {},
+): AgyAutonomousWakeupProbe {
+  if (typeof conversationId !== 'string' || !VALID_CONVERSATION_ID.test(conversationId)) {
+    return { dbExists: false, readOk: true, hasSystemWakeup: false, maxStepIdx: -1, latestStep: null };
+  }
+  const agyHomeDir = opts.agyHomeDir ?? resolveDefaultAgyHomeDir();
+  const dbPath = join(agyHomeDir, 'conversations', `${conversationId}.db`);
+  const presence = probeSqliteFilePresence(dbPath);
+  if (presence === 'absent') {
+    return { dbExists: false, readOk: true, hasSystemWakeup: false, maxStepIdx: -1, latestStep: null };
+  }
+  if (presence === 'error') {
+    return { dbExists: true, readOk: false, hasSystemWakeup: false, maxStepIdx: -1, latestStep: null };
+  }
+
+  let DatabaseSyncCtor: any;
+  try {
+    ({ DatabaseSync: DatabaseSyncCtor } = requireFromHere('node:sqlite'));
+  } catch {
+    return { dbExists: true, readOk: false, hasSystemWakeup: false, maxStepIdx: -1, latestStep: null };
+  }
+
+  const safeAfterStep = Number.isSafeInteger(afterStepIdx) ? afterStepIdx : -1;
+
+  try {
+    const roDb = new DatabaseSyncCtor(dbPath, { readOnly: true });
+    try {
+      const stepCols = roDb.prepare('PRAGMA table_info(steps)').all() as Array<{ name?: unknown }>;
+      const hasStatusCol = stepCols.some((c) => c?.name === 'status');
+      const hasStepTypeCol = stepCols.some((c) => c?.name === 'step_type');
+      if (!hasStatusCol || !hasStepTypeCol) {
+        return { dbExists: true, readOk: true, hasSystemWakeup: false, maxStepIdx: -1, latestStep: null };
+      }
+
+      const latestRow = roDb
+        .prepare('SELECT idx, step_type, status FROM steps ORDER BY idx DESC LIMIT 1')
+        .get() as { idx?: unknown; step_type?: unknown; status?: unknown } | undefined;
+
+      const latestStep =
+        latestRow &&
+        typeof latestRow.idx === 'number' &&
+        Number.isSafeInteger(latestRow.idx) &&
+        typeof latestRow.step_type === 'number' &&
+        Number.isSafeInteger(latestRow.step_type) &&
+        typeof latestRow.status === 'number' &&
+        Number.isSafeInteger(latestRow.status)
+          ? {
+              idx: latestRow.idx,
+              stepType: latestRow.step_type,
+              status: latestRow.status,
+            }
+          : null;
+
+      const maxStepIdx = latestStep ? latestStep.idx : -1;
+      if (maxStepIdx <= safeAfterStep) {
+        return {
+          dbExists: true,
+          readOk: true,
+          hasSystemWakeup: false,
+          maxStepIdx,
+          latestStep,
+        };
+      }
+
+      const wakeupRow = roDb
+        .prepare('SELECT 1 AS found FROM steps WHERE idx > ? AND step_type = ? LIMIT 1')
+        .get(safeAfterStep, AGY_STEP_TYPE_SYSTEM_MESSAGE) as { found?: unknown } | undefined;
+
+      return {
+        dbExists: true,
+        readOk: true,
+        hasSystemWakeup: Boolean(wakeupRow),
+        maxStepIdx,
+        latestStep,
+      };
+    } finally {
+      roDb.close();
+    }
+  } catch {
+    return { dbExists: true, readOk: false, hasSystemWakeup: false, maxStepIdx: -1, latestStep: null };
+  }
+}
 
 export type AgyIdlePlannerStepCompletion =
   | { finalized: false }
   | { finalized: true; stepIdx: number; genIdx: number };
 
 /**
- * Check whether the pending tool-less `PLANNER_RESPONSE` step (`step_type === 15`) has
- * genuinely finalized (`status === 3`, `DONE`) in SQLite `steps` AND `gen_metadata`
- * (`ModelUsageStats` populated, `stepIndices` ending at `latestStep.idx`).
+ * Check whether the pending tool-less `PLANNER_RESPONSE` step (`step_type === 15`) or terminal
+ * `ERROR_MESSAGE` banner (`step_type === 17`) has genuinely finalized (`status === 3`, `DONE`)
+ * in SQLite `steps` (and `gen_metadata` for `PLANNER_RESPONSE` steps).
  *
  * Used by persistent `agy acp --stdio` idle flush so network/decoding pauses mid-sentence
  * NEVER split a single streaming Markdown message into multiple chat bubbles, while a
- * completed tool-less response entering `WaitForConversationFullyIdle` still flushes
- * within `midTurnFlushMs`.
+ * completed tool-less response or stream-interrupted banner flushes within `midTurnFlushMs`.
  */
 export function checkAgyIdlePlannerStepFinalized(
   conversationId: string | null | undefined,
@@ -609,9 +709,22 @@ export function checkAgyIdlePlannerStepFinalized(
         !latestStep ||
         typeof latestStep.idx !== 'number' ||
         !Number.isSafeInteger(latestStep.idx) ||
-        latestStep.step_type !== AGY_STEP_TYPE_PLANNER_RESPONSE ||
         latestStep.status !== AGY_STEP_STATUS_DONE
       ) {
+        return { finalized: false };
+      }
+
+      // Stream interruption / system error banners (`step_type === 17`, `DONE`) never write
+      // `gen_metadata` rows; flush them immediately while no `RUNNING` step exists after them.
+      if (latestStep.step_type === AGY_STEP_TYPE_ERROR_MESSAGE) {
+        return {
+          finalized: true,
+          stepIdx: latestStep.idx,
+          genIdx: safeAfterGen,
+        };
+      }
+
+      if (latestStep.step_type !== AGY_STEP_TYPE_PLANNER_RESPONSE) {
         return { finalized: false };
       }
 

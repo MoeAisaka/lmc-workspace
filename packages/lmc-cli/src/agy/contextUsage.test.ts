@@ -6,8 +6,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { sessionEnvelopeSchema } from 'lmc-wire';
 import {
   AgyContextUsageTracker,
+  checkAgyIdlePlannerStepFinalized,
   normalizeAgyDisplayModelId,
   parseAgyGenMetadataRow,
+  probeAgyAutonomousWakeupState,
   readAgyConversationGenMetadata,
   type AgyGenMetadataRow,
 } from './contextUsage';
@@ -806,5 +808,59 @@ describe('contextUsage', () => {
       input_tokens: 2900,
       output_tokens: 90,
     });
+  });
+
+  it('flushes terminal ERROR_MESSAGE steps without gen_metadata and probes SYSTEM_MESSAGE reactive wakeups', () => {
+    const { DatabaseSync } = requireFromHere('node:sqlite');
+    const tmpHome = mkdtempSync(join(os.tmpdir(), 'agy-wakeup-probe-'));
+    try {
+      const convDir = join(tmpHome, 'conversations');
+      mkdirSync(convDir, { recursive: true });
+      const convId = 'conv-wakeup-probe-1';
+      const db = new DatabaseSync(join(convDir, `${convId}.db`));
+      db.exec(`
+        CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER NOT NULL, status INTEGER NOT NULL);
+        CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB, size INTEGER NOT NULL DEFAULT 0);
+      `);
+
+      // Step 1: completed planner step (`step_type = 15, status = 3`)
+      db.prepare('INSERT INTO steps (idx, step_type, status) VALUES (1, 15, 3)').run();
+      expect(probeAgyAutonomousWakeupState(convId, 1, { agyHomeDir: tmpHome })).toEqual({
+        dbExists: true,
+        readOk: true,
+        hasSystemWakeup: false,
+        maxStepIdx: 1,
+        latestStep: { idx: 1, stepType: 15, status: 3 },
+      });
+
+      // Step 2: terminal ERROR_MESSAGE (`step_type = 17, status = 3`) with NO gen_metadata row
+      db.prepare('INSERT INTO steps (idx, step_type, status) VALUES (2, 17, 3)').run();
+      expect(checkAgyIdlePlannerStepFinalized(convId, 1, 5, { agyHomeDir: tmpHome })).toEqual({
+        finalized: true,
+        stepIdx: 2,
+        genIdx: 5,
+      });
+
+      // Step 3: in-flight PLANNER_RESPONSE (`step_type = 15, status = 8` RUNNING) -> NOT finalized!
+      db.prepare('INSERT INTO steps (idx, step_type, status) VALUES (3, 15, 8)').run();
+      expect(checkAgyIdlePlannerStepFinalized(convId, 1, 5, { agyHomeDir: tmpHome })).toEqual({
+        finalized: false,
+      });
+
+      // Step 4: reactive wakeup SYSTEM_MESSAGE (`step_type = 101, status = 3`) after baseline 3
+      db.prepare('UPDATE steps SET status = 3 WHERE idx = 3').run();
+      db.prepare('INSERT INTO steps (idx, step_type, status) VALUES (4, 101, 3), (5, 15, 8)').run();
+      expect(probeAgyAutonomousWakeupState(convId, 3, { agyHomeDir: tmpHome })).toEqual({
+        dbExists: true,
+        readOk: true,
+        hasSystemWakeup: true,
+        maxStepIdx: 5,
+        latestStep: { idx: 5, stepType: 15, status: 8 },
+      });
+
+      db.close();
+    } finally {
+      rmSync(tmpHome, { recursive: true, force: true });
+    }
   });
 });

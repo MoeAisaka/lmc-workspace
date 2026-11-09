@@ -3,10 +3,12 @@ import { randomUUID } from 'node:crypto';
 import {
   chmodSync,
   closeSync,
+  fstatSync,
   fsyncSync,
   mkdirSync,
   openSync,
   readFileSync,
+  readSync,
   renameSync,
   statSync,
   unlinkSync,
@@ -25,6 +27,7 @@ import {
 } from './cliArgs';
 import {
   checkAgyIdlePlannerStepFinalized,
+  probeAgyAutonomousWakeupState,
   readAgyCompletedOutputBaseline,
   readAgyConversationGenMetadataSince,
   readAgyConversationStateSnapshot,
@@ -50,7 +53,13 @@ const POST_EXIT_STDIO_DRAIN_MS = 200;
 const UNSAFE_SHUTDOWN_TIMEOUT_MESSAGE =
   'Antigravity ACP server did not exit within shutdown timeout; refusing unsafe state transition';
 export const DEFAULT_MID_TURN_FLUSH_MS = 300;
-const MAX_MID_TURN_FLUSH_POLLS = 10;
+const MAX_FAST_MID_TURN_FLUSH_POLLS = 10;
+const SLOW_MID_TURN_FLUSH_MS = 1_000;
+export const DEFAULT_AUTONOMOUS_POLL_MS = 1_000;
+const AUTONOMOUS_TRANSCRIPT_TAIL_WINDOW_BYTES = 65_536;
+const AUTONOMOUS_TRANSCRIPT_READ_CHUNK_BYTES = 65_536;
+const AUTONOMOUS_ERROR_IDLE_TIMEOUT_MS = 45_000;
+const AUTONOMOUS_GEN_METADATA_FALLBACK_MS = 5_000;
 export const DEFAULT_ACP_CANCEL_GRACE_MS = 5_000;
 
 export type AgyRetrySafety =
@@ -380,6 +389,7 @@ export interface AgyAcpSessionOptions {
   getConversationId: () => string | null;
   setConversationId: (id: string) => void;
   midTurnFlushMs?: number;
+  autonomousPollMs?: number;
   cancelGraceMs?: number;
   closeSigtermMs?: number;
   closeSigkillMs?: number;
@@ -676,6 +686,7 @@ export class AgyAcpSession {
   private readonly getConversationId: () => string | null;
   private readonly setConversationId: (id: string) => void;
   private readonly midTurnFlushMs: number;
+  private readonly autonomousPollMs: number;
   private readonly cancelGraceMs: number;
   private readonly closeSigtermMs: number;
   private readonly closeSigkillMs: number;
@@ -706,6 +717,23 @@ export class AgyAcpSession {
   private activeTurn: ActiveTurnState | null = null;
   private lastSettledAttemptTurn: ActiveTurnState | null = null;
 
+  private autonomousPollTimer: ReturnType<typeof setTimeout> | null = null;
+  private autonomousSessionId: string | null = null;
+  private autonomousBaselineStepIdx = -1;
+  private autonomousEmittedStepIdx = -1;
+  private autonomousTurnActive = false;
+  private autonomousTurnSeq: number | null = null;
+  private autonomousTranscriptPath: string | null = null;
+  private autonomousTranscriptOffset = 0;
+  private autonomousSkipPartialFirstLine = false;
+  private autonomousPendingToolCalls: Array<{ callId: string; toolName: string }> = [];
+  private autonomousLastPlannerHadToolCalls = false;
+  private autonomousLastObservedMaxStepIdx = -1;
+  private autonomousLastObservedStepStatus = -1;
+  private autonomousLastStepChangeAt = 0;
+  private autonomousIdleSettlePolls = 0;
+  private needsHistorySkipBeforeNextPrompt = false;
+
   private readonly usageLedgers = new Map<string, ConversationUsageLedger>();
   private readonly emittedInCurrentProcess = new Set<string>();
   private lastClosePersistFailed = false;
@@ -726,6 +754,7 @@ export class AgyAcpSession {
     this.getConversationId = opts.getConversationId;
     this.setConversationId = opts.setConversationId;
     this.midTurnFlushMs = opts.midTurnFlushMs ?? DEFAULT_MID_TURN_FLUSH_MS;
+    this.autonomousPollMs = opts.autonomousPollMs ?? DEFAULT_AUTONOMOUS_POLL_MS;
     this.cancelGraceMs = opts.cancelGraceMs ?? DEFAULT_ACP_CANCEL_GRACE_MS;
     this.closeSigtermMs = opts.closeSigtermMs ?? DEFAULT_CLOSE_SIGTERM_MS;
     this.closeSigkillMs = opts.closeSigkillMs ?? DEFAULT_CLOSE_SIGKILL_MS;
@@ -847,6 +876,7 @@ export class AgyAcpSession {
     retryGate?: AgyAcpRetryGate;
   }): Promise<AgyAcpTurnOutcome> {
     await this.awaitRetirementBarrier(false);
+    this.suspendAutonomousMonitorForPrompt();
 
     if (this.unkillableHandles.size > 0) {
       return {
@@ -932,6 +962,7 @@ export class AgyAcpSession {
     const attemptRef = turn as unknown as AgyAcpAttemptRef;
 
     let setupProc: AcpProcessHandle | null = null;
+    let postPromptSnap: AgyConversationStateSnapshot | null = null;
 
     try {
       const wantBypass = isSkipPermissionsMode(opts.permissionMode);
@@ -1082,6 +1113,9 @@ export class AgyAcpSession {
 
       await this.awaitProcessPostExitDrain(setupProc);
       const stopReason = promptResult.stopReason as string;
+      postPromptSnap = readAgyConversationStateSnapshot(sessionId, {
+        agyHomeDir: this.agyHomeDir,
+      });
       this.flushMidTurnOutputNow(turn, { turnEnding: true });
       const endSyncKnownOk = this.syncSqlStepUsage(sessionId, turn, {
         deferCurrentTurnUnknownRows: true,
@@ -1217,6 +1251,9 @@ export class AgyAcpSession {
       await this.awaitProcessPostExitDrain(setupProc);
       await this.awaitProcessPostExitDrain(this.proc);
       await this.awaitRetirementBarrier(false);
+      if (!this.disposed && this.isAlive && this.activeSessionId) {
+        this.armAutonomousMonitorAfterTurn(this.activeSessionId, postPromptSnap);
+      }
     }
   }
 
@@ -1349,6 +1386,10 @@ export class AgyAcpSession {
   async cancelTurn(): Promise<void> {
     const turn = this.activeTurn;
     if (!turn) {
+      if (this.autonomousTurnActive) {
+        this.cancelAutonomousTurn();
+        return;
+      }
       this.pendingTurnCancel = true;
       return;
     }
@@ -1581,6 +1622,29 @@ export class AgyAcpSession {
   }
 
   private resetSessionState(): void {
+    const wasAutonomousActive = this.autonomousTurnActive;
+    const prevAutonomousSession = this.autonomousSessionId ?? this.activeSessionId;
+    this.clearAutonomousPollTimer();
+    if (wasAutonomousActive && prevAutonomousSession) {
+      this.readNewAutonomousTranscriptSteps(prevAutonomousSession);
+      this.sealAutonomousTurnLedger(prevAutonomousSession, this.autonomousEmittedStepIdx);
+    }
+    this.autonomousTurnActive = false;
+    this.autonomousTurnSeq = null;
+    this.autonomousSessionId = null;
+    this.autonomousBaselineStepIdx = -1;
+    this.autonomousEmittedStepIdx = -1;
+    this.autonomousTranscriptPath = null;
+    this.autonomousTranscriptOffset = 0;
+    this.autonomousSkipPartialFirstLine = false;
+    this.autonomousPendingToolCalls = [];
+    this.autonomousLastPlannerHadToolCalls = false;
+    this.autonomousLastObservedMaxStepIdx = -1;
+    this.autonomousLastObservedStepStatus = -1;
+    this.autonomousLastStepChangeAt = 0;
+    this.autonomousIdleSettlePolls = 0;
+    this.needsHistorySkipBeforeNextPrompt = false;
+
     this.initialized = false;
     this.activeSessionId = null;
     this.availableModels = [];
@@ -1588,6 +1652,10 @@ export class AgyAcpSession {
     this.initialDefaultModelId = null;
     this.appliedModelId = null;
     this.appliedModeId = null;
+
+    if (wasAutonomousActive && this.activeTurn === null) {
+      this.emit({ type: 'status', status: 'idle' });
+    }
   }
 
   private async ensureSessionReady(
@@ -1678,6 +1746,44 @@ export class AgyAcpSession {
         }
         this.assertTurnNotCancelled(turn);
       }
+    } else if (this.needsHistorySkipBeforeNextPrompt && this.activeSessionId) {
+      // Advance native `ACPServer`'s `SkipHistory` cursor past steps already streamed by
+      // our autonomous reactive-wakeup monitor so the next `session/prompt` never replays them.
+      const skipSessionId = this.activeSessionId;
+      this.readNewAutonomousTranscriptSteps(skipSessionId);
+      this.syncSqlStepUsage(skipSessionId, null, { deferCurrentTurnUnknownRows: false });
+      const snap = readAgyConversationStateSnapshot(skipSessionId, {
+        agyHomeDir: this.agyHomeDir,
+      });
+      this.sealAutonomousTurnLedger(
+        skipSessionId,
+        snap.readOk ? Math.max(this.autonomousEmittedStepIdx, snap.maxStepIdx) : this.autonomousEmittedStepIdx,
+      );
+      const resumed = asPlainObject(
+        await this.sendRpc(
+          proc,
+          'session/resume',
+          {
+            sessionId: skipSessionId,
+            cwd: this.cwd,
+            mcpServers: [],
+          },
+          CONTROL_RPC_TIMEOUT_MS,
+          true,
+        ),
+      );
+      const returnedId =
+        typeof resumed.sessionId === 'string' && resumed.sessionId
+          ? resumed.sessionId
+          : skipSessionId;
+      if (returnedId !== skipSessionId) {
+        throw new Error('Antigravity returned a different conversation; refusing to mix sessions');
+      }
+      if (this.proc === proc) {
+        this.needsHistorySkipBeforeNextPrompt = false;
+        this.captureSessionCatalog(resumed);
+      }
+      this.assertTurnNotCancelled(turn);
     }
 
     const sessionId = this.activeSessionId!;
@@ -2385,7 +2491,10 @@ export class AgyAcpSession {
     if (!turn.pendingUnflushedOutput || !turn.inPromptPhase) {
       return;
     }
-    const delayMs = Math.max(1, this.midTurnFlushMs);
+    const delayMs =
+      turn.midTurnFlushPolls < MAX_FAST_MID_TURN_FLUSH_POLLS
+        ? Math.max(1, this.midTurnFlushMs)
+        : Math.max(SLOW_MID_TURN_FLUSH_MS, this.midTurnFlushMs);
     turn.midTurnFlushTimer = setTimeout(() => {
       turn.midTurnFlushTimer = null;
       if (this.activeTurn !== turn || !turn.inPromptPhase || !turn.pendingUnflushedOutput) {
@@ -2411,10 +2520,511 @@ export class AgyAcpSession {
         return;
       }
       turn.midTurnFlushPolls += 1;
-      if (turn.midTurnFlushPolls < MAX_MID_TURN_FLUSH_POLLS) {
-        this.scheduleMidTurnOutputFlush(turn);
-      }
+      this.scheduleMidTurnOutputFlush(turn);
     }, delayMs);
+  }
+
+  private clearAutonomousPollTimer(): void {
+    if (this.autonomousPollTimer !== null) {
+      clearTimeout(this.autonomousPollTimer);
+      this.autonomousPollTimer = null;
+    }
+  }
+
+  private suspendAutonomousMonitorForPrompt(): void {
+    this.clearAutonomousPollTimer();
+    const sessionId = this.autonomousSessionId ?? this.activeSessionId;
+    if (this.autonomousTurnActive && sessionId) {
+      this.readNewAutonomousTranscriptSteps(sessionId);
+      this.syncSqlStepUsage(sessionId, null, { deferCurrentTurnUnknownRows: false });
+      const snap = readAgyConversationStateSnapshot(sessionId, {
+        agyHomeDir: this.agyHomeDir,
+      });
+      this.sealAutonomousTurnLedger(
+        sessionId,
+        snap.readOk ? Math.max(this.autonomousEmittedStepIdx, snap.maxStepIdx) : this.autonomousEmittedStepIdx,
+      );
+    }
+    this.autonomousTurnActive = false;
+    this.autonomousPendingToolCalls = [];
+    this.autonomousLastPlannerHadToolCalls = false;
+    this.autonomousIdleSettlePolls = 0;
+  }
+
+  private cancelAutonomousTurn(): void {
+    this.clearAutonomousPollTimer();
+    const proc = this.proc;
+    const sessionId = this.autonomousSessionId ?? this.activeSessionId;
+    if (proc && !proc.dead && !proc.exited && sessionId) {
+      this.writeJsonRpc(proc, {
+        jsonrpc: '2.0',
+        method: 'session/cancel',
+        params: { sessionId },
+      });
+    }
+    if (sessionId) {
+      this.readNewAutonomousTranscriptSteps(sessionId);
+      this.syncSqlStepUsage(sessionId, null, { deferCurrentTurnUnknownRows: false });
+      const snap = readAgyConversationStateSnapshot(sessionId, {
+        agyHomeDir: this.agyHomeDir,
+      });
+      const finalStepIdx = snap.readOk
+        ? Math.max(this.autonomousBaselineStepIdx, this.autonomousEmittedStepIdx, snap.maxStepIdx)
+        : Math.max(this.autonomousBaselineStepIdx, this.autonomousEmittedStepIdx);
+      this.sealAutonomousTurnLedger(sessionId, finalStepIdx);
+      this.autonomousBaselineStepIdx = finalStepIdx;
+      this.autonomousEmittedStepIdx = Math.max(this.autonomousEmittedStepIdx, finalStepIdx);
+      this.needsHistorySkipBeforeNextPrompt = true;
+    }
+    this.autonomousTurnActive = false;
+    this.autonomousPendingToolCalls = [];
+    this.autonomousLastPlannerHadToolCalls = false;
+    this.autonomousIdleSettlePolls = 0;
+    this.emit({ type: 'status', status: 'idle' });
+    if (!this.disposed && this.isAlive && sessionId && this.autonomousBaselineStepIdx >= 0) {
+      this.scheduleNextAutonomousPoll();
+    }
+  }
+
+  private resolveAutonomousTranscriptCandidate(
+    sessionId: string,
+  ): { path: string; size: number; isFull: boolean } | null {
+    if (!VALID_CONVERSATION_ID.test(sessionId)) return null;
+    const homeDir = this.agyHomeDir ?? resolveDefaultAgyHomeDir();
+    const logsDir = join(homeDir, 'brain', sessionId, '.system_generated', 'logs');
+    const fullPath = join(logsDir, 'transcript_full.jsonl');
+    try {
+      const st = statSync(fullPath);
+      if (st.isFile()) {
+        return { path: fullPath, size: st.size, isFull: true };
+      }
+    } catch {}
+    const compactPath = join(logsDir, 'transcript.jsonl');
+    try {
+      const st = statSync(compactPath);
+      if (st.isFile()) {
+        return { path: compactPath, size: st.size, isFull: false };
+      }
+    } catch {}
+    return null;
+  }
+
+  private armAutonomousMonitorAfterTurn(
+    sessionId: string,
+    turnEndSnap: AgyConversationStateSnapshot | null,
+  ): void {
+    this.clearAutonomousPollTimer();
+    if (this.autonomousPollMs <= 0 || this.disposed || !this.isAlive) {
+      return;
+    }
+    const snap =
+      turnEndSnap && turnEndSnap.dbExists && turnEndSnap.readOk
+        ? turnEndSnap
+        : readAgyConversationStateSnapshot(sessionId, { agyHomeDir: this.agyHomeDir });
+    if (!snap.dbExists || !snap.readOk || snap.maxStepIdx < 0) {
+      return;
+    }
+
+    this.autonomousSessionId = sessionId;
+    this.autonomousBaselineStepIdx = snap.maxStepIdx;
+    this.autonomousEmittedStepIdx = snap.maxStepIdx;
+    this.autonomousTurnActive = false;
+    this.autonomousTurnSeq = null;
+    this.autonomousPendingToolCalls = [];
+    this.autonomousLastPlannerHadToolCalls = false;
+    this.autonomousLastObservedMaxStepIdx = snap.maxStepIdx;
+    this.autonomousLastObservedStepStatus = -1;
+    this.autonomousLastStepChangeAt = Date.now();
+    this.autonomousIdleSettlePolls = 0;
+
+    const candidate = this.resolveAutonomousTranscriptCandidate(sessionId);
+    if (candidate) {
+      this.autonomousTranscriptPath = candidate.path;
+      if (candidate.size > AUTONOMOUS_TRANSCRIPT_TAIL_WINDOW_BYTES) {
+        this.autonomousTranscriptOffset = candidate.size - AUTONOMOUS_TRANSCRIPT_TAIL_WINDOW_BYTES;
+        this.autonomousSkipPartialFirstLine = true;
+      } else {
+        this.autonomousTranscriptOffset = 0;
+        this.autonomousSkipPartialFirstLine = false;
+      }
+    } else {
+      this.autonomousTranscriptPath = null;
+      this.autonomousTranscriptOffset = 0;
+      this.autonomousSkipPartialFirstLine = false;
+    }
+
+    this.scheduleNextAutonomousPoll();
+  }
+
+  private scheduleNextAutonomousPoll(): void {
+    this.clearAutonomousPollTimer();
+    if (
+      this.autonomousPollMs <= 0 ||
+      this.disposed ||
+      this.activeTurn !== null ||
+      !this.isAlive ||
+      !this.autonomousSessionId
+    ) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      this.autonomousPollTimer = null;
+      this.pollAutonomousWakeupOnce();
+    }, Math.max(20, this.autonomousPollMs));
+    timer.unref?.();
+    this.autonomousPollTimer = timer;
+  }
+
+  private registerAutonomousTurnLedger(sessionId: string): void {
+    const ledger = this.getOrCreateLedger(sessionId);
+    if (!ledger.seeded) {
+      this.trySeedExistingConversation(sessionId);
+    }
+    let turnSeq = ++this.nextTurnSeq;
+    while (ledger.turns.has(turnSeq)) {
+      turnSeq = ++this.nextTurnSeq;
+    }
+    this.autonomousTurnSeq = turnSeq;
+    ledger.turns.set(turnSeq, {
+      turnSeq,
+      procGen: this.proc?.gen ?? 0,
+      turnInstanceId: this.sessionInstanceId,
+      model: this.appliedModelId ?? this.initialDefaultModelId ?? null,
+      startedAt: Date.now(),
+      preMaxStepIdx: this.autonomousBaselineStepIdx >= 0 ? this.autonomousBaselineStepIdx : null,
+      closedMaxStepIdx: null,
+      expectedPromptUsage: null,
+      reconciledKnownSqlTokens: { input: 0, output: 0, cacheRead: 0 },
+      fallbackCredit: { input: 0, output: 0, cacheRead: 0 },
+      unfinishedKnownRows: new Set<number>(),
+      procExitedAfterScan: false,
+      hadGenerationOpportunity: true,
+    });
+  }
+
+  private sealAutonomousTurnLedger(sessionId: string, maxStepIdx: number): void {
+    if (this.autonomousTurnSeq === null) return;
+    const ledger = this.usageLedgers.get(sessionId);
+    const rec = ledger?.turns.get(this.autonomousTurnSeq);
+    if (rec && rec.preMaxStepIdx !== null && maxStepIdx >= rec.preMaxStepIdx) {
+      rec.closedMaxStepIdx = maxStepIdx;
+    }
+    this.autonomousTurnSeq = null;
+  }
+
+  private pollAutonomousWakeupOnce(): void {
+    if (
+      this.disposed ||
+      this.activeTurn !== null ||
+      !this.isAlive ||
+      !this.autonomousSessionId ||
+      this.activeSessionId !== this.autonomousSessionId
+    ) {
+      return;
+    }
+
+    const sessionId = this.autonomousSessionId;
+    const probe = probeAgyAutonomousWakeupState(sessionId, this.autonomousBaselineStepIdx, {
+      agyHomeDir: this.agyHomeDir,
+    });
+    if (!probe.dbExists || !probe.readOk) {
+      this.scheduleNextAutonomousPoll();
+      return;
+    }
+
+    if (!this.autonomousTurnActive) {
+      if (!probe.hasSystemWakeup) {
+        this.scheduleNextAutonomousPoll();
+        return;
+      }
+      this.autonomousTurnActive = true;
+      this.needsHistorySkipBeforeNextPrompt = true;
+      this.autonomousPendingToolCalls = [];
+      this.autonomousLastPlannerHadToolCalls = false;
+      this.autonomousLastObservedMaxStepIdx = probe.maxStepIdx;
+      this.autonomousLastObservedStepStatus = probe.latestStep?.status ?? -1;
+      this.autonomousLastStepChangeAt = Date.now();
+      this.autonomousIdleSettlePolls = 0;
+      this.registerAutonomousTurnLedger(sessionId);
+      this.log(
+        `agy autonomous reactive wakeup detected on conversation ${sessionId} (afterStep=${this.autonomousBaselineStepIdx}, maxStep=${probe.maxStepIdx})`,
+      );
+      this.emit({ type: 'status', status: 'running' });
+    }
+
+    this.readNewAutonomousTranscriptSteps(sessionId);
+    this.syncSqlStepUsage(sessionId, null, { deferCurrentTurnUnknownRows: false });
+
+    const curStatus = probe.latestStep?.status ?? -1;
+    if (
+      probe.maxStepIdx !== this.autonomousLastObservedMaxStepIdx ||
+      curStatus !== this.autonomousLastObservedStepStatus
+    ) {
+      this.autonomousLastObservedMaxStepIdx = probe.maxStepIdx;
+      this.autonomousLastObservedStepStatus = curStatus;
+      this.autonomousLastStepChangeAt = Date.now();
+      this.autonomousIdleSettlePolls = 0;
+    } else {
+      this.autonomousIdleSettlePolls += 1;
+    }
+
+    if (this.isAutonomousTurnComplete(sessionId, probe.latestStep)) {
+      this.readNewAutonomousTranscriptSteps(sessionId);
+      this.syncSqlStepUsage(sessionId, null, { deferCurrentTurnUnknownRows: false });
+      this.sealAutonomousTurnLedger(sessionId, probe.maxStepIdx);
+      this.autonomousBaselineStepIdx = probe.maxStepIdx;
+      this.autonomousEmittedStepIdx = Math.max(this.autonomousEmittedStepIdx, probe.maxStepIdx);
+      this.autonomousTurnActive = false;
+      this.autonomousPendingToolCalls = [];
+      this.autonomousLastPlannerHadToolCalls = false;
+      this.autonomousIdleSettlePolls = 0;
+      const ledger = this.usageLedgers.get(sessionId);
+      if (ledger) {
+        void this.confirmPendingDurableEmissions(ledger);
+      }
+      this.emit({ type: 'token-count', engine: 'agy', usage: {} });
+      this.emit({ type: 'status', status: 'idle' });
+    }
+
+    this.scheduleNextAutonomousPoll();
+  }
+
+  private isAutonomousTurnComplete(
+    sessionId: string,
+    latestStep: { idx: number; stepType: number; status: number } | null,
+  ): boolean {
+    if (!latestStep || this.autonomousPendingToolCalls.length > 0) {
+      return false;
+    }
+
+    const now = Date.now();
+
+    // Case 1: Normal terminal `PLANNER_RESPONSE` (`stepType === 15`, `status === 3` `DONE`)
+    // with no tool calls, transcript caught up, at least one quiet poll, and `gen_metadata`
+    // finalized (or fallback timeout elapsed).
+    if (
+      latestStep.stepType === 15 &&
+      latestStep.status === 3 &&
+      !this.autonomousLastPlannerHadToolCalls &&
+      this.autonomousEmittedStepIdx >= latestStep.idx &&
+      this.autonomousIdleSettlePolls >= 1
+    ) {
+      const finalized = checkAgyIdlePlannerStepFinalized(
+        sessionId,
+        latestStep.idx - 1,
+        -1,
+        { agyHomeDir: this.agyHomeDir },
+      );
+      if (
+        finalized.finalized ||
+        now - this.autonomousLastStepChangeAt >= AUTONOMOUS_GEN_METADATA_FALLBACK_MS
+      ) {
+        return true;
+      }
+    }
+
+    // Case 2: Cancelled or failed `PLANNER_RESPONSE` (`status === 6` or `7`, NOT tool result `132`).
+    if (
+      latestStep.stepType === 15 &&
+      (latestStep.status === 6 || latestStep.status === 7) &&
+      this.autonomousIdleSettlePolls >= 1
+    ) {
+      return true;
+    }
+
+    // Case 3: `ERROR_MESSAGE` (`stepType === 17`, `status === 3`) where native retry backoff
+    // (`~22s`) has expired without inserting a new retry `PLANNER_RESPONSE`.
+    if (
+      latestStep.stepType === 17 &&
+      latestStep.status === 3 &&
+      this.autonomousEmittedStepIdx >= latestStep.idx &&
+      now - this.autonomousLastStepChangeAt >= AUTONOMOUS_ERROR_IDLE_TIMEOUT_MS
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private readNewAutonomousTranscriptSteps(sessionId: string): void {
+    const candidate = this.resolveAutonomousTranscriptCandidate(sessionId);
+    if (!candidate) return;
+
+    if (
+      this.autonomousTranscriptPath === null ||
+      (candidate.isFull && this.autonomousTranscriptPath !== candidate.path)
+    ) {
+      this.autonomousTranscriptPath = candidate.path;
+      const windowBytes = AUTONOMOUS_TRANSCRIPT_TAIL_WINDOW_BYTES * 4;
+      if (candidate.size > windowBytes) {
+        this.autonomousTranscriptOffset = candidate.size - windowBytes;
+        this.autonomousSkipPartialFirstLine = true;
+      } else {
+        this.autonomousTranscriptOffset = 0;
+        this.autonomousSkipPartialFirstLine = false;
+      }
+    }
+
+    const filePath = this.autonomousTranscriptPath;
+    if (!filePath) return;
+
+    let fd: number | null = null;
+    try {
+      fd = openSync(filePath, 'r');
+      const totalSize = fstatSync(fd).size;
+      if (totalSize < this.autonomousTranscriptOffset) {
+        // File was truncated or recreated.
+        this.autonomousTranscriptOffset = 0;
+        this.autonomousSkipPartialFirstLine = false;
+      }
+      while (this.autonomousTranscriptOffset < totalSize) {
+        const toRead = Math.min(
+          totalSize - this.autonomousTranscriptOffset,
+          Math.max(AUTONOMOUS_TRANSCRIPT_READ_CHUNK_BYTES, 512 * 1024),
+        );
+        const buf = Buffer.allocUnsafe(toRead);
+        const bytesRead = readSync(fd, buf, 0, toRead, this.autonomousTranscriptOffset);
+        if (bytesRead <= 0) break;
+        const slice = buf.subarray(0, bytesRead);
+        const lastNl = slice.lastIndexOf(0x0a);
+        if (lastNl < 0) {
+          if (bytesRead >= MAX_ACP_LINE_BYTES) {
+            this.autonomousTranscriptOffset += bytesRead;
+            this.autonomousSkipPartialFirstLine = true;
+          }
+          break;
+        }
+        const completeBytes = slice.subarray(0, lastNl + 1);
+        this.autonomousTranscriptOffset += lastNl + 1;
+        const decoded = completeBytes.toString('utf8');
+        const rawLines = decoded.split('\n');
+        // Trailing element after final '\n' is always ''.
+        rawLines.pop();
+        let startIdx = 0;
+        if (this.autonomousSkipPartialFirstLine && rawLines.length > 0) {
+          this.autonomousSkipPartialFirstLine = false;
+          startIdx = 1;
+        }
+        for (let i = startIdx; i < rawLines.length; i++) {
+          const line = rawLines[i].trim();
+          if (!line || !line.startsWith('{')) continue;
+          this.processAutonomousTranscriptLine(line);
+        }
+        if (lastNl + 1 < bytesRead) {
+          // Remaining bytes after `lastNl` belong to an incomplete trailing line at EOF.
+          break;
+        }
+      }
+    } catch {
+      // Transient filesystem errors are retried on the next poll.
+    } finally {
+      if (fd !== null) {
+        try {
+          closeSync(fd);
+        } catch {}
+      }
+    }
+  }
+
+  private processAutonomousTranscriptLine(line: string): void {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      return;
+    }
+    if (!isPlainObject(parsed)) return;
+    const stepIndex = parsed.step_index;
+    if (
+      typeof stepIndex !== 'number' ||
+      !Number.isSafeInteger(stepIndex) ||
+      stepIndex <= this.autonomousEmittedStepIdx
+    ) {
+      return;
+    }
+
+    this.autonomousEmittedStepIdx = stepIndex;
+    const source = typeof parsed.source === 'string' ? parsed.source : '';
+    const type = typeof parsed.type === 'string' ? parsed.type : '';
+
+    if (source === 'MODEL' && type === 'PLANNER_RESPONSE') {
+      if (typeof parsed.thinking === 'string' && parsed.thinking.trim().length > 0) {
+        this.emit({
+          type: 'event',
+          name: 'thinking',
+          payload: { text: parsed.thinking, streaming: false },
+        });
+      }
+      if (typeof parsed.content === 'string' && parsed.content.trim().length > 0) {
+        this.emit({
+          type: 'model-output',
+          textDelta: parsed.content,
+        });
+        this.emit({ type: 'event', name: 'output-complete', payload: null });
+      }
+      const toolCalls = Array.isArray(parsed.tool_calls) ? parsed.tool_calls : [];
+      if (toolCalls.length > 0) {
+        this.autonomousLastPlannerHadToolCalls = true;
+        for (let i = 0; i < toolCalls.length; i++) {
+          const tc = asPlainObject(toolCalls[i]);
+          const toolName =
+            typeof tc.name === 'string' && tc.name.trim().length > 0 ? tc.name.trim() : 'tool';
+          const args = isPlainObject(tc.args) ? tc.args : {};
+          const callId = `auto-${stepIndex}-${i}`;
+          this.autonomousPendingToolCalls.push({ callId, toolName });
+          this.emit({
+            type: 'tool-call',
+            toolName,
+            callId,
+            args,
+          });
+        }
+      } else {
+        this.autonomousLastPlannerHadToolCalls = false;
+      }
+      return;
+    }
+
+    if (source === 'MODEL' && type === 'GENERIC') {
+      const pendingCall = this.autonomousPendingToolCalls.shift();
+      if (!pendingCall) return;
+      const status = typeof parsed.status === 'string' ? parsed.status : '';
+      if (status === 'ERROR') {
+        const errMsg =
+          (typeof parsed.error === 'string' && parsed.error.trim()) ||
+          (typeof parsed.content === 'string' && parsed.content.trim()) ||
+          'Tool call failed';
+        this.emit({
+          type: 'tool-result',
+          toolName: pendingCall.toolName,
+          callId: pendingCall.callId,
+          result: { error: errMsg, status: 'failed' },
+        });
+      } else {
+        this.emit({
+          type: 'tool-result',
+          toolName: pendingCall.toolName,
+          callId: pendingCall.callId,
+          result: typeof parsed.content === 'string' ? parsed.content : '',
+        });
+      }
+      return;
+    }
+
+    if (source === 'SYSTEM' && type === 'ERROR_MESSAGE') {
+      const errBanner =
+        (typeof parsed.content === 'string' && parsed.content.trim()) ||
+        (typeof parsed.error === 'string' && parsed.error.trim()) ||
+        '';
+      if (errBanner) {
+        const formatted = errBanner.startsWith('⚠️') ? errBanner : `⚠️ ${errBanner}`;
+        this.emit({
+          type: 'model-output',
+          textDelta: `\n${formatted}\n`,
+        });
+        this.emit({ type: 'event', name: 'output-complete', payload: null });
+      }
+    }
   }
 
   private flushMidTurnOutputNow(
@@ -3547,6 +4157,16 @@ export class AgyAcpSession {
       ) {
         return activeRec;
       }
+    } else if (this.autonomousTurnSeq !== null) {
+      const autoRec = ledger.turns.get(this.autonomousTurnSeq);
+      if (
+        autoRec &&
+        autoRec.preMaxStepIdx !== null &&
+        autoRec.closedMaxStepIdx === null &&
+        minStep > autoRec.preMaxStepIdx
+      ) {
+        return autoRec;
+      }
     }
 
     return null;
@@ -4029,6 +4649,14 @@ export class AgyAcpSession {
       const isCurrentTurnOwner = Boolean(
         turn && owner.kind === 'known' && owner.turnSeq === turn.turnSeq,
       );
+      const isActiveAutonomousTurnOwner = Boolean(
+        !turn &&
+          this.autonomousTurnActive &&
+          this.autonomousTurnSeq !== null &&
+          owner.kind === 'known' &&
+          owner.turnSeq === this.autonomousTurnSeq,
+      );
+      const belongsToLiveTurn = isCurrentTurnOwner || isActiveAutonomousTurnOwner;
       const fallbackModel = owner.kind === 'known' ? owner.model : null;
       const stepUsageModel = row.summary.normalizedModelId ?? fallbackModel;
       const stepUsageStartedAt = owner.kind === 'known' ? owner.startedAt : undefined;
@@ -4077,7 +4705,7 @@ export class AgyAcpSession {
           conversationId,
           genIdx: row.idx,
           contextWindowTokens: row.summary.maxContextTokens,
-          belongsToCurrentTurn: isCurrentTurnOwner,
+          belongsToCurrentTurn: belongsToLiveTurn,
           usage: rawStepUsage,
           usageModel: stepUsageModel,
         });
@@ -4094,7 +4722,7 @@ export class AgyAcpSession {
         usageKey: `${conversationId}:sql:${row.idx}`,
         genIdx: row.idx,
         contextWindowTokens: row.summary.maxContextTokens,
-        belongsToCurrentTurn: isCurrentTurnOwner,
+        belongsToCurrentTurn: belongsToLiveTurn,
         usage: {
           input_tokens: netIn,
           output_tokens: netOut,
