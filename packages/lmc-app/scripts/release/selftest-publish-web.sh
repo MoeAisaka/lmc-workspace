@@ -55,5 +55,18 @@ with tempfile.TemporaryDirectory(prefix='.publish-selftest-', dir=scripts) as sc
     print('PASS root WASM replaced with backup and new worker published')
     print('PASS repeated --allow-replace preserves .pre- backups and replaces assets')
     print('PASS recovers icon links from index.previous-*.html and ignores AppleDouble files')
+    (build / 'index.html').write_text('<html lang="en"><head><title>Yulor (dev)</title></head><body><script src="/assets/chunk.js"></script></body></html>')
+    for icon in ('yulor-favicon.ico', 'yulor-apple-touch-icon.png'):
+        (build / icon).write_bytes(b'new-brand-icon')
+    (build / 'yulor.webmanifest').write_text('{"name":"Yulor"}')
+    result3 = subprocess.run([sys.executable, str(scripts / 'publish-web.py'), '--marker', 'selftest-yulor', '--build-dir', str(build), '--live-dir', str(live)], capture_output=True, text=True, check=True)
+    html = (live / 'index.html').read_text()
+    assert '<title>Yulor</title>' in html
+    assert 'href="/yulor-favicon.ico"' in html and 'href="/yulor-apple-touch-icon.png"' in html
+    assert 'href="/icon.ico"' not in html, 'A new brand export must not restore the previous brand favicon'
+    assert 'name="application-name" content="Yulor"' in html
+    assert 'name="apple-mobile-web-app-title" content="Yulor"' in html
+    assert 'rel="manifest" href="/yulor.webmanifest"' in html
+    print('PASS Yulor title and icon links replace legacy branding atomically')
 print('All publish self-checks passed; fixtures removed.')
 PY

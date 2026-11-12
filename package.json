@@ -1,5 +1,5 @@
 {
-    "name": "monorepo",
+    "name": "yulor-workspace",
     "private": true,
     "scripts": {
         "cli": "pnpm --filter link-my-cli cli",

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Install this workspace as the global `happy` binary for local development.
+ * Install Yulor with the yulor, lmc and happy executable aliases for local development.
  *
  * Steps:
  *   1. build
@@ -11,7 +11,7 @@
  *   5. verify by running `happy --version`
  *
  * Reuses the CLI home dir (~/.lmc/agent) — no separate dev home dir. Auth and sessions carry over.
- * To undo: `npm unlink -g happy && npm i -g happy@latest`.
+ * To undo the local link: `npm unlink -g link-my-cli`.
  */
 
 const { spawnSync } = require('child_process');
@@ -69,4 +69,4 @@ run('happy', ['daemon', 'start'], { env: daemonEnvironment });
 run('happy', ['--version'], { env: daemonEnvironment });
 
 console.log(`\n✓ Installed from ${PACKAGE_DIR}`);
-console.log('  To undo: npm unlink -g happy && npm i -g happy@latest');
+console.log('  To undo the local link: npm unlink -g link-my-cli');

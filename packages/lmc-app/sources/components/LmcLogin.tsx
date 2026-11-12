@@ -1,3 +1,5 @@
+import { APP_NAME, APP_LOGO } from '@/brand';
+import { Image } from 'expo-image';
 import { Text } from '@/components/StyledText';
 import React, { useState } from 'react';
 import { View, TextInput, Pressable, ActivityIndicator } from 'react-native';
@@ -30,7 +32,8 @@ export function LmcLogin() {
     </View>;
     return <View style={{flex:1,justifyContent:'center',alignItems:'center',padding:24,backgroundColor:theme.colors.surface}}>
         <View style={{width:'100%',maxWidth:360}}>
-            <Text accessibilityRole="header" style={{fontSize:30,fontWeight:'700',color:theme.colors.text}}>Link my Cli</Text>
+            <Image source={APP_LOGO} accessibilityLabel={APP_NAME} style={{width:56,height:56,borderRadius:14,marginBottom:16}} />
+            <Text accessibilityRole="header" style={{fontSize:30,fontWeight:'700',color:theme.colors.text}}>{APP_NAME}</Text>
             {invitation && <Text style={{ fontSize: 16, marginTop: 12, color: theme.colors.text }}>{t('lmc.sharing.invitePrompt')}</Text>}
             <Text style={{fontSize:15,marginTop:12,marginBottom:20,color:theme.colors.textSecondary}}>{t('lmc.empty.loginSubtitle')}</Text>
             <TextInput accessibilityLabel={t('lmc.login.username')} placeholder={t('lmc.login.username')} autoComplete="username" autoCapitalize="none" value={username} onChangeText={setUsername} style={input}/>

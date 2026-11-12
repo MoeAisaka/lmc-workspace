@@ -48,7 +48,7 @@ export async function doAuth(): Promise<Credentials | null> {
     }
 
     const webUrl = generateWebAuthUrl(keypair.publicKey);
-    console.log('请在浏览器登录 LMC 并批准此设备：');
+    console.log('请在浏览器登录 Yulor 并批准此设备：');
     console.log(webUrl);
     await openBrowser(webUrl);
     return waitForAuthentication(keypair, pollSecret);

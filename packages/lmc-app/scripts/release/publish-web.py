@@ -23,18 +23,27 @@ assert build.resolve() != live.resolve(), 'Build and live directories must diffe
 marker = args.marker
 
 old = (live / 'index.html').read_text()
-new = (build / 'index.html').read_text() \
-    .replace('<title>LMC (dev)</title>', '<title>Link my Cli</title>') \
-    .replace('<html lang="zh-CN">', '<html lang="en">')
-icons = re.findall(r'<link[^>]+rel="(?:icon|apple-touch-icon)"[^>]*>', old)
+new = (build / 'index.html').read_text().replace('<html lang="zh-CN">', '<html lang="en">')
+new = re.sub(r'<title>[^<]*</title>', '<title>Yulor</title>', new, count=1)
+icon_pattern = r'<link[^>]+rel="(?:icon|apple-touch-icon)"[^>]*>'
+if (build / 'yulor-favicon.ico').is_file() and (build / 'yulor-apple-touch-icon.png').is_file():
+    icons = ['<link rel="icon" href="/yulor-favicon.ico" />',
+             '<link rel="apple-touch-icon" sizes="180x180" href="/yulor-apple-touch-icon.png" />',
+             '<meta name="application-name" content="Yulor" />',
+             '<meta name="apple-mobile-web-app-title" content="Yulor" />']
+    if (build / 'yulor.webmanifest').is_file():
+        icons.append('<link rel="manifest" href="/yulor.webmanifest" />')
+else:
+    icons = re.findall(icon_pattern, old)
 if not icons:
     for prev in sorted(live.glob('index.previous-*.html'), reverse=True):
         icons = re.findall(r'<link[^>]+rel="(?:icon|apple-touch-icon)"[^>]*>', prev.read_text())
         if icons:
             break
 assert icons, 'Missing icon links in live index.html'
+new = re.sub(icon_pattern, '', new)
 new = new.replace('</head>', ''.join(icons) + f'<meta name="lmc-release" content="{marker}" /></head>')
-assert '<html lang="en">' in new and '<title>Link my Cli</title>' in new
+assert '<html lang="en">' in new and '<title>Yulor</title>' in new
 
 # Include root resources (WASM, workers, icons, manifests) and nested exports; skip macOS AppleDouble forks.
 files = sorted(

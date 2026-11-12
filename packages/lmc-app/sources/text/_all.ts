@@ -1,5 +1,5 @@
 /**
- * Centralized language configuration for the LMC app
+ * Centralized language configuration for the Yulor app
  * This file contains all supported languages, their metadata, and configuration
  * 
  * When adding a new language:

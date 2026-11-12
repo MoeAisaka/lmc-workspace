@@ -1,17 +1,17 @@
 {
   "name": "lmc-agent",
   "version": "0.1.0",
-  "description": "CLI client for controlling LMC agents remotely",
+  "description": "CLI client for controlling Yulor agents remotely",
   "author": "Kirill Dubovitskiy",
   "license": "MIT",
   "type": "module",
-  "homepage": "https://github.com/MoeAisaka/lmc-workspace",
+  "homepage": "https://github.com/MoeAisaka/yulor",
   "bugs": {
-    "url": "https://github.com/MoeAisaka/lmc-workspace/issues"
+    "url": "https://github.com/MoeAisaka/yulor/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/MoeAisaka/link-my-cli",
+    "url": "https://github.com/MoeAisaka/yulor",
     "directory": "packages/lmc-agent"
   },
   "bin": {

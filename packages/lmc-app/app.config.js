@@ -2,9 +2,9 @@ const { execFileSync } = require('node:child_process');
 
 const variant = process.env.APP_ENV || 'development';
 const name = {
-    development: "LMC (dev)",
-    preview: "LMC (preview)",
-    production: "Link my Cli"
+    development: "Yulor (dev)",
+    preview: "Yulor (preview)",
+    production: "Yulor"
 }[variant];
 const bundleId = {
     development: "com.slopus.happy.dev",
@@ -55,7 +55,7 @@ export default {
         version: "1.7.0",
         runtimeVersion: "21",
         orientation: "default",
-        icon: "./sources/assets/images/icon.png",
+        icon: "./sources/assets/images/yulor-icon.png",
         scheme: ["lmc", "happy"],
         userInterfaceStyle: "automatic",
         ios: {
@@ -86,9 +86,9 @@ export default {
         },
         android: {
             adaptiveIcon: {
-                foregroundImage: "./sources/assets/images/icon-adaptive.png",
-                monochromeImage: "./sources/assets/images/icon-monochrome.png",
-                backgroundColor: "#000000"
+                foregroundImage: "./sources/assets/images/yulor-adaptive.png",
+                monochromeImage: "./sources/assets/images/yulor-monochrome.png",
+                backgroundColor: "#147de2"
             },
             permissions: [
                 "android.permission.RECORD_AUDIO",
@@ -130,7 +130,7 @@ export default {
         web: {
             bundler: "metro",
             output: "single",
-            favicon: "./sources/assets/images/favicon.png"
+            favicon: "./sources/assets/images/yulor-favicon.png"
         },
         plugins: [
             require("./plugins/withEinkCompatibility.js"),
@@ -181,7 +181,7 @@ export default {
                 "expo-notifications",
                 {
                     "enableBackgroundRemoteNotifications": true,
-                    "icon": "./sources/assets/images/icon-notification.png"
+                    "icon": "./sources/assets/images/yulor-monochrome.png"
                 }
             ],
             [
@@ -194,10 +194,10 @@ export default {
                         }
                     },
                     android: {
-                        image: "./sources/assets/images/splash-android-light.png",
+                        image: "./sources/assets/images/yulor-splash.png",
                         backgroundColor: "#F5F5F5",
                         dark: {
-                            image: "./sources/assets/images/splash-android-dark.png",
+                            image: "./sources/assets/images/yulor-splash.png",
                             backgroundColor: "#000000",
                         }
                     }

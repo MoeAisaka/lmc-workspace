@@ -1,6 +1,6 @@
 {
   "$schema": "../../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Link my Cli",
+  "productName": "Yulor",
   "version": "0.1.0",
   "identifier": "com.slopus.happy",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Link my Cli",
+        "title": "Yulor",
         "width": 1680,
         "height": 1050,
         "minWidth": 720,
@@ -35,11 +35,11 @@
     "active": true,
     "targets": "all",
     "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
+      "icons/yulor/32x32.png",
+      "icons/yulor/128x128.png",
+      "icons/yulor/128x128@2x.png",
+      "icons/yulor/icon.icns",
+      "icons/yulor/icon.ico"
     ],
     "macOS": {
       "signingIdentity": "Developer ID Application: Bulka, LLC (466DQWDR8C)",

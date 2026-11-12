@@ -10,7 +10,10 @@ export default function Root({ children }: { children: React.ReactNode }) {
     <html lang="en">
       <head>
         <meta charSet="utf-8" />
-        <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=musubi1" />
+        <meta name="application-name" content="Yulor" />
+        <meta name="apple-mobile-web-app-title" content="Yulor" />
+        <link rel="manifest" href="/yulor.webmanifest" />
+        <link rel="apple-touch-icon" sizes="180x180" href="/yulor-apple-touch-icon.png" />
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
         <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
 

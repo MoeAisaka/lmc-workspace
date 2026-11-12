@@ -1,4 +1,4 @@
-# Deploying an LMC centre
+# Deploying a Yulor centre
 
 The web client and every device agent connect to one centre backed by MySQL 8.4.
 No hosted account and no phone app are involved.

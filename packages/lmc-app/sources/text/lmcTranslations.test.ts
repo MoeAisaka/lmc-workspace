@@ -92,7 +92,7 @@ const SAMPLE_ARGS: Record<string, unknown> = {
     amount: '3.2K',
 };
 
-describe('LMC English localization completeness', () => {
+describe('Yulor English localization completeness', () => {
     it('maintains 100% key and value-kind parity across _default, en, and zh-Hans', () => {
         const defMap = flattenLeaves(defaultEn);
         const enMap = flattenLeaves(en);

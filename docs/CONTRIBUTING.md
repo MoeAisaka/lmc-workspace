@@ -1,4 +1,4 @@
-# Contributing to LMC
+# Contributing to Yulor
 
 Happy is built by engineers who use AI coding tools all day — and we built Happy so we could use them from anywhere. Contributions that make Happy better for that workflow are welcome.
 
@@ -54,12 +54,12 @@ Every issue should start with a **one-paragraph summary** of the problem. Don't 
 ### Getting Started
 
 ```bash
-git clone https://github.com/MoeAisaka/link-my-cli.git
-cd link-my-cli
+git clone https://github.com/MoeAisaka/yulor.git
+cd yulor
 pnpm install
 ```
 
-### LMC App (Mobile + Web)
+### Yulor App (Mobile + Web)
 
 ```bash
 pnpm --filter lmc-app start          # Expo dev server
@@ -73,9 +73,9 @@ The app has three build variants — all can be installed simultaneously on the 
 
 | Variant | Bundle ID | App Name | Use Case |
 |---------|-----------|----------|----------|
-| Development | `com.slopus.happy.dev` | LMC (dev) | Local development with hot reload |
-| Preview | `com.slopus.happy.preview` | LMC (preview) | Beta testing & OTA updates |
-| Production | `com.ex3ndr.happy` | Link my Cli | App Store release |
+| Development | `com.slopus.happy.dev` | Yulor (dev) | Local development with hot reload |
+| Preview | `com.slopus.happy.preview` | Yulor (preview) | Beta testing & OTA updates |
+| Production | `com.ex3ndr.happy` | Yulor | App Store release |
 
 Swap `ios:dev` for `ios:preview` or `ios:production` (same for `android:`).
 
@@ -86,7 +86,7 @@ pnpm --filter lmc-app tauri:dev      # Run with hot reload
 pnpm --filter lmc-app tauri:build:dev
 ```
 
-### LMC CLI
+### Yulor CLI
 
 ```bash
 pnpm --filter link-my-cli build
@@ -103,7 +103,7 @@ npm unlink -g link-my-cli && npm i -g link-my-cli@latest
 
 To sandbox dev data, set `LMC_HOME_DIR=~/.lmc-dev` in your shell before running `lmc`.
 
-### LMC Server
+### Yulor Server
 
 ```bash
 pnpm --filter lmc-server standalone:dev   # Local server (no Docker needed)
@@ -126,7 +126,7 @@ This is a monorepo with four packages:
 - **lmc-agent** — Remote agent control
 - **lmc-server** — Backend for encrypted sync
 
-For architecture details, check the [docs/](.) folder or ask LMC itself — it knows how the project is set up.
+For architecture details, check the [docs/](.) folder or ask Yulor itself — it knows how the project is set up.
 
 ## Community
 

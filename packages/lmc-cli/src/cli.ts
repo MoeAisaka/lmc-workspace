@@ -696,7 +696,8 @@ ${chalk.bold('To clean up runaway processes:')} Use ${chalk.cyan('lmc doctor cle
     // Show help
     if (showHelp) {
       console.log(`
-${chalk.bold('lmc')} - Claude Code On the Go
+${chalk.bold('Yulor')} - Self-hosted AI collaboration workspace
+Formerly LMC / Link my Cli. Use yulor, or the compatible lmc/happy aliases.
 
 ${chalk.bold('Usage:')}
   lmc [options]         Start Claude with mobile control

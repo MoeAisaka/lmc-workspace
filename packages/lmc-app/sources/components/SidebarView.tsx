@@ -1,3 +1,4 @@
+import { APP_NAME, APP_LOGO } from '@/brand';
 import * as React from 'react';
 import { Platform, View } from 'react-native';
 import { Image } from 'expo-image';
@@ -80,8 +81,8 @@ export const SidebarView = React.memo(() => {
                 style={[styles.card, styles.headerCard, lmcSurfaceBorder(theme), lmcElevation(theme, 1)]}
             >
                 <View style={styles.brandRow}>
-                    <Image source={require('@/assets/images/lmc-logo.png')} style={{ width: 26, height: 26, borderRadius: 8 }} />
-                    <Text numberOfLines={1} style={styles.brandText}>Link my Cli</Text>
+                    <Image source={APP_LOGO} style={{ width: 26, height: 26, borderRadius: 8 }} />
+                    <Text numberOfLines={1} style={styles.brandText}>{APP_NAME}</Text>
                 </View>
                 <SessionSearchRow query={query} onQueryChange={setQuery} />
             </View>

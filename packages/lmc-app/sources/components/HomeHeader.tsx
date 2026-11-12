@@ -1,3 +1,4 @@
+import { APP_LOGO } from '@/brand';
 import { Text } from '@/components/StyledText';
 import * as React from 'react';
 import { Header } from './navigation/Header';
@@ -178,7 +179,7 @@ function HeaderLeft() {
     return (
         <View style={styles.logoContainer}>
             <Image
-                source={require('@/assets/images/lmc-logo.png')}
+                source={APP_LOGO}
                 contentFit="contain"
                 style={{ width: HEADER_LOGO_SIZE, height: HEADER_LOGO_SIZE, borderRadius: 7 }}
             />

@@ -1,23 +1,28 @@
-# LMC — Link my Cli
+# Yulor · 悠络
+
+<p><img src="brand/yulor-mark.svg" width="72" height="72" alt="Yulor" /></p>
+
+> **Formerly LMC / Link my Cli, previously `lmc-workspace` on GitHub.** Same project and history; existing commands and configuration remain compatible. See the [rename and compatibility notes](docs/branding.md).
 
 English · [简体中文](README.zh-CN.md)
 
 **Continue your work across devices. Coordinate your CLI agents in one self-hosted workspace.**
 
-LMC is a self-hosted workspace for **Claude Code, Codex, and Antigravity**. Start a task at your desk, check progress or reply from your phone, and pick right back up in another browser. Your agents run on your own machines while LMC links their live sessions, coordinates cross-agent handoffs, and lets you share specific sessions, devices, or files with granular permissions.
+Yulor is a self-hosted workspace for **Claude Code, Codex, and Antigravity**. Start a task at your desk, check progress or reply from your phone, and pick right back up in another browser. Your agents run on your own machines while Yulor links their live sessions, coordinates cross-agent handoffs, and lets you share specific sessions, devices, or files with granular permissions.
 
-[Quick start](#quick-start) · [Why LMC](#why-lmc) · [How it works](#how-it-works) · [Sharing & privacy](#sharing-and-privacy) · [Documentation](#documentation)
+[Quick start](#quick-start) · [Why Yulor](#why-yulor) · [How it works](#how-it-works) · [Sharing & privacy](#sharing-and-privacy) · [Documentation](#documentation)
 
-![LMC browser workspace showing sessions on several machines, live output, and queue controls](docs/images/lmc-ui-showcase.png)
+![Yulor browser workspace showing sessions on several machines, live output, and queue controls](docs/images/lmc-ui-showcase.png)
 
-*Actual LMC interface populated with synthetic demo content. Agent and model versions shown are illustrative.*
+*Actual interface captured before the Yulor rename, populated with synthetic demo content. Agent and model versions shown are illustrative.*
 
+<a id="why-yulor"></a>
 <a id="why-lmc"></a>
-## Why LMC
+## Why Yulor
 
-Agent work often fragments across terminal windows, machines, and model providers. LMC keeps that work connected so you can direct it from anywhere.
+Agent work often fragments across terminal windows, machines, and model providers. Yulor keeps that work connected so you can direct it from anywhere.
 
-| When you need to… | LMC helps you… |
+| When you need to… | Yulor helps you… |
 |---|---|
 | Leave the computer where a task started | Reopen the same live session from a phone, tablet, or another computer and keep directing the agent. |
 | Use several CLI agents together | Manage Claude Code, Codex, and Antigravity in one workspace, exchange task reports, and hand work between sessions. |
@@ -38,12 +43,12 @@ You need a host for the centre, at least one execution machine, and a browser. T
 On a host with **Node 22.18+**, **pnpm 10.11** (or Corepack), and **Docker Compose**:
 
 ```sh
-git clone https://github.com/MoeAisaka/lmc-workspace.git
-cd lmc-workspace
+git clone https://github.com/MoeAisaka/yulor.git
+cd yulor
 deploy/lmc/up.sh https://lmc.example.com
 ```
 
-Replace the example origin with your own HTTPS address. The script builds the web app and agent, starts MySQL and the centre, applies database migrations, and prompts you to create your first LMC account.
+Replace the example origin with your own HTTPS address. The script builds the web app and agent, starts MySQL and the centre, applies database migrations, and prompts you to create your first Yulor account.
 
 The published container port binds only to **127.0.0.1**. Place a TLS reverse proxy such as Caddy, Nginx, or Traefik in front of it with WebSocket forwarding enabled. The script does not configure DNS or expose your centre directly to the internet. See the [deployment guide](deploy/lmc/README.md).
 
@@ -59,24 +64,24 @@ export LMC_HOME_DIR="$HOME/.lmc/agent"
 export LMC_SERVER_URL="https://lmc.example.com"
 export LMC_WEBAPP_URL="https://lmc.example.com"
 
-lmc auth login
-lmc daemon start
+yulor auth login
+yulor daemon start
 ```
 
-Approve the device pairing request in your browser. Install and authenticate the CLI engines you plan to use on that execution machine—**LMC does not replace their provider accounts, subscriptions, or API configuration**. The shell syntax above targets macOS/Linux; on Windows, set the same environment variables in PowerShell or system settings.
+Approve the device pairing request in your browser. Install and authenticate the CLI engines you plan to use on that execution machine—**Yulor does not replace their provider accounts, subscriptions, or API configuration**. The shell syntax above targets macOS/Linux; on Windows, set the same environment variables in PowerShell or system settings.
 
 ### 3. Start work
 
 Open your centre in a browser to launch a session on a connected machine, or start one directly from its terminal:
 
 ```sh
-lmc                 # Claude Code
-lmc codex           # OpenAI Codex
-lmc agy             # Google Antigravity
-lmc doctor          # Check the agent, engine binaries, and connectivity
+yulor                 # Claude Code
+yulor codex           # OpenAI Codex
+yulor agy             # Google Antigravity
+yulor doctor          # Check the agent, engine binaries, and connectivity
 ```
 
-Sign into your LMC account from any browser to follow live output, respond to supported interactive prompts, queue follow-up instructions, and collect delivered files.
+Sign into your Yulor account from any browser to follow live output, respond to supported interactive prompts, queue follow-up instructions, and collect delivered files.
 
 > `link-my-cli` is not published to the public npm registry—build it from this repository. Running `npm i -g happy` installs the upstream product instead.
 
@@ -103,7 +108,7 @@ Include the database, file storage, and `LMC_MASTER_KEY` in your backup plan, an
 - **Coordinate work explicitly.** Dispatch work with controller/worker task assignments, durable agent mail, delivery reports, and review records. Handoffs carry structured task context across sessions, engines, or hosts.
 - **See what is running.** Monitor device availability, CPU/memory/disk usage, live session progress, and usage history. Optional quota collectors report provider limits where supported and configured.
 
-Engine controls and resume behavior vary by provider. Cross-engine handoffs pass explicit task context rather than a model's internal hidden state. Moving execution to another host also requires the project files, dependencies, credentials, and permissions to be present on that machine—LMC does not automatically replicate your working directory.
+Engine controls and resume behavior vary by provider. Cross-engine handoffs pass explicit task context rather than a model's internal hidden state. Moving execution to another host also requires the project files, dependencies, credentials, and permissions to be present on that machine—Yulor does not automatically replicate your working directory.
 
 ## Collaborate and deliver
 
@@ -123,9 +128,9 @@ The workspace also provides a built-in web terminal, diff views, one-click Markd
 ```mermaid
 flowchart TB
     users["People · individual accounts"] <--> browser["Browser workspace · desktop / tablet / phone"]
-    browser <-->|HTTPS + WebSocket| centre["Self-hosted LMC centre"]
+    browser <-->|HTTPS + WebSocket| centre["Self-hosted Yulor centre"]
     centre <--> storage[("Session / task records and encrypted file storage")]
-    agent["Execution machines · LMC device agents"] <-->|Outbound connection + reverse RPC| centre
+    agent["Execution machines · Yulor device agents"] <-->|Outbound connection + reverse RPC| centre
     agent <--> cli["Claude Code · Codex · Antigravity"]
     cli <--> work["Project files · tools · model providers"]
     cli -. "Optional configured tools" .-> memory[("External memory service")]
@@ -133,7 +138,7 @@ flowchart TB
 
 The **centre** handles identity, permissions, routing, and encrypted persistence. **Execution machines** run the CLI processes and operate on local projects. Because device agents connect outbound to the centre, execution machines require no inbound port forwarding—only the centre needs to be reachable from your browsers and agents.
 
-**Session history, project files, and long-term memory are separate layers.** LMC retains conversation and task records in the centre, while working files stay on the execution machines. A memory service such as Nowledge Mem is an optional external integration configured through each engine's tool or MCP settings—it is not a bundled database or an automatic copy of every conversation. Sharing an LMC session never automatically grants access to an external memory service.
+**Session history, project files, and long-term memory are separate layers.** Yulor retains conversation and task records in the centre, while working files stay on the execution machines. A memory service such as Nowledge Mem is an optional external integration configured through each engine's tool or MCP settings—it is not a bundled database or an automatic copy of every conversation. Sharing a Yulor session never automatically grants access to an external memory service.
 
 For implementation details, see [centre architecture](docs/backend-architecture.md), [CLI architecture](docs/cli-architecture.md), and the [interactive architecture](docs/diagrams/architecture.html), [session-start](docs/diagrams/spawn-session.html), and [encryption](docs/diagrams/encryption.html) diagrams. Download the HTML diagrams to view them locally.
 
@@ -142,15 +147,15 @@ For implementation details, see [centre architecture](docs/backend-architecture.
 
 - **Resource-scoped access.** Sessions, devices, and saved files use explicit sharing policies. Administrator privileges manage the centre itself and do not implicitly grant read access to user content.
 - **Client-side content encryption.** Session metadata, messages, runtime state, and file chunks are encrypted on the client before upload. Account root secrets are sealed by the centre's `LMC_MASTER_KEY`, which means the **centre operator is inside the trust boundary**. See [encryption details](docs/encryption.md).
-- **Separate external-service boundaries.** CLI model calls and configured tools operate under their own credentials and data policies, and shared memory services require their own user or project access controls. LMC resource permissions do not provide an OS sandbox or automatically isolate external services.
-- **Self-hosted control plane.** LMC does not depend on Happy's hosted relay or a mandatory mobile app. Upstream hosted voice, push, and telemetry integrations are disconnected; the model providers and external tools you configure remain independent dependencies.
+- **Separate external-service boundaries.** CLI model calls and configured tools operate under their own credentials and data policies, and shared memory services require their own user or project access controls. Yulor resource permissions do not provide an OS sandbox or automatically isolate external services.
+- **Self-hosted control plane.** Yulor does not depend on Happy's hosted relay or a mandatory mobile app. Upstream hosted voice, push, and telemetry integrations are disconnected; the model providers and external tools you configure remain independent dependencies.
 
 ## Compatibility and limits
 
 - **Browser first.** The web workspace is the primary supported client. Native iOS, Android, and Tauri packaging still carries upstream signing identities; distributing native builds requires your own signing configuration.
 - **Keep execution machines available.** A browser can disconnect while an agent keeps working. If the execution host sleeps, powers off, or fails, the task cannot continue normally. Persistent records help recovery; they do not guarantee uninterrupted execution.
 - **Scope shared services carefully.** Pointing multiple users or agents at a common database or memory endpoint does not mean everyone should read everything. Apply account and project boundaries within each connected system.
-- **Compatibility names remain.** Some internal scripts and protocol fields retain `happy` naming, and the legacy `lmc gemini` command is deprecated in favor of `lmc agy`.
+- **Compatibility names remain.** Some internal scripts and protocol fields retain `happy` naming, and the legacy `yulor gemini` command is deprecated in favor of `yulor agy`.
 
 <a id="documentation"></a>
 ## Documentation
@@ -164,7 +169,7 @@ For implementation details, see [centre architecture](docs/backend-architecture.
 | Engines and model discovery | [CLI architecture](docs/cli-architecture.md) · [Model discovery](docs/model-discovery.md) |
 | Agent communication and diagnostics | [Reliable mail](docs/reliable-agent-mail.md) · [No-progress diagnostics](docs/engine-no-progress.md) |
 | Usage and quotas | [Quota connector](docs/account-quota.md) |
-| Contribute or report a problem | [Contributing](docs/CONTRIBUTING.md) · [Issues](https://github.com/MoeAisaka/lmc-workspace/issues) |
+| Contribute or report a problem | [Contributing](docs/CONTRIBUTING.md) · [Issues](https://github.com/MoeAisaka/yulor/issues) |
 
 <details>
 <summary>Repository layout</summary>
@@ -182,6 +187,6 @@ For implementation details, see [centre architecture](docs/backend-architecture.
 
 ## Upstream and license
 
-LMC forked [Happy](https://github.com/slopus/happy) in September 2026 and evolves independently as a self-hosted multi-engine workspace. Upstream components and names remain credited where used.
+Yulor forked [Happy](https://github.com/slopus/happy) in September 2026 and evolves independently as a self-hosted multi-engine workspace. Upstream components and names remain credited where used.
 
 [MIT](LICENSE).

@@ -1,20 +1,21 @@
 {
   "name": "link-my-cli",
   "version": "1.2.151",
-  "description": "Link my Cli device Agent for Codex and Claude Code",
+  "description": "Yulor device agent for Claude Code, Codex and Antigravity (formerly LMC)",
   "author": "Kirill Dubovitskiy",
   "license": "MIT",
   "type": "module",
-  "homepage": "https://github.com/MoeAisaka/lmc-workspace",
+  "homepage": "https://github.com/MoeAisaka/yulor",
   "bugs": {
-    "url": "https://github.com/MoeAisaka/lmc-workspace/issues"
+    "url": "https://github.com/MoeAisaka/yulor/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/MoeAisaka/link-my-cli",
+    "url": "https://github.com/MoeAisaka/yulor",
     "directory": "packages/lmc-cli"
   },
   "bin": {
+    "yulor": "./bin/yulor.mjs",
     "happy": "./bin/happy.mjs",
     "happy-mcp": "./bin/happy-mcp.mjs",
     "lmc": "./bin/happy.mjs"
@@ -61,6 +62,7 @@
     "scripts/bundle-server.cjs",
     "scripts/bundle-webapp.cjs",
     "scripts/install-local.cjs",
+    "scripts/install-yulor-alias.cjs",
     "scripts/antigravity-setup.cjs",
     "scripts/antigravity-mcp.cjs",
     "tools/archives",

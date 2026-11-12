@@ -812,7 +812,7 @@ export class CodexAppServerClient {
         const initParams: InitializeParams = {
             clientInfo: {
                 name: 'lmc',
-                title: 'Link my Cli',
+                title: 'Yulor',
                 version: packageJson.version,
             },
             capabilities: {

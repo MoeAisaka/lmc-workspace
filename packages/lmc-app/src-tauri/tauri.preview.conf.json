@@ -1,11 +1,11 @@
 {
   "$schema": "../../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "LMC (preview)",
+  "productName": "Yulor (preview)",
   "identifier": "com.slopus.happy.preview",
   "app": {
     "windows": [
       {
-        "title": "LMC (preview)",
+        "title": "Yulor (preview)",
         "width": 1680,
         "height": 1050,
         "titleBarStyle": "Overlay",

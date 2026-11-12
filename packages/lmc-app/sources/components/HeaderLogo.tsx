@@ -1,3 +1,4 @@
+import { APP_LOGO } from '@/brand';
 import * as React from 'react';
 import { View } from 'react-native';
 import { Image } from 'expo-image';
@@ -18,7 +19,7 @@ export const HeaderLogo = React.memo(() => {
             justifyContent: 'center',
         }}>
             <Image
-                source={require('@/assets/images/lmc-logo.png')}
+                source={APP_LOGO}
                 contentFit="contain"
                 style={{ width: HEADER_LOGO_SIZE, height: HEADER_LOGO_SIZE, borderRadius: 7 }}
             />

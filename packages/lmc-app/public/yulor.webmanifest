@@ -1,0 +1,24 @@
+{
+  "id": "/",
+  "name": "Yulor",
+  "short_name": "Yulor",
+  "description": "Self-hosted AI collaboration workspace \u2014 formerly LMC / Link my Cli.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#147de2",
+  "icons": [
+    {
+      "src": "/yulor-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/yulor-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

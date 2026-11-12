@@ -1,23 +1,28 @@
-# LMC — Link my Cli
+# Yulor · 悠络
+
+<p><img src="brand/yulor-mark.svg" width="72" height="72" alt="Yulor" /></p>
+
+> **原名 LMC / Link my Cli，GitHub 仓库旧名 `lmc-workspace`。** 这是同一项目的更名；旧命令与配置继续兼容。详见[更名与兼容说明](docs/branding.md)。
 
 [English](README.md) · 简体中文
 
 **跨终端接续工作，让多个 CLI Agent 在同一自托管工作台协同。**
 
-LMC 是面向 **Claude Code、Codex 和 Antigravity** 的自托管协作工作台。在桌前启动任务，用手机查看进度或回复询问，再换任意浏览器接着操作。Agent 仍在你自己的机器上运行；LMC 负责连接跨端会话、编排多 Agent 交接，并支持按细粒度权限向协作者共享指定的会话、设备或文件。
+Yulor 是面向 **Claude Code、Codex 和 Antigravity** 的自托管协作工作台。在桌前启动任务，用手机查看进度或回复询问，再换任意浏览器接着操作。Agent 仍在你自己的机器上运行；Yulor 负责连接跨端会话、编排多 Agent 交接，并支持按细粒度权限向协作者共享指定的会话、设备或文件。
 
-[快速开始](#quick-start) · [为什么用 LMC](#why-lmc) · [如何工作](#how-it-works) · [共享与隐私](#sharing-and-privacy) · [文档](#documentation)
+[快速开始](#quick-start) · [为什么用 Yulor](#why-yulor) · [如何工作](#how-it-works) · [共享与隐私](#sharing-and-privacy) · [文档](#documentation)
 
-![LMC 浏览器工作台：多台机器的会话、实时输出和消息排队控件](docs/images/lmc-ui-showcase.png)
+![Yulor 浏览器工作台：多台机器的会话、实时输出和消息排队控件](docs/images/lmc-ui-showcase.png)
 
-*真实 LMC 界面（使用合成演示内容），用于展示工作台布局，图中标识不代表当前 Agent 或模型版本。*
+*更名前的真实工作台界面（使用合成演示内容），用于展示工作台布局，图中标识不代表当前 Agent 或模型版本。*
 
+<a id="why-yulor"></a>
 <a id="why-lmc"></a>
-## 为什么用 LMC
+## 为什么用 Yulor
 
-Agent 任务常常分散在不同终端窗口、机器和模型服务之间。LMC 将这些工作连接起来，让你随时随地持续推进。
+Agent 任务常常分散在不同终端窗口、机器和模型服务之间。Yulor 将这些工作连接起来，让你随时随地持续推进。
 
-| 当你需要…… | LMC 帮你…… |
+| 当你需要…… | Yulor 帮你…… |
 |---|---|
 | 离开启动任务的电脑 | 从手机、平板或另一台电脑重新打开同一实时会话，继续查看输出并下达指令。 |
 | 同时使用多种 CLI Agent | 在同一工作台管理 Claude Code、Codex 和 Antigravity，交换任务报告并交接工作。 |
@@ -38,12 +43,12 @@ Agent 任务常常分散在不同终端窗口、机器和模型服务之间。LM
 在已安装 **Node 22.18+**、**pnpm 10.11**（或 Corepack）和 **Docker Compose** 的主机上执行：
 
 ```sh
-git clone https://github.com/MoeAisaka/lmc-workspace.git
-cd lmc-workspace
+git clone https://github.com/MoeAisaka/yulor.git
+cd yulor
 deploy/lmc/up.sh https://lmc.example.com
 ```
 
-将示例地址替换为你自己的 HTTPS 访问地址。脚本会构建前端应用与 Agent、启动 MySQL 和中心服务、执行数据库迁移，并引导你创建首个 LMC 账号。
+将示例地址替换为你自己的 HTTPS 访问地址。脚本会构建前端应用与 Agent、启动 MySQL 和中心服务、执行数据库迁移，并引导你创建首个 Yulor 账号。
 
 容器发布端口默认仅绑定 **127.0.0.1**。请前置 Caddy、Nginx 或 Traefik 等 TLS 反向代理并开启 WebSocket 转发。脚本不会配置 DNS，也不会直接将中心暴露到公网。详见[部署指南](deploy/lmc/README.zh-CN.md)。
 
@@ -59,24 +64,24 @@ export LMC_HOME_DIR="$HOME/.lmc/agent"
 export LMC_SERVER_URL="https://lmc.example.com"
 export LMC_WEBAPP_URL="https://lmc.example.com"
 
-lmc auth login
-lmc daemon start
+yulor auth login
+yulor daemon start
 ```
 
-在浏览器中批准设备配对请求。请先在执行机上安装并登录所需的 CLI 引擎——**LMC 不替代模型厂商账号、订阅或 API 配置**。以上命令使用 macOS/Linux Shell 语法；Windows 环境请通过 PowerShell 或系统设置配置同名环境变量。
+在浏览器中批准设备配对请求。请先在执行机上安装并登录所需的 CLI 引擎——**Yulor 不替代模型厂商账号、订阅或 API 配置**。以上命令使用 macOS/Linux Shell 语法；Windows 环境请通过 PowerShell 或系统设置配置同名环境变量。
 
 ### 3. 开始工作
 
 在浏览器打开中心即可在已接入的机器上新建会话，也可以直接在执行机终端启动：
 
 ```sh
-lmc                 # Claude Code
-lmc codex           # OpenAI Codex
-lmc agy             # Google Antigravity
-lmc doctor          # 检查 Agent、引擎可执行文件与连接状态
+yulor                 # Claude Code
+yulor codex           # OpenAI Codex
+yulor agy             # Google Antigravity
+yulor doctor          # 检查 Agent、引擎可执行文件与连接状态
 ```
 
-启动后，在任意浏览器登录同一 LMC 账号，即可实时查看输出、回答已支持的交互提问、排队追加指令并收取交付文件。
+启动后，在任意浏览器登录同一 Yulor 账号，即可实时查看输出、回答已支持的交互提问、排队追加指令并收取交付文件。
 
 > `link-my-cli` 尚未发布到公共 npm 仓库，请从本仓库构建安装；运行 `npm i -g happy` 安装的是上游产品。
 
@@ -103,7 +108,7 @@ lmc doctor          # 检查 Agent、引擎可执行文件与连接状态
 - **明确组织多 Agent 协作。** 提供主控/执行节点派单、持久化 Agent 信箱、任务报告与验收记录。跨会话交接可携带结构化任务背景，流转至其他引擎或主机。
 - **集中掌握运行与用量。** 查看设备在线状态、CPU/内存/磁盘占用、会话进度与历史用量。可选配的额度采集器支持展示模型厂商额度（取决于厂商接口与配置）。
 
-不同引擎的控制与恢复能力存在差异。跨引擎交接传递的是显式任务背景，不会迁移模型的内部隐藏状态。若将执行切换到另一台主机，目标机器还需具备相应的项目文件、依赖、凭据与权限——LMC 不会自动复制工作目录。
+不同引擎的控制与恢复能力存在差异。跨引擎交接传递的是显式任务背景，不会迁移模型的内部隐藏状态。若将执行切换到另一台主机，目标机器还需具备相应的项目文件、依赖、凭据与权限——Yulor 不会自动复制工作目录。
 
 ## 共同协作，交付成果
 
@@ -123,9 +128,9 @@ Agent 可通过 `publish_file` 交付成果。文件保存在中心服务，来�
 ```mermaid
 flowchart TB
     users["人 · 独立账号"] <--> browser["浏览器工作台 · 电脑 / 平板 / 手机"]
-    browser <-->|HTTPS + WebSocket| centre["自托管 LMC 中心"]
+    browser <-->|HTTPS + WebSocket| centre["自托管 Yulor 中心"]
     centre <--> storage[("会话 / 任务记录与加密文件存储")]
-    agent["执行机器 · LMC 设备 Agent"] <-->|主动外连 + 反向 RPC| centre
+    agent["执行机器 · Yulor 设备 Agent"] <-->|主动外连 + 反向 RPC| centre
     agent <--> cli["Claude Code · Codex · Antigravity"]
     cli <--> work["项目文件 · 工具 · 模型服务"]
     cli -. "按需配置工具" .-> memory[("外部记忆服务")]
@@ -133,7 +138,7 @@ flowchart TB
 
 **中心**负责身份认证、权限控制、消息路由和加密持久化；**执行机**运行 CLI 进程并操作本地项目。设备 Agent 通过主动外连接入中心，执行机无需配置入站端口映射，只需确保中心能被浏览器和 Agent 访问。
 
-**会话历史、项目文件与长期记忆分属不同层级。** LMC 中心保存对话和任务记录，项目工作文件留在执行机本地；Nowledge Mem 等记忆服务属于外部可选接入，通过引擎的工具/MCP 配置使用，并非内置数据库，也不会自动收录每段对话。共享 LMC 会话不会自动授予外部记忆服务的访问权限。
+**会话历史、项目文件与长期记忆分属不同层级。** Yulor 中心保存对话和任务记录，项目工作文件留在执行机本地；Nowledge Mem 等记忆服务属于外部可选接入，通过引擎的工具/MCP 配置使用，并非内置数据库，也不会自动收录每段对话。共享 Yulor 会话不会自动授予外部记忆服务的访问权限。
 
 更多实现细节见[中心架构](docs/backend-architecture.md)、[CLI 架构](docs/cli-architecture.md)，以及可交互的[整体架构](docs/diagrams/architecture.html)、[会话启动](docs/diagrams/spawn-session.html)和[加密关系](docs/diagrams/encryption.html)图。HTML 图可下载到本地查看。
 
@@ -142,15 +147,15 @@ flowchart TB
 
 - **按资源粒度授权。** 会话、设备和已保存文件采用显式共享策略。管理员角色仅用于管理中心服务，不会默认获得用户内容的读取权限。
 - **内容在客户端加密。** 会话元数据、消息、运行状态与文件分片在上传前均已完成客户端加密。由于账号根密钥由中心的 `LMC_MASTER_KEY` 封装，**中心运维者仍处于信任边界内**。详见[加密说明](docs/encryption.md)。
-- **外部服务边界独立。** CLI 模型调用与配置的工具遵循各自的凭据和数据策略，共用记忆库也需单独配置用户或项目访问权限。LMC 的资源权限不提供操作系统沙箱，也不会自动隔离外部服务。
-- **控制面由你自托管。** LMC 不依赖 Happy 托管中继，也不强制绑定手机 App。上游的托管语音、推送及遥测集成已断开；你自行配置的模型服务和工具仍是独立依赖。
+- **外部服务边界独立。** CLI 模型调用与配置的工具遵循各自的凭据和数据策略，共用记忆库也需单独配置用户或项目访问权限。Yulor 的资源权限不提供操作系统沙箱，也不会自动隔离外部服务。
+- **控制面由你自托管。** Yulor 不依赖 Happy 托管中继，也不强制绑定手机 App。上游的托管语音、推送及遥测集成已断开；你自行配置的模型服务和工具仍是独立依赖。
 
 ## 兼容性与边界
 
 - **以浏览器端为主。** Web 工作台是主要支持的客户端入口。原生 iOS、Android 和 Tauri 打包配置仍包含上游签名标识，如需自行分发客户端需替换为自有配置。
 - **执行机需保持可用。** 浏览器断开时 Agent 仍可继续运行，但若执行机休眠、关机或故障，任务将无法继续执行。持久化记录用于辅助恢复，不保证任务永不中断。
 - **共用服务仍需隔离数据。** 多个用户或 Agent 接入同一数据库或记忆服务地址，不代表所有人都应读取全部内容，请在各接入系统中配置账号与项目边界。
-- **保留部分兼容命名。** 部分脚本与协议字段仍沿用 `happy` 命名；旧版 `lmc gemini` 命令已废弃，请改用 `lmc agy`。
+- **保留部分兼容命名。** 部分脚本与协议字段仍沿用 `happy` 命名；旧版 `yulor gemini` 命令已废弃，请改用 `yulor agy`。
 
 <a id="documentation"></a>
 ## 文档
@@ -164,7 +169,7 @@ flowchart TB
 | 引擎与模型发现 | [CLI 架构](docs/cli-architecture.md) · [模型发现](docs/model-discovery.md) |
 | Agent 通信与诊断 | [可靠信箱](docs/reliable-agent-mail.md) · [无进展诊断](docs/engine-no-progress.md) |
 | 用量与额度 | [额度连接器](docs/account-quota.md) |
-| 参与贡献或反馈问题 | [贡献指南](docs/CONTRIBUTING.md) · [Issues](https://github.com/MoeAisaka/lmc-workspace/issues) |
+| 参与贡献或反馈问题 | [贡献指南](docs/CONTRIBUTING.md) · [Issues](https://github.com/MoeAisaka/yulor/issues) |
 
 <details>
 <summary>仓库目录</summary>
@@ -182,6 +187,6 @@ flowchart TB
 
 ## 上游与许可
 
-LMC 于 2026 年 9 月分叉自 [Happy](https://github.com/slopus/happy)，独立演进为自托管多引擎工作台，继续保留所使用上游组件和名称的署名。
+Yulor 于 2026 年 9 月分叉自 [Happy](https://github.com/slopus/happy)，独立演进为自托管多引擎工作台，继续保留所使用上游组件和名称的署名。
 
 [MIT](LICENSE)。

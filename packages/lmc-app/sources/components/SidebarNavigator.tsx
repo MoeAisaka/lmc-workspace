@@ -1,3 +1,4 @@
+import { APP_NAME, APP_LOGO } from '@/brand';
 import { useLayoutWindowDimensions } from '@/hooks/useLayoutWindowDimensions';
 import { installSidebarMotion, runSidebarTransition } from '@/utils/sidebarMotion';
 import { useAuth } from '@/auth/AuthContext';
@@ -190,8 +191,8 @@ const PersistentHeader = React.memo(() => {
                 {...(inTauri ? { dataSet: { tauriDragRegion: 'false' } } : {})}
             >
                 {Platform.OS === 'web' && !leftSidebarCollapsed && !zenMode && <View style={{flex:1,flexDirection:'row',alignItems:'center',gap:8}}>
-                    <Image source={require('@/assets/images/lmc-logo.png')} style={{width:26,height:26,borderRadius:8}} />
-                    <Text style={{fontSize:15,color:theme.colors.text}}>Link my Cli</Text>
+                    <Image source={APP_LOGO} style={{width:26,height:26,borderRadius:8}} />
+                    <Text style={{fontSize:15,color:theme.colors.text}}>{APP_NAME}</Text>
                 </View>}
                 <Pressable
                     onPress={handleZenToggle}

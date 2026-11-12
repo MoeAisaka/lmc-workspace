@@ -1,15 +1,15 @@
 {
   "name": "lmc-server",
   "version": "0.0.0",
-  "description": "Link my Cli self-hosted center",
+  "description": "Yulor self-hosted centre (formerly LMC)",
   "repository": {
     "type": "git",
-    "url": "https://github.com/MoeAisaka/link-my-cli",
+    "url": "https://github.com/MoeAisaka/yulor",
     "directory": "packages/lmc-server"
   },
-  "homepage": "https://github.com/MoeAisaka/lmc-workspace",
+  "homepage": "https://github.com/MoeAisaka/yulor",
   "bugs": {
-    "url": "https://github.com/MoeAisaka/lmc-workspace/issues"
+    "url": "https://github.com/MoeAisaka/yulor/issues"
   },
   "author": "Kirill Dubovitskiy",
   "license": "MIT",

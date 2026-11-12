@@ -38,7 +38,7 @@ function showAuthHelp(): void {
 ${chalk.bold('lmc auth')} - Authentication management
 
 ${chalk.bold('Usage:')}
-  lmc auth login [--force]    配对 LMC 设备
+  lmc auth login [--force]    配对 Yulor 设备
   lmc auth logout             撤销设备授权（保留历史和设置）
   lmc auth status             Show authentication status
   lmc auth help               Show this help message
@@ -127,8 +127,8 @@ async function handleAuthLogout(): Promise<void> {
     return;
   }
 
-  console.log(chalk.blue('This will log you out of LMC'));
-  console.log(chalk.yellow('⚠️  You will need to re-authenticate to use LMC again'));
+  console.log(chalk.blue('This will log you out of Yulor'));
+  console.log(chalk.yellow('⚠️  You will need to re-authenticate to use Yulor again'));
 
   // Ask for confirmation
   const rl = createInterface({

@@ -44,7 +44,7 @@ export const AccountSettingsRow = React.memo(({ onNavigate, menuCardRef, menuPan
     const quota = useAccountQuota();
     const [rowWidth, setRowWidth] = React.useState(0);
     const online = machines.filter((m) => m.active);
-    const displayName = getDisplayName(profile) || 'Link my Cli';
+    const displayName = getDisplayName(profile) || 'Yulor';
     const avatarUrl = getAvatarUrl(profile);
     const versions = new Set(online.map(machineAgentVersion).filter(Boolean) as string[]);
     const versionText = versions.size === 1 ? `Agent ${[...versions][0]}` : versions.size > 1 ? t('lmc.menu.agentVersionMismatch') : null;
