@@ -2,116 +2,40 @@
 
 [English](README.md) · 简体中文
 
-面向编码 Agent 的自托管 Web 工作空间。在你自己的 macOS、Linux 与 Windows 机器上运行 **Claude Code**、**OpenAI Codex** 与 **Google Antigravity（`agy`）**，通过桌面、平板（含 iPadOS 台前调度 / 妙控键盘 / 触控）或手机浏览器远程驱动，所有会话、交付文件与密钥始终留在你控制的基础设施内。
+**跨终端接续工作，让多个 CLI Agent 在同一自托管工作台协同。**
 
-![LMC 桌面工作空间：多设备会话、实时输出与消息排队操作](docs/images/lmc-ui-showcase.png)
+LMC 是面向 **Claude Code、Codex 和 Antigravity** 的自托管协作工作台。在桌前启动任务，用手机查看进度或回复询问，再换任意浏览器接着操作。Agent 仍在你自己的机器上运行；LMC 负责连接跨端会话、编排多 Agent 交接，并支持按细粒度权限向协作者共享指定的会话、设备或文件。
 
-*Web 工作空间演示画面（合成示例数据）：跨设备管理会话、查看实时执行进度，并在回合中排队、引导（Steer）或打断（Interrupt）指令。*
+[快速开始](#quick-start) · [为什么用 LMC](#why-lmc) · [如何工作](#how-it-works) · [共享与隐私](#sharing-and-privacy) · [文档](#documentation)
 
-LMC 分叉自 [Happy](https://github.com/slopus/happy)，彻底移除了对托管服务的依赖：无需厂商账号登录、无需绑定手机 App、无遥测上报。中心由你运行，密钥归你持有。
+![LMC 浏览器工作台：多台机器的会话、实时输出和消息排队控件](docs/images/lmc-ui-showcase.png)
 
----
+*真实 LMC 界面（使用合成演示内容），用于展示工作台布局，图中标识不代表当前 Agent 或模型版本。*
 
-## 为什么做 LMC
+<a id="why-lmc"></a>
+## 为什么用 LMC
 
-编码 Agent 默认被困在启动它的那台终端里。Happy 用官方托管中继解决了远程控制，而 LMC 保留了远程操控体验，但把整套控制面搬回你自己的服务器或 NAS——因为里面流转的对话、Diff 与产物就是你的源代码。
+Agent 任务常常分散在不同终端窗口、机器和模型服务之间。LMC 将这些工作连接起来，让你随时随地持续推进。
 
-- **你的基础设施。** 一套 `docker compose` 栈（`MySQL 8.4` + `Centre`），端口仅发布在宿主机 `127.0.0.1` 回环地址上，由你自己的反向代理终止 TLS。Redis 仅在需要多进程水平扩展时才需启用。
-- **你的账号与团队权限。** 本地创建用户名与 `scrypt` 哈希口令（至少 12 位），使用 `HttpOnly`/`SameSite` Cookie 与可随时撤销的设备配对。默认单账号即开即用，也可按需开启多账号协作（`LMC_MULTI_ACCOUNT_ENABLED=1`），支持 `admin` / `member` 角色与邀请链接。
-- **你的密钥边界。** 会话元数据、消息、运行状态与分片文件均在客户端完成端到端加密后再上传中心；账号根密钥由中心的 `LMC_MASTER_KEY`（AES-256-GCM，`AAD` 绑定 `accountId`）封装保存。**中心运维者在信任边界之内——除此之外没有任何第三方。**
+| 当你需要…… | LMC 帮你…… |
+|---|---|
+| 离开启动任务的电脑 | 从手机、平板或另一台电脑重新打开同一实时会话，继续查看输出并下达指令。 |
+| 同时使用多种 CLI Agent | 在同一工作台管理 Claude Code、Codex 和 Antigravity，交换任务报告并交接工作。 |
+| 在其他机器上运行任务 | 通过任意轻量浏览器远程操作已接入的 macOS、Linux 或 Windows 执行机。 |
+| 与他人协同推进 | 向指定账号共享所需的会话、设备或已保存文件，并按操作粒度授予权限。 |
+| 默认保持私人空间独立 | 所有资源在显式共享前均保持私有，协作者仅能访问被授权的资源。 |
+| 避免反复交代任务背景 | 保留会话与任务记录、传递结构化交接信息，并可按需通过 CLI 工具接入外部共用记忆服务。 |
 
-## 核心能力
+例如：在桌面工作站上发起代码修改，用手机回答询问，再将改动交接给另一个 Agent 复核，最后在笔记本上打开交付报告。执行机需保持可用；切换浏览器不会迁移本地文件或运行中的进程。
 
-- **一等公民多引擎控制** —— 原生支持 **Claude Code**、**Codex**（`codex app-server`）与 **Antigravity（`agy` / Gemini）**，同时兼容 [ACP](https://agentclientprotocol.com) 协议 Agent。支持按会话动态发现模型、切换推理强度（Effort / Thinking Budget）与权限/沙箱模式，并支持为 Claude 配置 **Poe** API 路由与共享点数余额展示。
-- **回合内排队、实时引导与原生交互卡片** —— 引擎忙碌时可继续发送排队消息，随时选择**引导（Steer）**注入当前回合、**打断（Interrupt）**立即执行或撤回排队项；结构化交互块（多选提问、方案审批、工具授权）跨设备保持可交互并支持按需召回，内置无进展卡顿与系统权限弹窗诊断（[`docs/engine-no-progress.md`](docs/engine-no-progress.md)）。
-- **零入站端口的设备 Agent** —— 每台开发机运行轻量 `lmc` 守护进程，主动**向外**通过 Socket.IO 连接中心，开发机无需暴露任何入站端口。支持在网页端实时查看各机器 CPU、内存、磁盘及 AI 服务上下行流量，并支持不断连活动会话的远程平滑升级。
-- **统一加密文件投递（`FileAsset` 与 `FileShare`）** —— Agent 可通过 MCP（`publish_file`）交付产物，客户端自动分片加密存储为持久化 `FileAsset`，支持网页端直接预览 Markdown、代码、图片与 PDF、会话内加密渲染 `saved-files` 图片，以及跨会话投递文件；需要对外分享时可生成限时（`1–168` 小时）、可随时撤销的匿名加密下载链接（`share_file` / `FileShare`），服务端不落盘明文密钥或原始 Token。
-- **多 Agent 编排、可靠信箱与在线交接** —— 支持主控会话向跨机执行单元派发任务与验收报告（`spawn_worker`、`assign_task`、`await_report`、`report_task`、`review_report`），提供持久化会话间可靠信箱（[`docs/reliable-agent-mail.md`](docs/reliable-agent-mail.md)），并支持跨引擎、跨设备的会话在线交接（`submit_handoff`）。会话仅在用户显式操作时归档，绝不因离线自动隐藏。
-- **细粒度多账号资源共享** —— 支持在同一中心内按账号精细共享指定**设备**（受控远程起会话，不暴露设备主人的私有会话、项目目录或本机模型登录凭据）、**会话**（可按 `read` / `send` / `stop` / `approve` / `configure` 授权）与**已保存文件**。
-- **用量日历、配额圆环与全端工作台** —— 内置按日 Token/费用统计日历、可选的单源配额看板连接器（展示 Codex / Claude / Antigravity 配额卡片与头像圆环，见 [`docs/account-quota.md`](docs/account-quota.md)）、网页内嵌 PTY 终端、分栏/统一 Diff 视图、Markdown 表格一键复制为富文本表格或 PNG 图片，以及自定义正文字体/代码字体；完整适配桌面端、iPadOS（台前调度、触控板右键菜单、中文输入法组合态）与手机浏览器。
-
-## 架构概览
-
-```mermaid
-flowchart LR
-    keys["账号与共享密钥<br/><i>客户端持有</i>"]
-    browser["浏览器工作台<br/><i>桌面 · iPadOS · 手机端</i>"]
-
-    subgraph infra["你运行的基础设施"]
-        proxy["反向代理<br/><i>终止 TLS</i>"]
-        subgraph cipher["仅存储密文与封装信封"]
-            centre["中心服务 Centre<br/><i>Fastify + Socket.IO</i>"]
-            mysql[("MySQL 8.4<br/><i>Prisma Schema</i>")]
-            blobs[("加密分片存储<br/><i>附件与 FileAssets</i>")]
-        end
-        redis[("Redis<br/><i>仅多进程扩展需要</i>")]
-    end
-
-    agent["设备 Agent<br/><i>link-my-cli 守护进程</i>"]
-    engines["编码引擎<br/><i>Claude Code · Codex · Antigravity</i>"]
-
-    keys -. "本地加解密" .-> browser
-    browser == "HTTPS + WebSocket" ==> proxy
-    proxy -- "仅 127.0.0.1" --> centre
-    centre -- SQL --> mysql
-    centre -- "密文分片" --> blobs
-    centre -. "跨副本扇出" .-> redis
-    agent == "主动外连 Socket.IO + 反向 RPC" ==> centre
-    agent -- 拉起进程 --> engines
-```
-
-- **Agent 主动外连**：跑引擎的机器无需公网 IP 或端口映射，中心沿同一条长连接反向发起 RPC 启动会话。
-- **数据先加密再离机**：会话记录、状态快照与 `FileAsset` 分片到达中心时已是密文。
-- 可交互架构图：[`docs/diagrams/architecture.html`](docs/diagrams/architecture.html)（下载后用本地浏览器打开）。
-
-### 跨设备启动会话流程
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant B as 浏览器
-    participant C as 中心
-    participant D as 设备 Agent
-    participant S as 会话包装进程
-    participant E as 编码引擎
-
-    B->>C: rpc-call spawn-lmc-session（携带 clientRequestId）
-    C->>D: 投递 rpc-request 到目标机器房间
-    Note over C,D: 房间暂空？等待约 15 秒<br/>兼容网络抖动重连中的 Agent
-    D->>S: 分离式 spawn（--starting-mode remote）
-    D-->>C: sessionId
-    C-->>B: sessionId
-    S->>E: 启动 Claude Code / Codex / Antigravity
-    S--)D: 本地 webhook 上报存活与 hostPid
-    S->>C: 独立连接中心并发布加密元数据
-    C-->>B: 会话出现在工作台列表
-```
-
-`clientRequestId` 保证了网络超时重试的幂等性：如果 Agent 已经拉起进程但回包超时，重试会直接返回同一会话，不会在同一目录重复拉起第二个实例。可交互版本：[`docs/diagrams/spawn-session.html`](docs/diagrams/spawn-session.html)。
-
-### 密钥层级与共享信封
-
-```mermaid
-flowchart LR
-    dek["单条记录 / FileAsset 密钥<br/><i>独立对称数据密钥</i>"]
-    cipher[("MySQL 与分片存储<br/><i>不透明密文</i>")]
-    secret["所有者账号密钥对<br/><i>由 32 字节随机密钥派生</i>"]
-    sealed[("封装后的账号密钥<br/><i>AES-256-GCM, AAD = accountId</i>")]
-    master["LMC_MASTER_KEY<br/><i>中心环境变量</i>"]
-    grant["成员授权 / FileShare<br/><i>按接收方重封装 keyEnvelope</i>"]
-
-    dek -- "加密业务载荷" --> cipher
-    secret -. "封装所有者密钥" .-> dek
-    secret -. "创建账号时封装" .-> sealed
-    master -. "认证时解封" .-> sealed
-    dek -. "仅显式共享时派发" .-> grant
-```
-
-每条会话、机器状态与 `FileAsset` 各自拥有独立的数据密钥。向其他成员共享会话或文件时，仅将该资源的数据密钥重封装为目标成员的 `keyEnvelope`（外链 `FileShare` 则用高熵随机口令封装密钥，服务端仅存口令的 SHA-256 哈希）。撤销共享会立即递增 `accessVersion` 或销毁外链记录，全程不暴露所有者的账号根密钥。详见 [`docs/encryption.md`](docs/encryption.md) 与 [`docs/diagrams/encryption.html`](docs/diagrams/encryption.html)。
-
+<a id="quick-start"></a>
 ## 快速开始
 
-环境要求：**Node 22.18+**、**pnpm 10.11**（或 `corepack`）、**Docker Compose**。
+你需要一台运行中心服务的主机、至少一台执行机和一个浏览器。中心服务与设备 Agent 也可以运行在同一台机器上。
+
+### 1. 部署中心
+
+在已安装 **Node 22.18+**、**pnpm 10.11**（或 Corepack）和 **Docker Compose** 的主机上执行：
 
 ```sh
 git clone https://github.com/MoeAisaka/lmc-workspace.git
@@ -119,93 +43,145 @@ cd lmc-workspace
 deploy/lmc/up.sh https://lmc.example.com
 ```
 
-`deploy/lmc/up.sh` 会一站式完成依赖安装、构建 `lmc-wire`、生成 Prisma 客户端、打包设备 Agent、导出生产级 Web 静态包、初始化 `deploy/lmc/.env`（仅首次）、拉起 MySQL 8.4、构建中心镜像、执行数据库迁移，并在首次运行时交互式创建首个登录账号。
+将示例地址替换为你自己的 HTTPS 访问地址。脚本会构建前端应用与 Agent、启动 MySQL 和中心服务、执行数据库迁移，并引导你创建首个 LMC 账号。
 
-后续升级直接再次执行同一条命令即可：已有的 `.env` 绝不会被覆盖，Web 静态包会先导出到旁路目录再原子替换，升级期间已打开的浏览器标签页不会白屏或断资源。
+容器发布端口默认仅绑定 **127.0.0.1**。请前置 Caddy、Nginx 或 Traefik 等 TLS 反向代理并开启 WebSocket 转发。脚本不会配置 DNS，也不会直接将中心暴露到公网。详见[部署指南](deploy/lmc/README.zh-CN.md)。
 
-```sh
-deploy/lmc/up.sh --add-account     # 通过命令行追加本地登录账号
-```
+### 2. 接入执行机
 
-**默认仅监听本地回环：** 中心容器端口仅绑定在宿主机 `127.0.0.1`。请使用 Nginx、Caddy 或 Traefik 等反向代理终止 TLS 并转发至 `127.0.0.1:${PORT}`，同时保留 `Host`、`Origin` 与 WebSocket `Upgrade` 请求头。
-
-### 常用中心可选配置（`deploy/lmc/.env`）
-
-| 变量 | 用途 |
-|---|---|
-| `LMC_PUBLIC_ORIGIN` / `PUBLIC_URL` | 浏览器访问的规范 HTTPS 源（非标准端口需带端口号）。 |
-| `LMC_MULTI_ACCOUNT_ENABLED=1` | 开启多账号体系（`admin` / `member` 角色、邀请链接、设备/会话/文件共享）。 |
-| `LMC_FILE_SHARE_ORIGIN` | 可选，为限时匿名外链 `/file-shares/*` 指定独立的对外下载域名。 |
-| `LMC_TRUSTED_PROXIES` | 受信反向代理 IP 或 CIDR 列表（逗号分隔），用于安全采信 `X-Forwarded-*` 头。 |
-
-### 接入开发机
-
-在任意需要被驱动的 macOS、Linux 或 Windows 机器上构建并安装 CLI：
+在每台需要运行 Agent 的机器上，进入本仓库目录并安装 CLI：
 
 ```sh
 pnpm install
-pnpm --filter link-my-cli cli:install    # 构建打包、全局链接 `lmc` 并刷新本地守护进程
-```
+pnpm --filter link-my-cli cli:install
 
-指向你的自托管中心（若机器上同时装有上游 `happy`，建议显式隔离 `LMC_HOME_DIR`）：
-
-```sh
 export LMC_HOME_DIR="$HOME/.lmc/agent"
 export LMC_SERVER_URL="https://lmc.example.com"
 export LMC_WEBAPP_URL="https://lmc.example.com"
 
-lmc auth login      # 在浏览器批准设备配对（可随时在账号设置中撤销）
-lmc daemon start    # 启动后台常驻外连守护进程
+lmc auth login
+lmc daemon start
 ```
 
-此后即可直接在网页端远程新建会话，或在终端中启动：
+在浏览器中批准设备配对请求。请先在执行机上安装并登录所需的 CLI 引擎——**LMC 不替代模型厂商账号、订阅或 API 配置**。以上命令使用 macOS/Linux Shell 语法；Windows 环境请通过 PowerShell 或系统设置配置同名环境变量。
+
+### 3. 开始工作
+
+在浏览器打开中心即可在已接入的机器上新建会话，也可以直接在执行机终端启动：
 
 ```sh
-lmc                 # 启动带浏览器协同控制的 Claude Code
-lmc codex           # 启动 OpenAI Codex
-lmc agy             # 启动 Google Antigravity (agy)
-lmc poe             # 配置可选的 Claude Poe API 路由
-lmc doctor          # 检查守护进程、引擎可执行文件与连接状态
+lmc                 # Claude Code
+lmc codex           # OpenAI Codex
+lmc agy             # Google Antigravity
+lmc doctor          # 检查 Agent、引擎可执行文件与连接状态
 ```
 
-> **提示：** `link-my-cli` 尚未发布至公共 npm 仓库（执行 `npm i -g happy` 安装的是上游托管版包）。请从本仓库构建链接，或直接运行 `node packages/lmc-cli/bin/happy.mjs`。
+启动后，在任意浏览器登录同一 LMC 账号，即可实时查看输出、回答已支持的交互提问、排队追加指令并收取交付文件。
 
-## 仓库目录结构
+> `link-my-cli` 尚未发布到公共 npm 仓库，请从本仓库构建安装；运行 `npm i -g happy` 安装的是上游产品。
 
-| 路径 | 说明 |
+<details>
+<summary>升级、添加账号与可选配置</summary>
+
+重新运行 `deploy/lmc/up.sh https://lmc.example.com` 即可更新中心服务，已有 `.env` 配置会自动保留。使用 `deploy/lmc/up.sh --add-account` 可新增本地登录账号。
+
+| `deploy/lmc/.env` 中的变量 | 用途 |
 |---|---|
-| [`packages/lmc-app`](packages/lmc-app) | Expo / React Native Web 客户端工作台，桌面/平板/手机自适应界面、端到端加解密与实时状态同步。 |
-| [`packages/lmc-server`](packages/lmc-server) | Fastify + Socket.IO 自托管中心服务、Prisma/MySQL 数据模型与增量迁移、多账号权限与加密分片接口。 |
-| [`packages/lmc-cli`](packages/lmc-cli) | `link-my-cli`（`lmc`）设备守护进程、各编码引擎适配器（Claude Code / Codex / Antigravity / ACP）与内置 MCP 服务（`publish_file`、`share_file`、多 Agent 编排与信箱工具）。 |
-| [`packages/lmc-wire`](packages/lmc-wire) | 前后端与 CLI 共享的 Zod 协议契约、文件资产/外链结构与配额计算逻辑。 |
-| [`deploy/lmc`](deploy/lmc) | 一键 Docker Compose 部署脚本、Web 静态包原子发布与数据迁移工具。 |
-| [`packages/codium`](packages/codium) | 实验性桌面端工作台集成。 |
+| `LMC_PUBLIC_ORIGIN` / `PUBLIC_URL` | 浏览器访问的规范 HTTPS 地址；非标准端口需包含端口号。 |
+| `LMC_MULTI_ACCOUNT_ENABLED=1` | 开启多账号角色、邀请与资源共享。 |
+| `LMC_FILE_SHARE_ORIGIN` | 可选，为限时外部下载链接指定独立域名。 |
+| `LMC_TRUSTED_PROXIES` | 允许提供转发请求头的受信反向代理 IP/CIDR。 |
 
-## 延伸文档
+请将数据库、文件存储与 `LMC_MASTER_KEY` 一并纳入备份计划，并将主密钥与数据库备份分开存放。调整现有部署前请先查阅部署指南。
 
-| 主题 | 路径 |
+</details>
+
+## 跨 Agent、跨机器推进
+
+- **一个工作台，多种引擎。** 原生封装 Claude Code、Codex（`codex app-server`）和 Antigravity（`agy`），并提供兼容 Agent 的 ACP 接入。支持动态发现模型，并按各引擎实际支持的能力切换运行模式。
+- **任务执行中介入。** 支持排队追加指令、撤回排队项，并在引擎支持时实时引导或打断当前执行。已支持的澄清提问、方案审批和工具授权通过交互卡片处理，具体能力因引擎而异。
+- **明确组织多 Agent 协作。** 提供主控/执行节点派单、持久化 Agent 信箱、任务报告与验收记录。跨会话交接可携带结构化任务背景，流转至其他引擎或主机。
+- **集中掌握运行与用量。** 查看设备在线状态、CPU/内存/磁盘占用、会话进度与历史用量。可选配的额度采集器支持展示模型厂商额度（取决于厂商接口与配置）。
+
+不同引擎的控制与恢复能力存在差异。跨引擎交接传递的是显式任务背景，不会迁移模型的内部隐藏状态。若将执行切换到另一台主机，目标机器还需具备相应的项目文件、依赖、凭据与权限——LMC 不会自动复制工作目录。
+
+## 共同协作，交付成果
+
+你可以按细粒度权限（查看、发送、停止、审批或配置）共享指定**会话**，共享**设备**用于受控启动会话，或共享**已保存文件**供他人审阅。多账号协作按需开启，单人部署开箱即用。
+
+Agent 可通过 `publish_file` 交付成果。文件保存在中心服务，来源执行机离线后仍可访问，并支持在浏览器内直接预览 Markdown、代码、图片与 PDF。需要对外分发时，可通过 `share_file` 显式生成带有效期且可随时撤销的下载链接。
+
+工作台还内置网页终端、Diff 视图、Markdown 表格一键复制，以及适配桌面、平板和手机浏览器的响应式布局。
+
+<a id="how-it-works"></a>
+## 如何工作
+
+![概念插画：不同终端通过自托管中心连接多台执行机](docs/images/lmc-connected-workspace.png)
+
+*AI 生成的概念插画，并非产品截图。实际组件关系见下方拓扑图。*
+
+```mermaid
+flowchart TB
+    users["人 · 独立账号"] <--> browser["浏览器工作台 · 电脑 / 平板 / 手机"]
+    browser <-->|HTTPS + WebSocket| centre["自托管 LMC 中心"]
+    centre <--> storage[("会话 / 任务记录与加密文件存储")]
+    agent["执行机器 · LMC 设备 Agent"] <-->|主动外连 + 反向 RPC| centre
+    agent <--> cli["Claude Code · Codex · Antigravity"]
+    cli <--> work["项目文件 · 工具 · 模型服务"]
+    cli -. "按需配置工具" .-> memory[("外部记忆服务")]
+```
+
+**中心**负责身份认证、权限控制、消息路由和加密持久化；**执行机**运行 CLI 进程并操作本地项目。设备 Agent 通过主动外连接入中心，执行机无需配置入站端口映射，只需确保中心能被浏览器和 Agent 访问。
+
+**会话历史、项目文件与长期记忆分属不同层级。** LMC 中心保存对话和任务记录，项目工作文件留在执行机本地；Nowledge Mem 等记忆服务属于外部可选接入，通过引擎的工具/MCP 配置使用，并非内置数据库，也不会自动收录每段对话。共享 LMC 会话不会自动授予外部记忆服务的访问权限。
+
+更多实现细节见[中心架构](docs/backend-architecture.md)、[CLI 架构](docs/cli-architecture.md)，以及可交互的[整体架构](docs/diagrams/architecture.html)、[会话启动](docs/diagrams/spawn-session.html)和[加密关系](docs/diagrams/encryption.html)图。HTML 图可下载到本地查看。
+
+<a id="sharing-and-privacy"></a>
+## 共享与隐私
+
+- **按资源粒度授权。** 会话、设备和已保存文件采用显式共享策略。管理员角色仅用于管理中心服务，不会默认获得用户内容的读取权限。
+- **内容在客户端加密。** 会话元数据、消息、运行状态与文件分片在上传前均已完成客户端加密。由于账号根密钥由中心的 `LMC_MASTER_KEY` 封装，**中心运维者仍处于信任边界内**。详见[加密说明](docs/encryption.md)。
+- **外部服务边界独立。** CLI 模型调用与配置的工具遵循各自的凭据和数据策略，共用记忆库也需单独配置用户或项目访问权限。LMC 的资源权限不提供操作系统沙箱，也不会自动隔离外部服务。
+- **控制面由你自托管。** LMC 不依赖 Happy 托管中继，也不强制绑定手机 App。上游的托管语音、推送及遥测集成已断开；你自行配置的模型服务和工具仍是独立依赖。
+
+## 兼容性与边界
+
+- **以浏览器端为主。** Web 工作台是主要支持的客户端入口。原生 iOS、Android 和 Tauri 打包配置仍包含上游签名标识，如需自行分发客户端需替换为自有配置。
+- **执行机需保持可用。** 浏览器断开时 Agent 仍可继续运行，但若执行机休眠、关机或故障，任务将无法继续执行。持久化记录用于辅助恢复，不保证任务永不中断。
+- **共用服务仍需隔离数据。** 多个用户或 Agent 接入同一数据库或记忆服务地址，不代表所有人都应读取全部内容，请在各接入系统中配置账号与项目边界。
+- **保留部分兼容命名。** 部分脚本与协议字段仍沿用 `happy` 命名；旧版 `lmc gemini` 命令已废弃，请改用 `lmc agy`。
+
+<a id="documentation"></a>
+## 文档
+
+| 主题 | 指南 |
 |---|---|
-| 部署与升级中心 | [`deploy/lmc/README.zh-CN.md`](deploy/lmc/README.zh-CN.md) · [`deploy/lmc/README.md`](deploy/lmc/README.md) |
-| 通信协议与会话事件 | [`docs/protocol.md`](docs/protocol.md) · [`docs/session-protocol.md`](docs/session-protocol.md) |
-| 加密边界与密钥派生 | [`docs/encryption.md`](docs/encryption.md) |
-| 中心架构与多进程扩展 | [`docs/backend-architecture.md`](docs/backend-architecture.md) · [`docs/multi-process.md`](docs/multi-process.md) |
-| CLI、守护进程与模型发现 | [`docs/cli-architecture.md`](docs/cli-architecture.md) · [`docs/model-discovery.md`](docs/model-discovery.md) |
-| 可靠信箱与卡顿诊断 | [`docs/reliable-agent-mail.md`](docs/reliable-agent-mail.md) · [`docs/engine-no-progress.md`](docs/engine-no-progress.md) |
-| 账号配额看板连接器 | [`docs/account-quota.md`](docs/account-quota.md) |
-| 参与贡献 | [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) |
+| 安装、部署与升级 | [简体中文](deploy/lmc/README.zh-CN.md) · [English](deploy/lmc/README.md) |
+| 协议与会话事件 | [通信协议](docs/protocol.md) · [会话协议](docs/session-protocol.md) |
+| 加密与密钥 | [加密说明](docs/encryption.md) |
+| 中心与扩展 | [后端架构](docs/backend-architecture.md) · [多进程](docs/multi-process.md) |
+| 引擎与模型发现 | [CLI 架构](docs/cli-architecture.md) · [模型发现](docs/model-discovery.md) |
+| Agent 通信与诊断 | [可靠信箱](docs/reliable-agent-mail.md) · [无进展诊断](docs/engine-no-progress.md) |
+| 用量与额度 | [额度连接器](docs/account-quota.md) |
+| 参与贡献或反馈问题 | [贡献指南](docs/CONTRIBUTING.md) · [Issues](https://github.com/MoeAisaka/lmc-workspace/issues) |
 
-## 已知限制
+<details>
+<summary>仓库目录</summary>
 
-- **Web 客户端是官方支持的主力入口。** 仓库内的原生 iOS、Android 与 Tauri 打包配置仍保留着上游发布方的 Bundle ID 与签名信息；如需自行分发原生客户端，需替换为你自己的开发者账号与证书。
-- **中心运维者处于信任边界内。** 客户端加密保护传输链路与数据库/磁盘静态数据，但账号根密钥由中心的 `LMC_MASTER_KEY` 封装保管。备份数据库时请将 `LMC_MASTER_KEY` 分离妥善保存，切勿泄露或随意轮换。
-- **托管语音、推送通知与付费第三方遥测 SDK 均已断开。** 上游依赖外部商业服务的集成已被移除，不会向第三方发请求。
-- **底层兼容面仍保留部分 `happy` 命名。** 少量内部协议字段、入口脚本名（`bin/happy.mjs`）、加密派生盐值与回退变量为保持协议兼容沿用了 `happy` 前缀，不代表连接任何外部托管服务。
-- **独立 `lmc gemini` 子命令已弃用。** 上游旧版 `gemini` CLI 封装已被原生一等公民支持的 Antigravity（`lmc agy`）取代。
+| 路径 | 职责 |
+|---|---|
+| `packages/lmc-app` | Expo / React Native Web 工作台与客户端加密。 |
+| `packages/lmc-server` | Fastify + Socket.IO 中心、Prisma/MySQL、访问策略和文件接口。 |
+| `packages/lmc-cli` | 设备守护进程、引擎封装、文件交付、编排和信箱工具。 |
+| `packages/lmc-wire` | 共用协议与数据契约。 |
+| `deploy/lmc` | Docker Compose 部署和升级脚本。 |
+| `packages/codium` | 实验性桌面端集成。 |
 
-## 与上游的关系
+</details>
 
-LMC 于 2026 年 9 月分叉自 [`slopus/happy`](https://github.com/slopus/happy)，在按需吸收上游底层修复的同时，独立演进为自托管的多引擎、多账号协同工作空间。凡指代上游自身软件与组件的名称（如 `@slopus/*`、Happy Terminal）均保留原有署名。
+## 上游与许可
 
-## 开源许可
+LMC 于 2026 年 9 月分叉自 [Happy](https://github.com/slopus/happy)，独立演进为自托管多引擎工作台，继续保留所使用上游组件和名称的署名。
 
-MIT，详见 [LICENSE](LICENSE)。
+[MIT](LICENSE)。
