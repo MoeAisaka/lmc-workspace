@@ -1,14 +1,13 @@
 # README images
 
-- `lmc-ui-showcase.png` is a capture of the actual LMC interface with synthetic demo content. It is an illustrative interface capture, not a statement of the latest CLI/model versions.
-- `lmc-connected-workspace.png` is an AI-generated conceptual illustration created for this repository on 2026-11-12 using the built-in image generation tool. The tool did not expose a model ID. It is not a screenshot or a precise technical diagram. It contains no production data or third-party logos.
+- `yulor-ui-showcase.png` and `yulor-ui-showcase-dark.png` are browser captures of the actual Yulor `SidebarView` and `SessionView` components, taken on 2026-11-12 from web build `lmc-redesign-20260908-v422`. An isolated fixture supplies synthetic sessions, messages, device names and account details. No production account, private conversation or live agent action was used. Agent and model labels are illustrative.
+- `yulor-connected-workspace.png` is an AI-generated concept illustration refreshed on 2026-11-12 to match the Yulor mark. It is not a product screenshot or a precise technical diagram. The built-in image generation tool did not expose a model ID. The illustration contains no production data or third-party logos.
+- `lmc-ui-showcase.png` and `lmc-connected-workspace.png` are compatibility copies of the corresponding new Yulor images, so existing image links continue to work.
 
-The concept illustration was generated with this prompt:
+The concept revision used the previous panoramic illustration and the new Yulor icon as visual references. The prompt requested a warm-white paper-and-ceramic scene: browser devices on the left, a self-hosted hub in the centre and three execution machines on the right, connected by blue-to-indigo ribbons. Yulor's white Y mark and mint accents appear on the hub and screens. Screens contain abstract UI only, with no LMC or Happy branding, provider logos, watermarks or invented product text.
 
-> Use case: ads-marketing. Asset type: wide conceptual illustration for the README of LMC (Link my Cli), a self-hosted workspace for CLI agents. Create a polished editorial 3D paper-and-ceramic illustration, very wide horizontal composition about 3:1, on a warm white background with restrained vivid cobalt-blue accents inspired by LMC's existing blue interface. Show a laptop, a tablet and a phone together on the left; a small self-hosted server in the middle; three compact execution computers on the right; a few slim blue connecting ribbons and neatly organized document tiles suggest that a person's work continues across devices and multiple agent machines. Make the visual hierarchy quiet and immediately readable, with ample whitespace and precise soft shadows. This is a conceptual product illustration, not a screenshot or a technical architecture diagram. Screens show abstract blue rectangles and tiny neutral lines only, no fabricated app UI, no legible writing. Do not use robot heads, brains, people, padlocks, shields, third-party logos, provider badges, slogans, watermarks or any text. Avoid neon, dark sci-fi backgrounds, glowing networks and busy decorative detail. Keep all meaningful objects comfortably within the wide center so it works well as a GitHub README banner.
+Both READMEs provide descriptive alternative text and distinguish the interface captures from the concept illustration. The repository's MIT license applies to the new artwork.
 
-Both READMEs label the images and include descriptive alternative text. The repository's MIT license applies to the new concept illustration.
+## Editable mark
 
-## Yulor branding
-
-`brand/yulor-mark.svg` is the editable Yulor mark; `brand/render-icons.cjs` derives app, browser and desktop sizes. The existing `lmc-ui-showcase.png` is a historical, synthetic-data interface capture from before the rename; its old name is intentional. The concept illustration and its recorded original prompt remain unchanged. See [branding notes](../branding.md).
+[`brand/yulor-mark.svg`](../../brand/yulor-mark.svg) is the editable Yulor mark. `brand/render-icons.cjs` derives application, browser and desktop sizes. See the [branding and compatibility notes](../branding.md).

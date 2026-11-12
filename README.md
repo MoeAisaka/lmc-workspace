@@ -12,9 +12,12 @@ Yulor is a self-hosted workspace for **Claude Code, Codex, and Antigravity**. St
 
 [Quick start](#quick-start) · [Why Yulor](#why-yulor) · [How it works](#how-it-works) · [Sharing & privacy](#sharing-and-privacy) · [Documentation](#documentation)
 
-![Yulor browser workspace showing sessions on several machines, live output, and queue controls](docs/images/lmc-ui-showcase.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/yulor-ui-showcase-dark.png">
+  <img src="docs/images/yulor-ui-showcase.png" alt="Yulor workspace with sessions across three machines, a live conversation and agent handoff notes" width="1440">
+</picture>
 
-*Actual interface captured before the Yulor rename, populated with synthetic demo content. Agent and model versions shown are illustrative.*
+*Actual Yulor interface with synthetic demo content, in light and dark themes. Agent and model labels are illustrative.*
 
 <a id="why-yulor"></a>
 <a id="why-lmc"></a>
@@ -121,7 +124,7 @@ The workspace also provides a built-in web terminal, diff views, one-click Markd
 <a id="how-it-works"></a>
 ## How it works
 
-![Concept illustration of browser devices connected through a self-hosted centre to multiple execution machines](docs/images/lmc-connected-workspace.png)
+![Concept illustration of browser devices connected through a self-hosted centre to multiple execution machines](docs/images/yulor-connected-workspace.png)
 
 *AI-generated concept illustration, not a product screenshot. The diagram below describes the actual component relationships.*
 

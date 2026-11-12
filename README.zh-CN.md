@@ -12,9 +12,12 @@ Yulor 是面向 **Claude Code、Codex 和 Antigravity** 的自托管协作工作
 
 [快速开始](#quick-start) · [为什么用 Yulor](#why-yulor) · [如何工作](#how-it-works) · [共享与隐私](#sharing-and-privacy) · [文档](#documentation)
 
-![Yulor 浏览器工作台：多台机器的会话、实时输出和消息排队控件](docs/images/lmc-ui-showcase.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/yulor-ui-showcase-dark.png">
+  <img src="docs/images/yulor-ui-showcase.png" alt="Yulor 工作台：三台机器的会话、实时对话与 Agent 交接说明" width="1440">
+</picture>
 
-*更名前的真实工作台界面（使用合成演示内容），用于展示工作台布局，图中标识不代表当前 Agent 或模型版本。*
+*Yulor 真实界面，提供浅色与深色展示，内容均为合成演示数据。图中的 Agent 和模型标识仅作示意。*
 
 <a id="why-yulor"></a>
 <a id="why-lmc"></a>
@@ -121,7 +124,7 @@ Agent 可通过 `publish_file` 交付成果。文件保存在中心服务，来�
 <a id="how-it-works"></a>
 ## 如何工作
 
-![概念插画：不同终端通过自托管中心连接多台执行机](docs/images/lmc-connected-workspace.png)
+![概念插画：不同终端通过自托管中心连接多台执行机](docs/images/yulor-connected-workspace.png)
 
 *AI 生成的概念插画，并非产品截图。实际组件关系见下方拓扑图。*
 
