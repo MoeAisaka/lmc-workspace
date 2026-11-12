@@ -19,7 +19,7 @@ html[data-lmc-motion="off"] { --yulor-interaction-fast: 0ms; --yulor-interaction
 /* The adapter also covers controls without an ARIA role. Native HTML fallbacks
    cover links and buttons in first-party editors and auxiliary panels. */
 :where([data-yulor-interaction]:not([data-yulor-interaction="none"]), button, a[href], [role="button"], [role="tab"], [role="switch"], [role="menuitem"]) {
-    transition-property: background-color, border-color, color, opacity, outline-color, box-shadow, scale;
+    transition-property: background-color, border-color, color, opacity, outline-color, box-shadow;
     transition-duration: var(--yulor-interaction-fast);
     transition-timing-function: var(--yulor-interaction-ease);
     -webkit-tap-highlight-color: transparent;
@@ -37,12 +37,15 @@ html[data-lmc-motion="off"] { --yulor-interaction-fast: 0ms; --yulor-interaction
 @media (hover: hover) and (pointer: fine) {
     :where([data-yulor-interaction]:not([data-yulor-interaction="none"]), button, a[href], [role="button"], [role="tab"], [role="menuitem"], [role="switch"]):not(:disabled):not([aria-disabled="true"]):not([data-yulor-disabled="true"]):not([data-yulor-interaction="none"]):hover::after { opacity: .065; }
     :where(button, a[href], [role="button"], [role="tab"], [role="menuitem"], [role="switch"]):not([data-yulor-interaction]):not(:disabled):not([aria-disabled="true"]):active::after { opacity: .12; }
-    button:not([data-yulor-interaction]):not(:disabled):not([aria-disabled="true"]):active { scale: var(--yulor-pressure); }
 }
 /* Native press lifecycle also clears on touch cancellation; browser :active
    can remain latched after a tap, so adapted controls never depend on it. */
 [data-yulor-interaction]:not([data-yulor-interaction="none"])[data-yulor-pressed="true"]:not([data-yulor-disabled="true"])::after { opacity: .12 !important; }
-[data-yulor-interaction="control"][data-yulor-pressed="true"]:not([data-yulor-disabled="true"]) { scale: var(--yulor-pressure); }
+/* Keep the press responder's hit area fixed, including presses at the edge. */
+[data-yulor-interaction="control"] > * {
+    transition: scale var(--yulor-interaction-fast) var(--yulor-interaction-ease);
+}
+[data-yulor-interaction="control"][data-yulor-pressed="true"]:not([data-yulor-disabled="true"]) > * { scale: var(--yulor-pressure); }
 @media (pointer: coarse) {
     :where(button, a[href]):not([data-yulor-interaction]) { -webkit-tap-highlight-color: var(--yulor-focus-soft); }
 }

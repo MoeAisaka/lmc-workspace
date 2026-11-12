@@ -8,7 +8,7 @@ import { InteractionPressable as Pressable } from '@/components/InteractionPress
 <Pressable interaction="control" onPress={submit}>...</Pressable>
 ```
 
-The default `surface` feedback is for list rows and cards: a quiet hover/press tint with no positional change. Use `control` for compact buttons and chips to add a small pressure response. Use `none` for click-away hit planes and elements whose visual response belongs to a parent. Existing events, disabled behavior, styles, custom data attributes and refs stay with React Native. Legacy opacity controls use `InteractionTouchableOpacity`.
+The default `surface` feedback is for list rows and cards: a quiet hover/press tint with no positional change. Use `control` for compact buttons and chips to add a small pressure response to their content, keeping the button's hit area fixed. Use `none` for click-away hit planes and elements whose visual response belongs to a parent. Existing events, disabled behavior, styles, custom data attributes and refs stay with React Native. Legacy opacity controls use `InteractionTouchableOpacity`.
 
 `interaction.css` supplies feedback without pointer-move listeners or a render loop. Adapted controls use the native press-in/out/cancel lifecycle instead of browser `:active`, which can remain latched after a touch tap. Native HTML buttons, links and ARIA action roles also receive hover and keyboard-focus styling. Keyboard focus is a visible ring, independent of whether animation is enabled. Input fields receive a matching ring; add `dataSet={{ 'yulor-focus-within': 'composer' }}` to an input shell for a single focus boundary.
 
