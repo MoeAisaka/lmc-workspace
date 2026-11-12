@@ -1,12 +1,6 @@
 import * as React from 'react';
-import {
-    ActivityIndicator,
-    Modal,
-    Pressable,
-    ScrollView,
-    TextInput,
-    View,
-} from 'react-native';
+import { ActivityIndicator, Modal, ScrollView, TextInput, View } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';

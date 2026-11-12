@@ -324,6 +324,7 @@ export function SortableSessionRows<T extends {id:string}>({groupId,sessions,ren
                         },TOUCH_MENU_HOLD_MS);
                     }
                 }}
+                data-yulor-reorder="row"
                 style={{'--sort-hover':theme.colors.surfaceHighest,display:'flex',alignItems:'stretch',position:'relative',userSelect:'none',WebkitUserSelect:'none',WebkitTouchCallout:'none',pointerEvents:selected&&drag?.phase==='drag'?'none':undefined,zIndex:selected?2:0,transform:`translateY(${shift}px)`,transition:!drag||(selected&&drag.phase==='drag')?'box-shadow 150ms ease':'transform 180ms cubic-bezier(.2,.8,.2,1), box-shadow 180ms ease',} as React.CSSProperties}>
                 {/* The lifted-row card is inset to the row's own left edge, so it
                     never reaches back over the group's guide line. */}

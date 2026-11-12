@@ -1,7 +1,8 @@
 import { Text } from '@/components/StyledText';
 import { useChatMaxWidth } from './ChatWidthContext';
 import * as React from 'react';
-import { View, Pressable, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { openSessionFile, openToolDetail } from '@/components/lmc/toolOverlayStore';
 import { Ionicons, Octicons } from '@expo/vector-icons';

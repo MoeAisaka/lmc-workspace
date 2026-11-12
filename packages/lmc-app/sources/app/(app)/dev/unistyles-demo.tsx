@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Platform, View, Text, ScrollView, Pressable, Switch, Dimensions } from 'react-native';
+import { Platform, View, Text, ScrollView, Switch, Dimensions } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { StyleSheet, UnistylesRuntime, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 

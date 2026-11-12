@@ -1,7 +1,8 @@
 import { usePersonalizationMotion } from '@/hooks/usePersonalizationMotion';
 import { motionDuration } from '@/sync/personalization';
 import * as React from 'react';
-import { Platform, Pressable, ScrollView, View, type LayoutChangeEvent } from 'react-native';
+import { Platform, ScrollView, View, type LayoutChangeEvent } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { Easing, runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';

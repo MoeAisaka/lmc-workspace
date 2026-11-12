@@ -1,6 +1,7 @@
 import { QuotaEfficiencyCard } from './QuotaEfficiencyCard';
 import * as React from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Platform, ScrollView, View } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import Svg, { Circle, Line, Path, Text as SvgText } from 'react-native-svg';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';

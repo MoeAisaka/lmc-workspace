@@ -7,7 +7,8 @@ import { PickerMenuDivider, PickerMenuEmpty, PickerMenuRow, PickerMenuTitle } fr
 import { Ionicons, Octicons } from '@expo/vector-icons';
 import Svg, { Circle } from 'react-native-svg';
 import * as React from 'react';
-import { Keyboard, View, Platform, useWindowDimensions, ActivityIndicator, Pressable, TouchableWithoutFeedback, LayoutChangeEvent } from 'react-native';
+import { Keyboard, View, Platform, useWindowDimensions, ActivityIndicator, TouchableWithoutFeedback, LayoutChangeEvent } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Image } from 'expo-image';
 import { AgentInputAttachmentStrip } from './AgentInputAttachmentStrip';
 import { useComposerFileTransfer } from '@/hooks/useComposerFileTransfer';
@@ -904,6 +905,7 @@ const AgentInputContextChips = React.memo(function AgentInputContextChips(p: Con
         }}>
             {p.machineName !== undefined && p.onMachineClick && (
                 <BubblePressable
+                    interaction="control"
                     onPress={() => {
                         hapticsLight();
                         p.onMachineClick?.();
@@ -933,6 +935,7 @@ const AgentInputContextChips = React.memo(function AgentInputContextChips(p: Con
             )}
             {p.currentPath && p.onPathClick && (
                 <BubblePressable
+                    interaction="control"
                     onPress={() => {
                         hapticsLight();
                         p.onPathClick?.();
@@ -1859,7 +1862,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                         compactMobileComposer && styles.mobileUnifiedPanelShadow,
                     ]}>
                         <MobileGlassSurface
-                            {...(Platform.OS === 'web' ? {dataSet: {lmcSurface: 'panel'}} : {})}
+                            {...(Platform.OS === 'web' ? {dataSet: {lmcSurface: 'panel', 'yulor-focus-within': 'composer'}} : {})}
                             enabled={compactMobileComposer}
                             nativeEffect
                             material="frosted"
@@ -1910,6 +1913,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                     ]}>
                         {!props.zenMode && props.onPickImages && (
                             <BubblePressable
+                    interaction="control"
                                 onPress={props.onPickImages}
                                 hitSlop={6}
                                 style={styles.mobileIconButton}
@@ -1927,6 +1931,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                         )}
                         {!props.zenMode && clipboardImage.available && (
                             <BubblePressable
+                    interaction="control"
                                 onPress={() => { void clipboardImage.paste(); }}
                                 hitSlop={6}
                                 style={styles.mobileIconButton}
@@ -1964,6 +1969,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                 </NativeSettingsMenu>
                             ) : (
                                 <BubblePressable
+                    interaction="control"
                                     onPress={handleSettingsPress}
                                     hitSlop={6}
                                     style={styles.mobileSummaryButton}
@@ -2032,6 +2038,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
 
                         {!compactMobileComposer && props.agentType && props.onAgentClick && (
                             <BubblePressable
+                    interaction="control"
                                 onPress={() => {
                                     hapticsLight();
                                     props.onAgentClick?.();
@@ -2060,6 +2067,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                                 ]}
                             >
                                 <BubblePressable
+                    interaction="control"
                                     style={(p) => ({
                                         width: '100%',
                                         height: '100%',

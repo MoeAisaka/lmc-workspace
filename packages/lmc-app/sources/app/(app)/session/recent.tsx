@@ -11,7 +11,7 @@ import { StyleSheet } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { layout } from '@/components/layout';
 import { useNavigateToSession } from '@/hooks/useNavigateToSession';
-import { Pressable } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { t } from '@/text';
 import { MobileGlassSurface } from '@/components/MobileGlass';
 

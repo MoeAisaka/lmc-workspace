@@ -1,6 +1,7 @@
 import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { StyleSheet } from 'react-native-unistyles';
 import type { ToolCall } from '@/sync/typesMessage';
 import { getToolTiming, validTimestamp } from '@/utils/turnTimeline';

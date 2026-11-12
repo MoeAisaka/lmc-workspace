@@ -311,6 +311,7 @@ export function SortableHubGroups<T>({ storageKey, items, getId, renderItem }: S
                         key={row.id}
                         ref={(node) => { if (node) elements.current.set(row.id, node); else elements.current.delete(row.id); }}
                         data-hub-sort-id={row.id}
+                        data-yulor-reorder="group"
                         data-sort-active={selected || held === row.id}
                         style={{
                             // Include the group's outer margins in measured drag geometry.

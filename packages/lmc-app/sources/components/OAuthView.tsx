@@ -2,7 +2,8 @@ import { Typography } from '@/constants/Typography';
 import { Text } from '@/components/StyledText';
 import { parseCallbackUrl, generatePKCE, generateState, PKCECodes, ClaudeAuthTokens } from '@/utils/oauth';
 import * as React from 'react';
-import { ActivityIndicator, Platform, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Platform, View } from 'react-native';
+import { InteractionTouchableOpacity as TouchableOpacity } from '@/components/InteractionPressable';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import Animated, {
     useSharedValue,

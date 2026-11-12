@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { View, Text, ScrollView, Pressable, TextInput, Platform } from 'react-native';
+import { View, Text, ScrollView, TextInput, Platform } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Ionicons, MaterialIcons, FontAwesome5, Feather } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';

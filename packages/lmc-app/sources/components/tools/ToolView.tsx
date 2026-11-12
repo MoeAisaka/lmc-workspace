@@ -1,7 +1,8 @@
 import { Typography } from '@/constants/Typography';
 import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import { View, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
+import { View, ActivityIndicator, Platform } from 'react-native';
+import { InteractionTouchableOpacity as TouchableOpacity } from '@/components/InteractionPressable';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { openSessionFile, openToolDetail } from '@/components/lmc/toolOverlayStore';
 import { Ionicons, Octicons } from '@expo/vector-icons';

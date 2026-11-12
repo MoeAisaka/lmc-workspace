@@ -1,5 +1,6 @@
 import 'react-native-quick-base64';
 import '../theme.css';
+import '../interaction.css';
 import * as React from 'react';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Fonts from 'expo-font';

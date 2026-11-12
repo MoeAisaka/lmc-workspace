@@ -1,7 +1,8 @@
 import { Typography } from '@/constants/Typography';
 import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Octicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';

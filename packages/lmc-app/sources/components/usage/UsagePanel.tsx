@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Platform, View, ActivityIndicator, ScrollView, Pressable } from 'react-native';
+import { Platform, View, ActivityIndicator, ScrollView } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Text } from '@/components/StyledText';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useAuth } from '@/auth/AuthContext';

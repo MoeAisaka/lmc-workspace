@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { View, ActivityIndicator, Pressable, Platform } from 'react-native';
+import { View, ActivityIndicator, Platform } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
 import { DiffFilesList, type DiffFileItem } from '@/components/diff/DiffFilesList';

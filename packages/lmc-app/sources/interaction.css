@@ -1,0 +1,90 @@
+/* Shared first-party interaction feedback. No layout animation or pointer loop. */
+:root {
+    --yulor-interaction-fast: 140ms;
+    --yulor-interaction-settle: 200ms;
+    --yulor-pressure: .975;
+    --yulor-interaction-ease: cubic-bezier(.2, .8, .2, 1);
+    --yulor-focus: #1769e0;
+    --yulor-focus-soft: rgba(23, 105, 224, .14);
+    --yulor-feedback-ink: 16, 24, 40;
+}
+html.dark { --yulor-feedback-ink: 255, 255, 255; }
+@media (prefers-color-scheme: dark) {
+    html:not(.light) { --yulor-feedback-ink: 255, 255, 255; }
+}
+html[data-lmc-motion="gentle"] { --yulor-interaction-fast: 100ms; --yulor-interaction-settle: 140ms; --yulor-pressure: .99; }
+html[data-lmc-motion="off"] { --yulor-interaction-fast: 0ms; --yulor-interaction-settle: 0ms; --yulor-pressure: 1; }
+:where(button, a[href], [role="button"], [role="tab"], [role="menuitem"], [role="switch"]) { position: relative; }
+
+/* The adapter also covers controls without an ARIA role. Native HTML fallbacks
+   cover links and buttons in first-party editors and auxiliary panels. */
+:where([data-yulor-interaction]:not([data-yulor-interaction="none"]), button, a[href], [role="button"], [role="tab"], [role="switch"], [role="menuitem"]) {
+    transition-property: background-color, border-color, color, opacity, outline-color, box-shadow, scale;
+    transition-duration: var(--yulor-interaction-fast);
+    transition-timing-function: var(--yulor-interaction-ease);
+    -webkit-tap-highlight-color: transparent;
+}
+:where([data-yulor-interaction]:not([data-yulor-interaction="none"]), button, a[href], [role="button"], [role="tab"], [role="menuitem"], [role="switch"]):not([data-yulor-interaction="none"])::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: rgb(var(--yulor-feedback-ink));
+    opacity: 0;
+    transition: opacity var(--yulor-interaction-fast) var(--yulor-interaction-ease);
+}
+@media (hover: hover) and (pointer: fine) {
+    :where([data-yulor-interaction]:not([data-yulor-interaction="none"]), button, a[href], [role="button"], [role="tab"], [role="menuitem"], [role="switch"]):not(:disabled):not([aria-disabled="true"]):not([data-yulor-disabled="true"]):not([data-yulor-interaction="none"]):hover::after { opacity: .065; }
+    :where(button, a[href], [role="button"], [role="tab"], [role="menuitem"], [role="switch"]):not([data-yulor-interaction]):not(:disabled):not([aria-disabled="true"]):active::after { opacity: .12; }
+    button:not([data-yulor-interaction]):not(:disabled):not([aria-disabled="true"]):active { scale: var(--yulor-pressure); }
+}
+/* Native press lifecycle also clears on touch cancellation; browser :active
+   can remain latched after a tap, so adapted controls never depend on it. */
+[data-yulor-interaction]:not([data-yulor-interaction="none"])[data-yulor-pressed="true"]:not([data-yulor-disabled="true"])::after { opacity: .12 !important; }
+[data-yulor-interaction="control"][data-yulor-pressed="true"]:not([data-yulor-disabled="true"]) { scale: var(--yulor-pressure); }
+@media (pointer: coarse) {
+    :where(button, a[href]):not([data-yulor-interaction]) { -webkit-tap-highlight-color: var(--yulor-focus-soft); }
+}
+:where([data-yulor-interaction], button, a[href], [role="button"], [role="tab"], [role="switch"], [role="menuitem"], [role="slider"], input[type="checkbox"], input[type="radio"], input[type="range"]):focus-visible {
+    outline: 2px solid var(--yulor-focus) !important;
+    outline-offset: -2px;
+}
+/* Nested row actions get the feedback, rather than illuminating both layers. */
+@supports selector(:has(*)) {
+    [data-yulor-interaction]:has([data-yulor-interaction]:hover):not([data-yulor-interaction="none"])::after { opacity: 0; }
+}
+
+:where(input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]), textarea, select) {
+    transition: border-color var(--yulor-interaction-fast) ease, outline-color var(--yulor-interaction-fast) ease, box-shadow var(--yulor-interaction-settle) ease;
+}
+:where(input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]), textarea, select):focus-visible {
+    outline: 2px solid var(--yulor-focus) !important;
+    outline-offset: 2px;
+}
+[data-yulor-focus-within] {
+    transition: outline-color var(--yulor-interaction-fast) ease, box-shadow var(--yulor-interaction-settle) ease;
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+}
+[data-yulor-focus-within]:focus-within {
+    outline-color: var(--yulor-focus);
+    box-shadow: 0 0 0 5px var(--yulor-focus-soft);
+}
+[data-yulor-focus-within] :where(input, textarea):focus { outline: none !important; box-shadow: none; }
+[data-yulor-surface="menu"] { animation: yulor-menu-in var(--yulor-interaction-settle) var(--yulor-interaction-ease) both; }
+@keyframes yulor-menu-in {
+    from { opacity: 0; translate: 0 6px; }
+    to { opacity: 1; translate: 0 0; }
+}
+html[data-lmc-motion="gentle"] [data-yulor-surface="menu"] { animation-name: yulor-surface-fade; }
+@keyframes yulor-surface-fade { from { opacity: 0; } to { opacity: 1; } }
+html[data-lmc-motion="off"] [data-yulor-surface="menu"] { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+    :root { --yulor-interaction-fast: 0ms !important; --yulor-interaction-settle: 0ms !important; --yulor-pressure: 1 !important; }
+    [data-yulor-surface="menu"] { animation: none !important; }
+}
+
+/* Reorder positioning stays functional; only the decorative settling is optional. */
+html[data-lmc-motion="off"] [data-yulor-reorder] { transition: none !important; }
+@media (prefers-reduced-motion: reduce) { [data-yulor-reorder] { transition: none !important; } }

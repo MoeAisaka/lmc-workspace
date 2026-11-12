@@ -1,6 +1,7 @@
 import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import { View, ScrollView, Pressable, Platform, TextInput, ActivityIndicator } from 'react-native';
+import { View, ScrollView, Platform, TextInput, ActivityIndicator } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Octicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Animated, {

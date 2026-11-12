@@ -3,7 +3,8 @@ import { Text } from '@/components/StyledText';
 import * as React from 'react';
 import { Header } from './navigation/Header';
 import { useSocketStatus } from '@/sync/storage';
-import { Platform, Pressable, View } from 'react-native';
+import { Platform, View } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from './StatusDot';
 import { Ionicons } from '@expo/vector-icons';
@@ -144,6 +145,7 @@ function HeaderRight() {
 
     return (
         <Pressable
+            interaction="control"
             onPress={() => router.navigate('/new')}
             hitSlop={15}
             style={[
@@ -165,6 +167,7 @@ function HeaderRightNotAuth() {
 
     return (
         <Pressable
+            interaction="control"
             onPress={() => router.push('/server')}
             hitSlop={15}
             style={styles.headerButton}

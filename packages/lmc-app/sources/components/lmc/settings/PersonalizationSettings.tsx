@@ -1,6 +1,7 @@
 import { UI_FONT_CHOICES, CODE_FONT_CHOICES, FONT_HINT_KEYS, codeAssetFont, type AssetFont } from '@/sync/personalizationFonts';
 import * as React from 'react';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
 import { Item } from '@/components/Item';

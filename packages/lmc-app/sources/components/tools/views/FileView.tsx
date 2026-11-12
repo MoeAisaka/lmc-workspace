@@ -9,7 +9,8 @@ import { Text } from '@/components/StyledText';
  * ratio is used until the actual image lands and contentFit shows it.
  */
 import * as React from 'react';
-import { View, Pressable } from 'react-native';
+import { View } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';

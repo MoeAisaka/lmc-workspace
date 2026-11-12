@@ -1,6 +1,7 @@
 import { Text } from '@/components/StyledText';
 import React from 'react';
-import { View, Pressable } from 'react-native';
+import { View } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';

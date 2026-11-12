@@ -10,7 +10,8 @@ import {
 } from './parseMarkdown';
 import { spansLength } from './parseMarkdownSpans';
 import * as React from 'react';
-import { ActivityIndicator, Image, Pressable, View, Platform } from 'react-native';
+import { ActivityIndicator, Image, View, Platform } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { HorizontalScrollView } from '../HorizontalScrollView';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';

@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Pressable, useWindowDimensions, View, Platform } from 'react-native';
+import { useWindowDimensions, View, Platform } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming, runOnJS } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';

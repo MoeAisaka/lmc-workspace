@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Platform, ScrollView, View, useWindowDimensions } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { useUnistyles } from 'react-native-unistyles';
 import { Text } from './StyledText';
 import { openClaudeNative } from './ClaudeNativeDialog';

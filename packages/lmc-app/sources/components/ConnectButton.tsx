@@ -1,6 +1,7 @@
 import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import { View, TextInput, TouchableOpacity } from 'react-native';
+import { View, TextInput } from 'react-native';
+import { InteractionTouchableOpacity as TouchableOpacity } from '@/components/InteractionPressable';
 import { RoundButton } from './RoundButton';
 import { useConnectTerminal } from '@/hooks/useConnectTerminal';
 import { trackConnectAttempt } from '@/track';

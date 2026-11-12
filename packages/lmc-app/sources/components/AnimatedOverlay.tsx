@@ -1,10 +1,12 @@
 import * as React from 'react';
-import { Platform, Pressable, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import { Platform, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { BlurView } from 'expo-blur';
 import MaskedView from '@react-native-masked-view/masked-view';
 import Animated, {
     Easing,
     FadeIn,
+    FadeInDown,
     FadeOut,
     ReduceMotion,
     useAnimatedStyle,
@@ -12,33 +14,23 @@ import Animated, {
     withTiming,
 } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
+import { usePersonalizationMotion } from '@/hooks/usePersonalizationMotion';
+import { motionDuration } from '@/sync/personalization';
 
 const enterEasing = Easing.out(Easing.cubic);
 const exitEasing = Easing.in(Easing.cubic);
 
-const backdropEntering = FadeIn
-    .duration(180)
-    .easing(enterEasing)
-    .reduceMotion(ReduceMotion.System);
-
-const backdropExiting = FadeOut
-    .duration(140)
-    .easing(exitEasing)
-    .reduceMotion(ReduceMotion.System);
-
-const popupEntering = FadeIn
-    .duration(190)
-    .easing(enterEasing)
-    .withInitialValues({
-        opacity: 0,
-        transform: [{ scale: 0.96 }, { translateY: 8 }],
-    })
-    .reduceMotion(ReduceMotion.System);
-
-const popupExiting = FadeOut
-    .duration(140)
-    .easing(exitEasing)
-    .reduceMotion(ReduceMotion.System);
+function useOverlayTransitions() {
+    const motion = usePersonalizationMotion();
+    return React.useMemo(() => ({
+        backdropEntering: FadeIn.duration(motionDuration(motion, 180)).easing(enterEasing).reduceMotion(ReduceMotion.System),
+        backdropExiting: FadeOut.duration(motionDuration(motion, 140)).easing(exitEasing).reduceMotion(ReduceMotion.System),
+        popupEntering: FadeInDown.duration(motionDuration(motion, 200)).easing(enterEasing)
+            .withInitialValues({ opacity: 0, transform: [{ translateY: motion === 'full' ? 6 : 0 }] })
+            .reduceMotion(ReduceMotion.System),
+        popupExiting: FadeOut.duration(motionDuration(motion, 140)).easing(exitEasing).reduceMotion(ReduceMotion.System),
+    }), [motion]);
+}
 
 export function AnimatedBlurBackdrop({
     blurIntensity = 42,
@@ -54,6 +46,7 @@ export function AnimatedBlurBackdrop({
     style?: StyleProp<ViewStyle>;
 }) {
     const { theme } = useUnistyles();
+    const { backdropEntering, backdropExiting } = useOverlayTransitions();
 
     return (
         <Animated.View
@@ -82,6 +75,9 @@ export function AnimatedBlurBackdrop({
                 ]}
             />
             <Pressable
+                interaction="none"
+                accessible={false}
+                tabIndex={-1}
                 onPress={onPress}
                 pointerEvents={interactive ? 'auto' : 'none'}
                 style={StyleSheet.absoluteFill}
@@ -102,6 +98,7 @@ export function AnimatedClickAwayBackdrop({
     onPress?: () => void;
     style?: StyleProp<ViewStyle>;
 }) {
+    const { backdropEntering, backdropExiting } = useOverlayTransitions();
     return (
         <Animated.View
             entering={backdropEntering}
@@ -115,7 +112,7 @@ export function AnimatedClickAwayBackdrop({
                     style={[StyleSheet.absoluteFill, { backgroundColor: dimColor }]}
                 />
             )}
-            <Pressable onPress={onPress} style={StyleSheet.absoluteFill} />
+            <Pressable interaction="none" accessible={false} tabIndex={-1} onPress={onPress} style={StyleSheet.absoluteFill} />
         </Animated.View>
     );
 }
@@ -202,6 +199,7 @@ export function AnimatedPopup({
     exitImmediately?: boolean;
     style?: StyleProp<ViewStyle>;
 }) {
+    const { popupEntering, popupExiting } = useOverlayTransitions();
     return (
         <Animated.View
             entering={popupEntering}
@@ -223,14 +221,15 @@ export function AnimatedFade({
     children: React.ReactNode;
     style?: StyleProp<ViewStyle>;
 }) {
+    const motion = usePersonalizationMotion();
     const opacity = useSharedValue(visible ? 1 : 0);
     React.useEffect(() => {
         opacity.value = withTiming(visible ? 1 : 0, {
-            duration: visible ? 180 : 140,
+            duration: motionDuration(motion, visible ? 180 : 140),
             easing: visible ? enterEasing : exitEasing,
             reduceMotion: ReduceMotion.System,
         });
-    }, [opacity, visible]);
+    }, [opacity, visible, motion]);
     const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
     return (
         <Animated.View

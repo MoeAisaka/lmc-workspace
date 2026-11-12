@@ -1,6 +1,7 @@
 import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import { View, Platform, Pressable } from 'react-native';
+import { View, Platform } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { InboxView } from "@/components/InboxView";
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useIsTablet } from '@/utils/responsive';

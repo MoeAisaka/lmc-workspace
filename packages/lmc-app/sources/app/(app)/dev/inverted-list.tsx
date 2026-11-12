@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, FlatList, TextInput, KeyboardAvoidingView, Platform, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, FlatList, TextInput, KeyboardAvoidingView, Platform, ScrollView, StyleSheet } from 'react-native';
+import { InteractionTouchableOpacity as TouchableOpacity } from '@/components/InteractionPressable';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack } from 'expo-router';
 import { useKeyboardHandler, useKeyboardState, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';

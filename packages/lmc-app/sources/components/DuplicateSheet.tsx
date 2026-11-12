@@ -1,6 +1,7 @@
 import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import { View, ScrollView, Pressable, Platform, ActivityIndicator, useWindowDimensions } from 'react-native';
+import { View, ScrollView, Platform, ActivityIndicator, useWindowDimensions } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useRouter } from 'expo-router';
 import { Modal } from '@/modal';

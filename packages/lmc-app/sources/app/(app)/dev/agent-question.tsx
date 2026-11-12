@@ -1,5 +1,6 @@
 import React from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
 

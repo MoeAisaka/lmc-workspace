@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { View, ScrollView, ActivityIndicator, Pressable, Platform } from 'react-native';
+import { View, ScrollView, ActivityIndicator, Platform } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';

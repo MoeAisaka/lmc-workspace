@@ -39,11 +39,10 @@ export const FloatingOverlay = React.memo((props: FloatingOverlayProps) => {
         keyboardShouldPersistTaps = 'handled' 
     } = props;
 
-    // Keep the desktop popup exactly as it was before the native glass work.
-    // In particular, web does not get the local blur halo or its entry motion.
+    // Shared entry/exit feedback; desktop keeps its compact, unblurred surface.
     if (Platform.OS === 'web') {
         return (
-            <Animated.View style={[styles.container, { maxHeight }]}>
+            <AnimatedPopup style={[styles.container, { maxHeight }]}>
                 <Animated.ScrollView
                     style={{ maxHeight }}
                     keyboardShouldPersistTaps={keyboardShouldPersistTaps}
@@ -51,7 +50,7 @@ export const FloatingOverlay = React.memo((props: FloatingOverlayProps) => {
                 >
                     {children}
                 </Animated.ScrollView>
-            </Animated.View>
+            </AnimatedPopup>
         );
     }
 

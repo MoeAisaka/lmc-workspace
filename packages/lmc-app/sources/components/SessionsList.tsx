@@ -1,7 +1,8 @@
 import { openMachineDetails } from '@/components/lmc/MachineDialog';
 import { SessionStatusIndicator } from './SessionStatusIndicator';
 import React from 'react';
-import { View, Pressable, TextInput, FlatList, NativeScrollEvent, NativeSyntheticEvent, Platform } from 'react-native';
+import { View, TextInput, FlatList, NativeScrollEvent, NativeSyntheticEvent, Platform } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Text } from '@/components/StyledText';
 import { usePathname, useRouter } from 'expo-router';
 import { SessionListViewItem, SessionRowData, useAllMachines, useSetting, useSettingMutable } from '@/sync/storage';

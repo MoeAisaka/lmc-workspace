@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Keyboard, Platform, Pressable, ScrollView, TextInput, View, useWindowDimensions } from 'react-native';
+import { Keyboard, Platform, ScrollView, TextInput, View, useWindowDimensions } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';

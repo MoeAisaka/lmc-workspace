@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Image, Platform, Pressable, View } from 'react-native';
+import { Image, Platform, View } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';

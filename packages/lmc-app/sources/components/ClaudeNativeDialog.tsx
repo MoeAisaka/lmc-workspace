@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Platform, Pressable, ScrollView, TextInput, View, useWindowDimensions } from 'react-native';
+import { Platform, ScrollView, TextInput, View, useWindowDimensions } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { useUnistyles } from 'react-native-unistyles';
 import { Text } from './StyledText';
 import { Modal } from '@/modal';

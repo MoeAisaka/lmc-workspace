@@ -78,7 +78,7 @@ export function BaseModal({
                 {...webEventHandlers}
             >
                 {Platform.OS === 'web' ? (
-                    <TouchableWithoutFeedback onPress={handleBackdropPress}>
+                    <TouchableWithoutFeedback accessible={false} focusable={false} onPress={handleBackdropPress}>
                         <Animated.View
                             style={[
                                 styles.backdrop,
@@ -111,7 +111,7 @@ export function BaseModal({
                             transform: [{
                                 scale: fadeAnim.interpolate({
                                     inputRange: [0, 1],
-                                    outputRange: [0.9, 1]
+                                    outputRange: [motion === 'full' ? 0.985 : 1, 1]
                                 })
                             }]
                         }

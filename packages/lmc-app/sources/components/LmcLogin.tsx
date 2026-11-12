@@ -2,7 +2,8 @@ import { APP_NAME, APP_LOGO } from '@/brand';
 import { Image } from 'expo-image';
 import { Text } from '@/components/StyledText';
 import React, { useState } from 'react';
-import { View, TextInput, Pressable, ActivityIndicator } from 'react-native';
+import { View, TextInput, ActivityIndicator } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { useUnistyles } from 'react-native-unistyles';
 import { useAuth } from '@/auth/AuthContext';
 import { lmcLogin } from '@/auth/lmcAuth';
@@ -27,7 +28,7 @@ export function LmcLogin() {
     const input={borderWidth:1,borderColor:theme.colors.divider,borderRadius:12,padding:14,fontSize:16,color:theme.colors.text,marginTop:12} as const;
     if (invitation && auth.isAuthenticated) return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 20, backgroundColor: theme.colors.surface }}>
         <Text style={{ color: theme.colors.text, maxWidth: 360, lineHeight: 24 }}>{t('lmc.sharing.inviteAlreadySignedIn')}</Text>
-        <Pressable accessibilityRole="button" onPress={() => void auth.logout().catch(e => setError(e.message))} style={{ padding: 16 }}><Text style={{ color: theme.colors.textLink }}>{t('lmc.sharing.signOutAndAcceptInvite')}</Text></Pressable>
+        <Pressable interaction="control" accessibilityRole="button" onPress={() => void auth.logout().catch(e => setError(e.message))} style={{ padding: 16 }}><Text style={{ color: theme.colors.textLink }}>{t('lmc.sharing.signOutAndAcceptInvite')}</Text></Pressable>
         {!!error && <Text accessibilityRole="alert" style={{ color: theme.colors.textDestructive }}>{error}</Text>}
     </View>;
     return <View style={{flex:1,justifyContent:'center',alignItems:'center',padding:24,backgroundColor:theme.colors.surface}}>
@@ -39,7 +40,7 @@ export function LmcLogin() {
             <TextInput accessibilityLabel={t('lmc.login.username')} placeholder={t('lmc.login.username')} autoComplete="username" autoCapitalize="none" value={username} onChangeText={setUsername} style={input}/>
             <TextInput accessibilityLabel={t('lmc.login.password')} placeholder={t('lmc.login.password')} autoComplete={invitation ? 'new-password' : 'current-password'} secureTextEntry value={password} onChangeText={setPassword} onSubmitEditing={submit} style={input}/>
             {!!error&&<Text accessibilityRole="alert" style={{color:'#d32f2f',marginTop:12}}>{error}</Text>}
-            <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.login.signIn')} disabled={busy||!username||!password} onPress={submit} style={{marginTop:22,borderRadius:24,backgroundColor:theme.colors.text,padding:15,alignItems:'center',opacity:busy||!username||!password?0.5:1}}>
+            <Pressable interaction="control" accessibilityRole="button" accessibilityLabel={t('lmc.login.signIn')} disabled={busy||!username||!password} onPress={submit} style={{marginTop:22,borderRadius:24,backgroundColor:theme.colors.text,padding:15,alignItems:'center',opacity:busy||!username||!password?0.5:1}}>
                 {busy?<ActivityIndicator color={theme.colors.surface}/>:<Text style={{color:theme.colors.surface,fontWeight:'600',fontSize:16}}>{invitation ? t('lmc.sharing.createAccountAndJoin') : t('lmc.login.signIn')}</Text>}
             </Pressable>
             <Text style={{marginTop:20,color:theme.colors.textSecondary,lineHeight:21}}>{t('lmc.empty.loginFooter')}</Text>

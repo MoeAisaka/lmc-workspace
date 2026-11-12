@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, ScrollView, Pressable, ActivityIndicator, Platform } from 'react-native';
+import { View, ScrollView, ActivityIndicator, Platform } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { useUnistyles } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
 import { fileSize } from '@/utils/fileSize';

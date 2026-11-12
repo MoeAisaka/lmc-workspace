@@ -1,7 +1,10 @@
 import * as React from 'react';
-import { Pressable, SwitchProps, View } from 'react-native';
-import Animated, { Easing, useAnimatedStyle, useDerivedValue, withTiming } from 'react-native-reanimated';
+import { SwitchProps, View } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
+import Animated, { Easing, ReduceMotion, useAnimatedStyle, useDerivedValue, withTiming } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
+import { usePersonalizationMotion } from '@/hooks/usePersonalizationMotion';
+import { motionDuration } from '@/sync/personalization';
 
 const TRACK_WIDTH = 40;
 const TRACK_HEIGHT = 24;
@@ -18,8 +21,9 @@ const PADDING = 2;
  */
 export const Switch = (props: SwitchProps) => {
     const { theme } = useUnistyles();
+    const motion = usePersonalizationMotion();
     const on = !!props.value;
-    const progress = useDerivedValue(() => withTiming(on ? 1 : 0, { duration: 160, easing: Easing.out(Easing.cubic) }), [on]);
+    const progress = useDerivedValue(() => withTiming(on ? 1 : 0, { duration: motionDuration(motion, 160), easing: Easing.out(Easing.cubic), reduceMotion: ReduceMotion.System }), [on, motion]);
     const knobStyle = useAnimatedStyle(() => ({ transform: [{ translateX: progress.value * (TRACK_WIDTH - KNOB - PADDING * 2) }] }));
 
     return (

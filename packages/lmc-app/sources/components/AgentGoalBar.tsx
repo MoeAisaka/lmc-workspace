@@ -3,7 +3,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { t } from '@/text';
 import type { VisibleAgentGoalStatus } from './agentGoalStatus';
 import * as React from 'react';
-import { ActivityIndicator, Pressable, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { useUnistyles } from 'react-native-unistyles';
 
 export type AgentGoalAction = 'clear' | 'stop' | 'edit';

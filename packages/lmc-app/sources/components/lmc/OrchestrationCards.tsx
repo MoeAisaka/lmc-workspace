@@ -3,7 +3,8 @@ import { conversationFontSize, conversationLineHeight } from '@/constants/Person
 import { Text } from '@/components/StyledText';
 import { MarkdownView } from '@/components/markdown/MarkdownView';
 import * as React from 'react';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { parseEnvelope, type Envelope, type ReportStatus, type ReviewStatus } from '@/sync/orchestrationEnvelope';

@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Platform, Pressable, View, type GestureResponderEvent, type LayoutChangeEvent } from 'react-native';
+import { Platform, View, type GestureResponderEvent, type LayoutChangeEvent } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';

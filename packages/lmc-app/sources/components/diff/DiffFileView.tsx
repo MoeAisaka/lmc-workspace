@@ -17,7 +17,8 @@ import { Text } from '@/components/StyledText';
  */
 
 import * as React from 'react';
-import { LayoutChangeEvent, Platform, Pressable, View } from 'react-native';
+import { LayoutChangeEvent, Platform, View } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { HorizontalScrollView } from '@/components/HorizontalScrollView';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';

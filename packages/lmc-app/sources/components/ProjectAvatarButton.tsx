@@ -1,6 +1,7 @@
 import { suppressTouchReleaseClick } from '@/utils/touchMenuRelease';
 import React from 'react';
-import { Platform, Pressable } from 'react-native';
+import { Platform } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import * as ImagePicker from 'expo-image-picker';
 import { Modal } from '@/modal';
 import { sync } from '@/sync/sync';
@@ -161,6 +162,7 @@ export const ProjectAvatarButton = React.memo(({
 
     return <>
         <Pressable
+            interaction="control"
             accessibilityRole="button"
             accessibilityLabel={`${t('projectAvatar.actionsTitle')}: ${projectName}`}
             disabled={busy || Platform.OS !== 'web'}

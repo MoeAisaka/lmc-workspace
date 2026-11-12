@@ -1,6 +1,7 @@
 import { openLmcSettings } from '@/components/lmc/settings/LmcSettingsDialog';
 import * as React from 'react';
-import { View, Pressable, Image, Platform } from 'react-native';
+import { View, Image, Platform } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { openAccountMenu } from './AccountMenu';
@@ -61,6 +62,7 @@ export const AccountSettingsRow = React.memo(({ onNavigate, menuCardRef, menuPan
 
     return (
         <Pressable
+            interaction="control"
             accessibilityRole="button"
             accessibilityLabel={t('lmc.list.accountAndSettings')}
             ref={rowRef}

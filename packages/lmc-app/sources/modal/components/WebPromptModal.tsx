@@ -1,7 +1,8 @@
 import { Text } from '@/components/StyledText';
 import { dialogAppearance } from './dialogAppearance';
 import React, { useState, useRef, useEffect } from 'react';
-import { View, TextInput, Pressable, StyleSheet, KeyboardTypeOptions, Platform } from 'react-native';
+import { View, TextInput, StyleSheet, KeyboardTypeOptions, Platform } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { BaseModal } from './BaseModal';
 import { PromptModalConfig } from '../types';
 import { Typography } from '@/constants/Typography';

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, Pressable, Platform, NativeModules } from 'react-native';
+import { View, Text, ScrollView, Platform, NativeModules } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Stack } from 'expo-router';
 import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';

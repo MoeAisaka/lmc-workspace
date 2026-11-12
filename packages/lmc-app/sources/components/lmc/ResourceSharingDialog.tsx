@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, ScrollView, Pressable, ActivityIndicator, TextInput } from 'react-native';
+import { View, ScrollView, ActivityIndicator, TextInput } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import { Switch } from '@/components/Switch';

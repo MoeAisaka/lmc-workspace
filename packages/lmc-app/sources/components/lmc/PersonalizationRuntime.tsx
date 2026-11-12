@@ -55,6 +55,9 @@ export function PersonalizationRuntime() {
         const root = document.documentElement;
         const palette = personalizationPalette(theme.dark ? darkTheme : lightTheme, value);
         root.style.setProperty('--lmc-prose-accent', accentColors[value.accent][theme.dark ? 'dark' : 'light']);
+        root.style.setProperty('--yulor-focus', accentColors[value.accent][theme.dark ? 'dark' : 'light']);
+        root.style.setProperty('--yulor-focus-soft', `color-mix(in srgb, ${accentColors[value.accent][theme.dark ? 'dark' : 'light']} 14%, transparent)`);
+        root.style.setProperty('--yulor-feedback-ink', theme.dark ? '255, 255, 255' : '16, 24, 40');
         root.style.setProperty('--lmc-prose-divider', palette.divider);
         root.style.setProperty('--lmc-prose-tint', palette.surfaceHigh);
         root.dataset.lmcReadingStyle = value.readingStyle;

@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Image, Platform, Pressable, View, useWindowDimensions } from 'react-native';
+import { Image, Platform, View, useWindowDimensions } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet } from 'react-native-unistyles';

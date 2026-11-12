@@ -1,16 +1,6 @@
 import React from 'react';
-import {
-    View,
-    Text,
-    Platform,
-    Pressable,
-    Modal as RNModal,
-    TouchableWithoutFeedback,
-    Animated,
-    TextInput,
-    ScrollView,
-    LayoutAnimation,
-} from 'react-native';
+import { View, Text, Platform, Modal as RNModal, TouchableWithoutFeedback, Animated, TextInput, ScrollView, LayoutAnimation } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Image } from 'expo-image';
 import { Ionicons, Octicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';

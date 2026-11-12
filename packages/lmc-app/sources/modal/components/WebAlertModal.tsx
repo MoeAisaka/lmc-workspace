@@ -1,7 +1,8 @@
 import { Text } from '@/components/StyledText';
 import { dialogAppearance } from './dialogAppearance';
 import React from 'react';
-import { Platform, View, Pressable } from 'react-native';
+import { Platform, View } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { BaseModal } from './BaseModal';
 import { AlertModalConfig, ConfirmModalConfig } from '../types';
 import { Typography } from '@/constants/Typography';

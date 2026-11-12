@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Pressable, type StyleProp, type ViewStyle } from 'react-native';
+import { type StyleProp, type ViewStyle } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -40,6 +41,7 @@ export function MessageCopyButton(props: {
 
     return (
         <Pressable
+            interaction="control"
             accessibilityRole="button"
             accessibilityLabel={copied ? t('common.copied') : t('common.copy')}
             accessibilityHint={!props.text ? t('textSelection.noTextToCopy') : undefined}

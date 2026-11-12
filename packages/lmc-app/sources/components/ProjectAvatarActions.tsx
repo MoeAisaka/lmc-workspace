@@ -1,6 +1,7 @@
 import { Text } from '@/components/StyledText';
 import React from 'react';
-import { Modal, Platform, Pressable, View, useWindowDimensions } from 'react-native';
+import { Modal, Platform, View, useWindowDimensions } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { t } from '@/text';

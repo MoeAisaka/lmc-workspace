@@ -1,11 +1,6 @@
 import React from 'react';
-import {
-    ActivityIndicator,
-    Platform,
-    Pressable,
-    useWindowDimensions,
-    View,
-} from 'react-native';
+import { ActivityIndicator, Platform, useWindowDimensions, View } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Image } from 'expo-image';
 import type { ImagePickerAsset } from 'expo-image-picker';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';

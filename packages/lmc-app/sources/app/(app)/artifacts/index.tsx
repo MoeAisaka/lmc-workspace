@@ -1,5 +1,6 @@
 import React from 'react';
-import { Platform, View, FlatList, Pressable, ActivityIndicator } from 'react-native';
+import { Platform, View, FlatList, ActivityIndicator } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Text } from '@/components/StyledText';
 import { useArtifacts } from '@/sync/storage';
 import { DecryptedArtifact } from '@/sync/artifactTypes';

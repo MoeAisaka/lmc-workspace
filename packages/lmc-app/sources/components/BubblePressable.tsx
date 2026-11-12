@@ -1,16 +1,10 @@
 import * as React from 'react';
-import {
-    GestureResponderEvent,
-    Platform,
-    Pressable,
-    PressableProps,
-    PressableStateCallbackType,
-    StyleProp,
-    ViewStyle,
-} from 'react-native';
+import { GestureResponderEvent, Platform, PressableProps, PressableStateCallbackType, StyleProp, ViewStyle } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import Animated, {
     cancelAnimation,
     Easing,
+    ReduceMotion,
     useAnimatedStyle,
     useSharedValue,
     withSpring,
@@ -25,6 +19,7 @@ type BubblePressableProps = Omit<PressableProps, 'style'> & {
     pressedStyle?: StyleProp<ViewStyle>;
     bubbleScale?: number;
     scaleFeedback?: boolean;
+    interaction?: 'surface' | 'control' | 'none';
 };
 
 /**
@@ -36,6 +31,7 @@ export const BubblePressable = React.memo(({
     pressedStyle,
     bubbleScale = Platform.OS === 'web' ? 1.01 : 1.025,
     scaleFeedback = true,
+    interaction = 'surface',
     disabled,
     onPressIn,
     onPressOut,
@@ -65,6 +61,7 @@ export const BubblePressable = React.memo(({
                 scale.value = withTiming(bubbleScale, {
                     duration: 65,
                     easing: Easing.out(Easing.quad),
+                    reduceMotion: ReduceMotion.System,
                 });
             }
         }
@@ -79,17 +76,18 @@ export const BubblePressable = React.memo(({
                 stiffness: 520,
                 mass: 0.4,
                 overshootClamping: false,
+                reduceMotion: ReduceMotion.System,
             });
         }
         onPressOut?.(event);
     }, [animateScale, onPressOut, scale]);
 
-    // Bubble feedback belongs to the mobile glass controls. Keep desktop
-    // interaction identical to the previous plain Pressable behavior.
+    // Web feedback is CSS-driven so pointer movement never re-renders a row.
     if (Platform.OS === 'web') {
         return (
             <Pressable
                 {...props}
+                interaction={interaction}
                 disabled={disabled}
                 onPressIn={onPressIn}
                 onPressOut={onPressOut}

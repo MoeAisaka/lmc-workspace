@@ -10,7 +10,8 @@
  */
 
 import * as React from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { useFrameCallback, useSharedValue } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';

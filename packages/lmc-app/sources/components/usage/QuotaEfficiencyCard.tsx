@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { View, Pressable, ScrollView } from 'react-native';
+import { View, ScrollView } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { StyleSheet } from 'react-native-unistyles';
 import { Text } from '@/components/StyledText';
 import { lmcColors } from '@/components/lmc/lmcColors';

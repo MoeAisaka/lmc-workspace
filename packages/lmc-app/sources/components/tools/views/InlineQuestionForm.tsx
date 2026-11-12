@@ -1,6 +1,7 @@
 import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import { ActivityIndicator, Platform, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Platform, View } from 'react-native';
+import { InteractionTouchableOpacity as TouchableOpacity } from '@/components/InteractionPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 

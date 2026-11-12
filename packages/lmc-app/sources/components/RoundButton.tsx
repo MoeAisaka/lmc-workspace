@@ -1,6 +1,7 @@
 import { Text } from '@/components/StyledText';
 import * as React from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleProp, TextStyle, View, ViewStyle } from 'react-native';
+import { ActivityIndicator, Platform, StyleProp, TextStyle, View, ViewStyle } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { iOSUIKit } from 'react-native-typography';
 import { Typography } from '@/constants/Typography';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -122,6 +123,7 @@ export const RoundButton = React.memo((props: { size?: RoundButtonSize, display?
 
     return (
         <Pressable
+            interaction="control"
             disabled={doLoading || props.disabled}
             hitSlop={size.hitSlop}
             style={(p) => ([

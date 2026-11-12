@@ -1,5 +1,6 @@
 import React from 'react';
-import { Pressable, Keyboard } from 'react-native';
+import { Keyboard } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 

@@ -1,7 +1,8 @@
 import { openMachineDetails } from '@/components/lmc/MachineDialog';
 import { SessionStatusIndicator } from './SessionStatusIndicator';
 import React from 'react';
-import { View, Pressable, Platform } from 'react-native';
+import { View, Platform } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Text } from '@/components/StyledText';
 import { SessionRowData } from '@/sync/storage';

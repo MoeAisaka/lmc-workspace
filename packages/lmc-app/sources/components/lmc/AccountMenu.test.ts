@@ -54,6 +54,7 @@ vi.mock('react-native-unistyles', () => ({
 }));
 vi.mock('react-native-reanimated', () => ({
     default: { View: 'AnimatedView' },
+    ReduceMotion: { System: 'system' },
     Easing: { out: (fn: any) => fn, in: (fn: any) => fn, cubic: {} },
     runOnJS: (fn: any) => fn,
     useSharedValue: (v: any) => ({ value: v }),
@@ -61,6 +62,8 @@ vi.mock('react-native-reanimated', () => ({
     useAnimatedStyle: (fn: () => any) => fn(),
     withTiming: (v: any) => v,
 }));
+// These checks cover settings navigation and the switch's accessibility contract.
+vi.mock('@/hooks/usePersonalizationMotion', () => ({ usePersonalizationMotion: () => 'full' }));
 vi.mock('@/components/StyledText', () => ({ Text: 'Text' }));
 vi.mock('@/components/ItemList', () => ({ ItemList: 'ItemList' }));
 vi.mock('@/components/ItemGroup', () => ({ ItemGroup: 'ItemGroup' }));

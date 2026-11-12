@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { View, ScrollView, ActivityIndicator, Platform, Pressable } from 'react-native';
+import { View, ScrollView, ActivityIndicator, Platform } from 'react-native';
+import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { useLocalSearchParams } from 'expo-router';
 import { Text } from '@/components/StyledText';
 import { SimpleSyntaxHighlighter } from '@/components/SimpleSyntaxHighlighter';
