@@ -15,7 +15,7 @@ try {
   const settings = JSON.parse(fs.readFileSync(path.join(home, 'settings.json'), 'utf8'));
   if (!settings.serverUrl) throw Error('The existing centre address is missing.');
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('LMC_') && !key.startsWith('HAPPY_')));
-  Object.assign(env, { LMC_HOME_DIR: home, LMC_SERVER_URL: settings.serverUrl, LMC_WEBAPP_URL: settings.serverUrl });
+  Object.assign(env, { LMC_HOME_DIR: home, LMC_SERVER_URL: settings.serverUrl, LMC_WEBAPP_URL: settings.webappUrl || settings.serverUrl });
   const result = spawnSync(process.execPath, [entry, ...process.argv.slice(2)], { env, stdio: 'inherit', windowsHide: true });
   if (result.error) throw result.error;
   process.exitCode = result.status ?? 1;
