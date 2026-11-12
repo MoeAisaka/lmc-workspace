@@ -1,3 +1,4 @@
+import { DashboardCard } from '@/components/usage/DashboardCard';
 import * as React from 'react';
 import { View, ScrollView } from 'react-native';
 import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
@@ -26,7 +27,7 @@ export function QuotaEfficiencyCard({records,range,machineNames}:{records:UsageR
     const selectedPool=engine==='agy'?pool:'account';
     const analysis=React.useMemo(()=>quotaEfficiency(history.observations,records,{machineId,engine,pool:selectedPool,window,allMachines}),[history.observations,records,machineId,engine,selectedPool,window,allMachines]);
     const choice=(id:string,label:string,active:boolean,fn:()=>void)=><Pressable key={id} accessibilityRole="button" accessibilityState={{selected:active}} onPress={fn} style={[styles.chip,active&&styles.active]}><Text style={[styles.text,active&&{color:'#fff'}]}>{label}</Text></Pressable>;
-    return <View testID="quota-efficiency" style={styles.card}>
+    return <DashboardCard testID="quota-efficiency" style={styles.card}>
         <Text style={styles.title}>{t('lmc.usage.efficiencyTitle')}</Text>
         <View style={styles.row}>{[['agy','Antigravity'],['codex','Codex'],['claude','Claude Code']].map(([id,label])=>choice(id,label,engine===id,()=>setEngine(id)))}</View>
         {sources.length>0&&<View style={styles.row}><Text style={styles.muted}>{t('lmc.usage.quotaSource')}</Text>{sources.map(id=>choice(id,machineNames[id]??t('lmc.usage.deviceFallback',{id:id.slice(-6)}),machineId===id,()=>{setSource(id);setAllMachines(false);} ))}</View>}
@@ -48,5 +49,5 @@ export function QuotaEfficiencyCard({records,range,machineNames}:{records:UsageR
         <Text style={styles.muted}>{t('lmc.usage.sampleStats',{samples:analysis.sampleCount,intervals:analysis.intervals,excluded:analysis.excluded,last:analysis.last?new Date(analysis.last).toLocaleString(getDateLocale()):''})}</Text>
         <Text style={styles.muted}>{t('lmc.usage.efficiencyFootnote1')}</Text>
         <Text style={styles.muted}>{t('lmc.usage.efficiencyFootnote2')}</Text>
-    </View>;
+    </DashboardCard>;
 }

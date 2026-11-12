@@ -1,3 +1,4 @@
+import { DashboardCard } from '@/components/usage/DashboardCard';
 import { QuotaEfficiencyCard } from './QuotaEfficiencyCard';
 import * as React from 'react';
 import { ActivityIndicator, Platform, ScrollView, View } from 'react-native';
@@ -168,25 +169,25 @@ export function UsageDashboard(props: UsageDashboardProps) {
                 <Text style={styles.text}>{window.official ? t('lmc.usage.official5hWindow', { engine: engine === 'claude' ? 'Claude' : 'Codex' }) : t('lmc.usage.rolling5hWindow')}</Text>
                 <Caption>{timeLabel(summary.range.start)} – {timeLabel(summary.range.end - 1)}{window.official ? t('lmc.usage.windowUpToNow') : engine ? t('lmc.usage.windowNoOfficial') : t('lmc.usage.windowSelectSingleEngine')}</Caption>
             </View>}
-            {props.error && <View accessibilityRole="alert" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={[styles.card, { borderColor: lmcColors(theme).attention }]}><Text style={styles.text}>{props.error}{ready ? t('lmc.usage.errorKeepingPrevious') : ''}</Text><Choice label={t('lmc.usage.reload')} onPress={props.onRefresh} /></View>}
+            {props.error && <DashboardCard accessibilityRole="alert" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={[styles.card, { borderColor: lmcColors(theme).attention }]}><Text style={styles.text}>{props.error}{ready ? t('lmc.usage.errorKeepingPrevious') : ''}</Text><Choice label={t('lmc.usage.reload')} onPress={props.onRefresh} /></DashboardCard>}
             {!ready && props.loading && <Caption>{t('lmc.usage.loadingRecords')}</Caption>}
-            {ready && !summary.count && <View {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={styles.card}><Text style={styles.title}>{t('lmc.usage.emptyRangeTitle')}</Text><Caption>{t('lmc.usage.emptyRangeBody')}</Caption></View>}
+            {ready && !summary.count && <DashboardCard {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={styles.card}><Text style={styles.title}>{t('lmc.usage.emptyRangeTitle')}</Text><Caption>{t('lmc.usage.emptyRangeBody')}</Caption></DashboardCard>}
             <QuotaEfficiencyCard records={props.records} range={summary.range} machineNames={props.machineNames} />
             <View style={{ flexDirection: wide ? 'row' : 'column', gap: 14 }}>
-                {!(props.period === 'month' && monthOffset < 0) && <View testID="usage-live-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={[...card(wide, 1.12), { justifyContent: 'space-between' }]}>
+                {!(props.period === 'month' && monthOffset < 0) && <DashboardCard testID="usage-live-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={[...card(wide, 1.12), { justifyContent: 'space-between' }]}>
                     <View style={styles.spread}><Text style={styles.title}>{t('lmc.usage.liveUsage')}</Text><View style={styles.row}><View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: props.error ? lmcColors(theme).attention : lmcColors(theme).brand }} /><Caption>{t('lmc.usage.last10m')}</Caption></View></View>
                     <View style={styles.row}><Text testID="usage-rate" style={[styles.number, { fontSize: phone ? 44 : 54 }]}>{display(summary.perMinute)}</Text><Caption>{t('lmc.usage.tokensPerMinute')}</Caption></View>
                     <Trend buckets={summary.pulse} small emptyLabel={emptyChartLabel} />
                     <Caption>{t('lmc.usage.pulseCaption')}</Caption>
-                </View>}
+                </DashboardCard>}
                 <View style={[{ gap: 14, minWidth: 0, flexShrink: 0 }, wide && { flexGrow: 1.3, flexBasis: 0 }]}>
                     <View style={{ flexDirection: phone ? 'column' : 'row', gap: 14 }}>
-                        <View {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={card(!phone)}><Caption>{t('lmc.usage.totalTokens')}</Caption><Text testID="usage-total" style={styles.number}>{display(total)}</Text><Caption>{t('lmc.usage.recordsAndSessions', { records: summary.count.toLocaleString(), sessions: summary.sessions.length })}</Caption></View>
-                        <View {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={card(!phone)}><Caption>{t('lmc.usage.inputOutput')}</Caption><Text style={[styles.number, { fontSize: 25 }]}>{display(summary.total.input)} / {display(summary.total.output)}</Text>
+                        <DashboardCard {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={card(!phone)}><Caption>{t('lmc.usage.totalTokens')}</Caption><Text testID="usage-total" style={styles.number}>{display(total)}</Text><Caption>{t('lmc.usage.recordsAndSessions', { records: summary.count.toLocaleString(), sessions: summary.sessions.length })}</Caption></DashboardCard>
+                        <DashboardCard {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={card(!phone)}><Caption>{t('lmc.usage.inputOutput')}</Caption><Text style={[styles.number, { fontSize: 25 }]}>{display(summary.total.input)} / {display(summary.total.output)}</Text>
                             <View style={{ height: 5, flexDirection: 'row', overflow: 'hidden', borderRadius: 3, backgroundColor: lmcColors(theme).border }}>
-                                <View style={{ flex: summary.total.input || 0.001, backgroundColor: palette.input }} /><View style={{ flex: summary.total.output || 0.001, backgroundColor: palette.output }} /></View><Caption>{t('lmc.usage.inputOutputCaption')}</Caption></View>
+                                <View style={{ flex: summary.total.input || 0.001, backgroundColor: palette.input }} /><View style={{ flex: summary.total.output || 0.001, backgroundColor: palette.output }} /></View><Caption>{t('lmc.usage.inputOutputCaption')}</Caption></DashboardCard>
                     </View>
-                    <View {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={[...card(), styles.spread]}><View style={{ gap: 8 }}><Caption>{t('lmc.usage.cacheHitRate')}</Caption><Text style={styles.number}>{summary.cacheRate === null || !ready ? '—' : `${(summary.cacheRate * 100).toFixed(1)}%`}</Text><Caption>{t('lmc.usage.cacheReadWrite', { read: display(summary.total.cacheRead), write: display(summary.total.cacheWrite) })}</Caption></View><Ring value={summary.cacheRate} /></View>
+                    <DashboardCard {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={[...card(), styles.spread]}><View style={{ gap: 8 }}><Caption>{t('lmc.usage.cacheHitRate')}</Caption><Text style={styles.number}>{summary.cacheRate === null || !ready ? '—' : `${(summary.cacheRate * 100).toFixed(1)}%`}</Text><Caption>{t('lmc.usage.cacheReadWrite', { read: display(summary.total.cacheRead), write: display(summary.total.cacheWrite) })}</Caption></View><Ring value={summary.cacheRate} /></DashboardCard>
                 </View>
             </View>
             <View style={{ flexDirection: phone ? 'column' : 'row', gap: 14 }}>{(['claude', 'codex', 'agy'] as const).map(id => {
@@ -197,42 +198,42 @@ export function UsageDashboard(props: UsageDashboardProps) {
                     <View style={{ height: 4, borderRadius: 3, backgroundColor: lmcColors(theme).border }}><View style={{ height: 4, borderRadius: 3, width: `${total ? usageTotal(tokens) / total * 100 : 0}%`, backgroundColor: id === 'claude' ? palette.output : palette.input }} /></View>
                 </Pressable>;
             })}</View>
-            {props.period === 'month' && <View {...(Platform.OS === 'web' ? { dataSet: { lmcChromeSurface: 'true' } } : {})} style={styles.card}>
+            {props.period === 'month' && <DashboardCard {...(Platform.OS === 'web' ? { dataSet: { lmcChromeSurface: 'true' } } : {})} style={styles.card}>
                 <UsageCalendar buckets={summary.buckets} now={props.now} monthOffset={monthOffset} onMonth={offset => props.onMonth?.(offset)}
                     selectedAt={selectedBucket?.at ?? null} onSelect={setSelectedAt} collectedSince={props.collectedSince} ready={ready} />
-            </View>}
+            </DashboardCard>}
             {selectedBucket && <View style={styles.spread} testID="usage-detail-scope">
                 <Text style={styles.title}>{t('lmc.usage.selectedBucketTitle', { label: bucketLabel, tokens: fmt(usageTotal(breakdown.total)), count: breakdown.count })}</Text>
                 <Choice label={props.period === 'month' ? t('lmc.usage.backToFullMonth') : t('lmc.usage.clearTimeFilter')} onPress={() => setSelectedAt(null)} />
             </View>}
             <View style={{ flexDirection: wide ? 'row' : 'column', gap: 14, alignItems: 'stretch' }}>
-                <View testID="usage-trend-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={card(wide, 2.4)}><View style={styles.spread}><Text style={styles.title}>{t('lmc.usage.usageTrend')}</Text><Caption>{props.period === '5hours' ? t('lmc.usage.granularity15m') : props.period === 'today' ? t('lmc.usage.granularityHourly') : t('lmc.usage.granularityDaily')}</Caption></View><Legend />
+                <DashboardCard testID="usage-trend-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={card(wide, 2.4)}><View style={styles.spread}><Text style={styles.title}>{t('lmc.usage.usageTrend')}</Text><Caption>{props.period === '5hours' ? t('lmc.usage.granularity15m') : props.period === 'today' ? t('lmc.usage.granularityHourly') : t('lmc.usage.granularityDaily')}</Caption></View><Legend />
                     <Trend buckets={summary.buckets} daily={props.period !== 'today' && props.period !== '5hours'} selected={selected < 0 ? null : selected} onSelect={i => setSelectedAt(selected === i ? null : summary.buckets[i].at)} emptyLabel={emptyChartLabel} />
                     {!!summary.count && <Caption>{selectedBucket ? t('lmc.usage.selectedBucketCaption', { time: new Date(selectedBucket.at).toLocaleString(locale), tokens: fmt(usageTotal(selectedBucket.tokens)), count: selectedBucket.count }) : t('lmc.usage.clickBarHint')}</Caption>}
-                </View>
-                <View testID="usage-model-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={card(wide)}><Text style={styles.title}>{selectedBucket ? `${dayLabel} · ` : ''}{t('lmc.usage.modelDistribution')}</Text>{breakdown.models.length ? breakdown.models.slice(0, 5).map(m => <View key={m.id} style={{ gap: 5 }}><View style={styles.spread}><Text numberOfLines={1} style={[styles.muted, { flex: 1 }]}>{m.id}</Text><Text style={styles.text}>{fmt(usageTotal(m.tokens))}</Text></View><View style={{ height: 4, backgroundColor: lmcColors(theme).border, borderRadius: 3 }}><View style={{ height: 4, width: `${usageTotal(m.tokens) / Math.max(1, usageTotal(breakdown.total)) * 100}%`, backgroundColor: m.engines[0] === 'claude' ? palette.output : palette.input, borderRadius: 3 }} /></View></View>) : <Caption>{t('lmc.usage.noModelRecords')}</Caption>}
+                </DashboardCard>
+                <DashboardCard testID="usage-model-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={card(wide)}><Text style={styles.title}>{selectedBucket ? `${dayLabel} · ` : ''}{t('lmc.usage.modelDistribution')}</Text>{breakdown.models.length ? breakdown.models.slice(0, 5).map(m => <View key={m.id} style={{ gap: 5 }}><View style={styles.spread}><Text numberOfLines={1} style={[styles.muted, { flex: 1 }]}>{m.id}</Text><Text style={styles.text}>{fmt(usageTotal(m.tokens))}</Text></View><View style={{ height: 4, backgroundColor: lmcColors(theme).border, borderRadius: 3 }}><View style={{ height: 4, width: `${usageTotal(m.tokens) / Math.max(1, usageTotal(breakdown.total)) * 100}%`, backgroundColor: m.engines[0] === 'claude' ? palette.output : palette.input, borderRadius: 3 }} /></View></View>) : <Caption>{t('lmc.usage.noModelRecords')}</Caption>}
                     {breakdown.models.length > 5 && <Caption>{t('lmc.usage.moreModelsHint', { count: breakdown.models.length - 5 })}</Caption>}
                     <View style={styles.line} /><Caption>{t('lmc.usage.noCostEstimateNote')}</Caption>
-                </View>
+                </DashboardCard>
             </View>
-            {props.aiTraffic && props.period !== '5hours' && props.period !== 'month' && <View testID="usage-traffic-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={styles.card}>
+            {props.aiTraffic && props.period !== '5hours' && props.period !== 'month' && <DashboardCard testID="usage-traffic-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={styles.card}>
                 <AiTrafficCard machines={props.aiTraffic} period={props.period} now={props.now} machineId={machineId} phone={phone} />
-            </View>}
+            </DashboardCard>}
             <View style={{ flexDirection: wide ? 'row' : 'column', gap: 14, alignItems: 'flex-start' }}>
-                <View testID="usage-session-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={card(wide, 2.4)}>
+                <DashboardCard testID="usage-session-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={card(wide, 2.4)}>
                     <UsageSessionDetails sessions={breakdown.sessions} roles={props.sessionRoles} names={props.sessionNames} total={usageTotal(breakdown.total)} ready={ready}
                         scopeKey={`${props.period}:${monthOffset}:${engine}:${machineId}:${sessionId}:${selectedAt}`} onSession={props.onSession} onFilterSession={setSession} />
-                </View>
-                {props.quota && <View testID="usage-quota-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={card(wide)}><Text style={styles.title}>{t('lmc.usage.accountQuotaTitle')}</Text><Caption>{t('lmc.usage.accountQuotaCaption')}</Caption>{props.quota}</View>}
+                </DashboardCard>
+                {props.quota && <DashboardCard testID="usage-quota-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={card(wide)}><Text style={styles.title}>{t('lmc.usage.accountQuotaTitle')}</Text><Caption>{t('lmc.usage.accountQuotaCaption')}</Caption>{props.quota}</DashboardCard>}
             </View>
-            <View testID="usage-records-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={styles.card}><View style={styles.spread}><Text style={styles.title}>{selectedBucket ? t('lmc.usage.dayUsageRecords', { day: dayLabel }) : t('lmc.usage.recentUsageRecords')}</Text><Caption>{t('lmc.usage.showingRecords', { shown: Math.min(recordPage * 10, detailRecords.length), total: detailRecords.length })}</Caption></View>
+            <DashboardCard testID="usage-records-card" {...(Platform.OS === 'web' ? {dataSet: {lmcChromeSurface: 'true'}} : {})} style={styles.card}><View style={styles.spread}><Text style={styles.title}>{selectedBucket ? t('lmc.usage.dayUsageRecords', { day: dayLabel }) : t('lmc.usage.recentUsageRecords')}</Text><Caption>{t('lmc.usage.showingRecords', { shown: Math.min(recordPage * 10, detailRecords.length), total: detailRecords.length })}</Caption></View>
                 {detailRecords.slice(0, recordPage * 10).map(r => <View key={`${r.sessionId}:${r.key}`} style={styles.spread}>
                     <View style={{ flex: 1, minWidth: 160 }}><Text numberOfLines={1} style={styles.text}>{sessionName(r.sessionId)}</Text><Caption>{new Date(r.occurredAt).toLocaleString(locale)} · {r.engine} · {r.model ?? t('lmc.usage.unreportedModel')}</Caption></View>
                     <Text style={styles.title}>{fmt(usageTotal(r.tokens))}</Text><Caption>{t('lmc.usage.recordTokenSplit', { input: fmt(r.tokens.input), output: fmt(r.tokens.output), read: fmt(r.tokens.cacheRead), write: fmt(r.tokens.cacheWrite) })}</Caption>
                 </View>)}
                 {!detailRecords.length && <Caption>{t('lmc.usage.noRecordsInPeriod')}</Caption>}
                 {detailRecords.length > recordPage * 10 && <Choice label={t('lmc.usage.showMoreRecords')} onPress={() => setRecordPage(p => p + 1)} />}
-            </View>
+            </DashboardCard>
             <View style={{ gap: 5, paddingBottom: 12 }}>
                 <Caption>{props.collectedSince ? t('lmc.usage.collectedSinceNote', { since: new Date(props.collectedSince).toLocaleString(locale) }) : t('lmc.usage.waitingFirstRecordNote')}</Caption>
                 <Caption>{t('lmc.usage.methodologyNote')}</Caption>

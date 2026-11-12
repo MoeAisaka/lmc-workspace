@@ -1,3 +1,4 @@
+import { DashboardCard } from '@/components/usage/DashboardCard';
 import * as React from 'react';
 import { View } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -56,11 +57,11 @@ export function AiTrafficCard(props: { machines: AiTrafficMachine[]; period: Tra
             trafficSum(m.traffic.antigravity),
         ]),
     );
-    const stat = (key: string, label: string, value: string, note: string, dot?: string) => <View testID={`ai-traffic-${key}`} style={[styles.stat, { flexBasis: props.phone ? '45%' : 170 }]}>
+    const stat = (key: string, label: string, value: string, note: string, dot?: string) => <DashboardCard testID={`ai-traffic-${key}`} style={[styles.stat, { flexBasis: props.phone ? '45%' : 170 }]}>
         <View style={styles.label}>{!!dot && <View style={[styles.dot, { backgroundColor: dot }]} />}<Text numberOfLines={1} style={styles.muted}>{label}</Text></View>
         <Text numberOfLines={1} style={styles.statNumber}>{value}</Text>
         <Text numberOfLines={1} style={styles.muted}>{note}</Text>
-    </View>;
+    </DashboardCard>;
     const row = (machine: string, key: AiTrafficProvider, traffic: TrafficBytes) => {
         const { label, color } = providerMeta[key];
         return <View key={key} testID={`ai-traffic-row-${machine}-${key}`} style={styles.row}>

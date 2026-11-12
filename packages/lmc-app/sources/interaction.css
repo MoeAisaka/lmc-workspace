@@ -91,3 +91,36 @@ html[data-lmc-motion="off"] [data-yulor-surface="menu"] { animation: none; }
 /* Reorder positioning stays functional; only the decorative settling is optional. */
 html[data-lmc-motion="off"] [data-yulor-reorder] { transition: none !important; }
 @media (prefers-reduced-motion: reduce) { [data-yulor-reorder] { transition: none !important; } }
+
+/* Read-only dashboard cards retain normal selection and fixed hit geometry. */
+[data-yulor-card]::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: rgba(var(--yulor-feedback-ink), .018);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--yulor-focus) 45%, transparent), 0 4px 16px rgba(var(--yulor-feedback-ink), .08);
+    opacity: 0;
+    transition: opacity var(--yulor-interaction-settle) var(--yulor-interaction-ease);
+}
+[data-yulor-card]:focus-within::before { opacity: 1; }
+@media (hover: hover) and (pointer: fine) {
+    [data-yulor-card]:hover::before { opacity: 1; }
+}
+@supports selector(:has(*)) {
+    [data-yulor-card]:has([data-yulor-card]:focus-within)::before { opacity: 0; }
+    @media (hover: hover) and (pointer: fine) {
+        [data-yulor-card]:has([data-yulor-card]:hover)::before { opacity: 0; }
+    }
+}
+[data-yulor-disclosure="chevron"] {
+    transition: transform var(--yulor-interaction-settle) var(--yulor-interaction-ease);
+}
+[data-yulor-disclosure="content"] {
+    animation: yulor-surface-fade var(--yulor-interaction-settle) var(--yulor-interaction-ease) both;
+}
+html[data-lmc-motion="off"] [data-yulor-disclosure="content"] { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+    [data-yulor-disclosure="content"] { animation: none !important; }
+}

@@ -1,5 +1,6 @@
+import { DashboardCard } from '@/components/usage/DashboardCard';
 import * as React from 'react';
-import { TextInput, View } from 'react-native';
+import { Platform, TextInput, View } from 'react-native';
 import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -85,9 +86,9 @@ export function UsageSessionDetails({ sessions, roles = {}, names, total, ready,
         </Pressable>)}</View>
         <Text style={styles.muted}>{t('lmc.usage.sessionSortCaption')}</Text>
         {mode === 'hubs' && <>
-            <View style={styles.row}>{([['hubs', t('lmc.usage.roleHubSelf')], ['workers', t('lmc.usage.roleWorkers')], ['other', otherTitle]] as const).map(([key, label]) => <View key={key} testID={`usage-role-${key}`} style={styles.total}>
+            <View style={styles.row}>{([['hubs', t('lmc.usage.roleHubSelf')], ['workers', t('lmc.usage.roleWorkers')], ['other', otherTitle]] as const).map(([key, label]) => <DashboardCard key={key} testID={`usage-role-${key}`} style={styles.total}>
                 <Text style={styles.muted}>{label}</Text><Text style={styles.heading} accessibilityLabel={`${label} ${ready ? usageTotal(grouped.totals[key]).toLocaleString() + ' Token' : t('lmc.usage.noData')}`}>{ready ? fmt(usageTotal(grouped.totals[key])) : '—'}</Text><Text style={styles.muted}>Token</Text>
-            </View>)}</View>
+            </DashboardCard>)}</View>
             <Text style={styles.muted}>{t('lmc.usage.hubGroupingNote')}</Text>
         </>}
         {mode === 'sessions' ? rows.slice(0, page * 10).map(renderSession) : groups.slice(0, page * 10).map(group => {
@@ -106,7 +107,7 @@ export function UsageSessionDetails({ sessions, roles = {}, names, total, ready,
                 {group.hubId ? <View style={styles.breakdown}><Text style={styles.muted}>{t('lmc.usage.hubOwnAmount', { amount: fmt(usageTotal(group.ownTokens)) })}</Text><Text style={styles.muted}>{t('lmc.usage.workerAmount', { amount: fmt(usageTotal(group.workerTokens)) })}</Text></View>
                     : <Text style={styles.muted}>{t('lmc.usage.otherSessionsNote')}</Text>}
                 <Breakdown tokens={group.tokens} />
-                {open && <View style={styles.members}>
+                {open && <View {...(Platform.OS === 'web' ? { dataSet: { 'yulor-disclosure': 'content' } } : {})} style={styles.members}>
                     {group.sessions.slice(0, memberLimit).map(renderSession)}
                     {group.sessions.length > memberLimit && <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.usage.showMoreGroupSessionsA11y', { title })} onPress={() => setMemberPages(p => ({ ...p, [group.id]: (p[group.id] ?? 1) + 1 }))} style={styles.choice}><Text style={styles.muted}>{t('lmc.usage.showMoreSessionsCount', { count: group.sessions.length - memberLimit })}</Text></Pressable>}
                 </View>}

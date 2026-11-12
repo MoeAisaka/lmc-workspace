@@ -1,3 +1,4 @@
+import { DashboardCard } from '@/components/usage/DashboardCard';
 import * as React from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
@@ -97,7 +98,7 @@ export function AccountQuotaCards({ snapshot, loading, failed, available, now, o
             const credits = usageCreditLabel(p, now);
             const timestamp = quotaTimestamp(p);
             const timeLabel = timestamp ? t(timestamp.checked ? 'localFeatures.quotaChecked' : 'localFeatures.quotaSampled', { date: date(timestamp.at, now) }) : t('localFeatures.quotaWaiting');
-            return <View key={engine} style={[styles.card, { width: count === 3 ? '32%' : count === 2 ? '49%' : '100%', flexGrow: count === 1 ? 0 : 1 }]} testID={`quota-${engine}`}>
+            return <DashboardCard key={engine} style={[styles.card, { width: count === 3 ? '32%' : count === 2 ? '49%' : '100%', flexGrow: count === 1 ? 0 : 1 }]} testID={`quota-${engine}`}>
                 <View style={styles.provider}>
                     <ProviderIcon kind={engine} size={18} /><Text style={styles.name}>{engine === 'codex' ? 'Codex' : engine === 'agy' ? 'Antigravity' : 'Claude'}</Text>
                     {p?.plan && <Text numberOfLines={1} style={styles.plan}>{p.plan.toUpperCase()}</Text>}
@@ -150,7 +151,7 @@ export function AccountQuotaCards({ snapshot, loading, failed, available, now, o
                 </View>}
                 </View>}
                 {renderProviderFooter?.(engine)}
-            </View>;
+            </DashboardCard>;
         })}
         </View>
         {/* Refresh failures keep the existing sample and layout. Status belongs
