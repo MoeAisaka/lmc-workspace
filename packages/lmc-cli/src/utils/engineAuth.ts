@@ -1,5 +1,5 @@
 import { findAgyBin } from '@/agy/constants';
-import { projectAgyQuota } from '@/daemon/antigravityQuota';
+import { parseAgyModels } from '@/agy/modelDiscovery';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
@@ -89,9 +89,16 @@ export async function checkEngineAuth(engine: Engine | 'agy', cwd: string, env?:
         if (engine === 'agy') {
             const binary = findAgyBin();
             if (!binary) return 'required';
-            const probe = await probeCommand(binary, ['--print', '/usage', '--output-format', 'json', '--print-timeout', '15s'], { cwd, timeout: 20000 });
-            const status = projectAgyQuota(JSON.parse(probe.stdout)).status;
-            return status === 'ready' ? 'ready' : status === 'sign_in_required' ? 'required' : 'unknown';
+            // Native models requires login without booting a print conversation.
+            // Quota availability is independent of authentication: /usage can
+            // fail or time out while the account and running session are healthy.
+            const probe = await probeCommand(binary, ['models'], { cwd, timeout: 20_000, maxBuffer: 256 * 1024 });
+            if (probe.code === 0) {
+                parseAgyModels(probe.stdout);
+                return 'ready';
+            }
+            return probe.code === 1 && /please sign in|not authenticated|unauthenticated/i.test(`${probe.stdout}\n${probe.stderr}`)
+                ? 'required' : 'unknown';
         }
         const command = engine === 'claude' ? claudeSdkExecutable() : codexExecutable();
         const args = engine === 'claude' ? ['auth', 'status', '--json'] : ['login', 'status'];
