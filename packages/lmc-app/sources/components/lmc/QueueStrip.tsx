@@ -149,6 +149,7 @@ const styles = StyleSheet.create((theme) => ({
         paddingLeft: 10,
         paddingRight: 6,
         paddingVertical: 4,
+        borderRadius: 8,
     },
     modeText: {
         fontSize: 12,

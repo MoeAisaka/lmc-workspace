@@ -69,6 +69,7 @@ const styles = StyleSheet.create({
         alignSelf: 'flex-start',
         height: 20,
         justifyContent: 'center',
+        borderRadius: 4,
     },
     compact: {
         alignSelf: 'center',
