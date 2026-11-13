@@ -18,8 +18,8 @@ export function SharedPermissionControl({ sessionId, id, allowed }: { sessionId:
     }
     return <View style={{ padding: 12, gap: 8 }}>
         {!allowed ? <Text style={{ color: theme.colors.textSecondary }}>{t('lmc.sharing.awaitingApprover')}</Text> : <View style={{ flexDirection: 'row', gap: 16 }}>
-            <Pressable accessibilityRole="button" disabled={busy} onPress={() => void respond(true)} style={{ padding: 12 }}><Text style={{ color: theme.colors.textLink }}>{busy ? t('lmc.sharing.processing') : t('lmc.sharing.allowOnce')}</Text></Pressable>
-            <Pressable accessibilityRole="button" disabled={busy} onPress={() => void respond(false)} style={{ padding: 12 }}><Text style={{ color: theme.colors.textDestructive }}>{t('lmc.sharing.deny')}</Text></Pressable>
+            <Pressable accessibilityRole="button" disabled={busy} onPress={() => void respond(true)} style={{ borderRadius: 8, padding: 12 }}><Text style={{ color: theme.colors.textLink }}>{busy ? t('lmc.sharing.processing') : t('lmc.sharing.allowOnce')}</Text></Pressable>
+            <Pressable accessibilityRole="button" disabled={busy} onPress={() => void respond(false)} style={{ borderRadius: 8, padding: 12 }}><Text style={{ color: theme.colors.textDestructive }}>{t('lmc.sharing.deny')}</Text></Pressable>
         </View>}
         {!!error && <Text accessibilityRole="alert" style={{ color: theme.colors.textDestructive }}>{error}</Text>}
     </View>;

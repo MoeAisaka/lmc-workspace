@@ -88,7 +88,7 @@ function HeaderRightTablet() {
                 router.push('/friends/search');
             }}
             hitSlop={15}
-            style={{
+            style={{ borderRadius: 8,
                 width: 32,
                 height: 32,
                 alignItems: 'center',

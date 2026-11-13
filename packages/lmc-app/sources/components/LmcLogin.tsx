@@ -28,7 +28,7 @@ export function LmcLogin() {
     const input={borderWidth:1,borderColor:theme.colors.divider,borderRadius:12,padding:14,fontSize:16,color:theme.colors.text,marginTop:12} as const;
     if (invitation && auth.isAuthenticated) return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 20, backgroundColor: theme.colors.surface }}>
         <Text style={{ color: theme.colors.text, maxWidth: 360, lineHeight: 24 }}>{t('lmc.sharing.inviteAlreadySignedIn')}</Text>
-        <Pressable interaction="control" accessibilityRole="button" onPress={() => void auth.logout().catch(e => setError(e.message))} style={{ padding: 16 }}><Text style={{ color: theme.colors.textLink }}>{t('lmc.sharing.signOutAndAcceptInvite')}</Text></Pressable>
+        <Pressable interaction="control" accessibilityRole="button" onPress={() => void auth.logout().catch(e => setError(e.message))} style={{ borderRadius: 8, padding: 16 }}><Text style={{ color: theme.colors.textLink }}>{t('lmc.sharing.signOutAndAcceptInvite')}</Text></Pressable>
         {!!error && <Text accessibilityRole="alert" style={{ color: theme.colors.textDestructive }}>{error}</Text>}
     </View>;
     return <View style={{flex:1,justifyContent:'center',alignItems:'center',padding:24,backgroundColor:theme.colors.surface}}>

@@ -848,7 +848,7 @@ export const AgentInputUsageRow = React.memo(function AgentInputUsageRow(p: Usag
                     accessibilityLabel={t('agentInput.context.memoryLabel', { name: memory.machineName })}
                     onPress={() => openMachineDetails(memory.machineId)}
                     hitSlop={{ top: 12, bottom: 14, left: 8, right: 8 }}
-                    style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 0 }}
+                    style={{ borderRadius: 8, flexDirection: 'row', alignItems: 'center', flexShrink: 0 }}
                 >
                     <Text numberOfLines={1} style={{ fontSize: 11, color: theme.colors.textSecondary, ...Typography.default() }}>
                         {memory.sessionBytes !== null && `${wide ? t('agentInput.context.memorySession', { size: formatBytes(memory.sessionBytes) }) : formatBytes(memory.sessionBytes)} · `}
@@ -868,7 +868,7 @@ export const AgentInputUsageRow = React.memo(function AgentInputUsageRow(p: Usag
                         testID="agent-input-context"
                         onPress={() => setShowPreciseContext((current) => !current)}
                         hitSlop={{ top: 12, bottom: 14, left: 10, right: 14 }}
-                        style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flexShrink: 1, minWidth: 0 }}
+                        style={{ borderRadius: 8, flexDirection: 'row', alignItems: 'center', gap: 5, flexShrink: 1, minWidth: 0 }}
                     >
                         <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: 11, color: p.contextStatus.color, ...Typography.default() }}>
                             {showPreciseContext
@@ -1671,7 +1671,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                         ]}
                     >
                         <Pressable
-                            style={(p) => ({
+                            style={(p) => ({ borderRadius: 999,
                                 width: '100%',
                                 height: '100%',
                                 alignItems: 'center',
@@ -1972,7 +1972,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                     interaction="control"
                                     onPress={handleSettingsPress}
                                     hitSlop={6}
-                                    style={styles.mobileSummaryButton}
+                                    style={[{ borderRadius: 999 }, styles.mobileSummaryButton]}
                                     accessibilityRole="button"
                                     accessibilityLabel={t('lmc.common.modelAndPermissions')}
                                 >
@@ -2068,7 +2068,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                             >
                                 <BubblePressable
                     interaction="control"
-                                    style={(p) => ({
+                                    style={(p) => ({ borderRadius: 999,
                                         width: '100%',
                                         height: '100%',
                                         alignItems: 'center',

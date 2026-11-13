@@ -40,7 +40,7 @@ export const TurnTimeline = React.memo(function TurnTimeline({ group, metadata, 
     let process: React.ReactNode[] = [header];
     let sectionKey = 'header';
     if (expanded && selection.hiddenCount > 0) process.push(
-        <Pressable key="earlier" accessibilityRole="button" onPress={() => setShowEarlier(true)} style={styles.earlier}>
+        <Pressable key="earlier" accessibilityRole="button" onPress={() => setShowEarlier(true)} style={[{ borderRadius: 6 }, styles.earlier]}>
             <Text style={styles.earlierText}>{t('toolGroup.timeline.earlier', { count: selection.hiddenCount })}</Text>
         </Pressable>
     );

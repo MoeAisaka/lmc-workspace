@@ -1,3 +1,4 @@
+import { textActionFrame } from '@/components/interactionGeometry';
 import * as React from 'react';
 import { View } from 'react-native';
 import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
@@ -104,7 +105,7 @@ export function AgentQuestionBannerView({ pending, onPress, onDismiss }: {
                         {t('agentQuestion.unsupportedDescription', { kind: pending.rawKind })}
                     </Text>
                 </View>
-                <Pressable onPress={onDismiss} hitSlop={10}>
+                <Pressable style={textActionFrame} onPress={onDismiss} hitSlop={10}>
                     <Text style={styles.dismiss}>{t('agentQuestion.dismiss')}</Text>
                 </Pressable>
             </View>

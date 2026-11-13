@@ -581,7 +581,7 @@ const PanelChip = React.memo(function PanelChip({
                         }}
                         accessibilityLabel={t('files.closePanel')}
                         hitSlop={6}
-                        style={styles.chipClose}
+                        style={[{ borderRadius: 7 }, styles.chipClose]}
                     >
                         <Octicons name="x" size={12} color={theme.colors.text} />
                     </Pressable>

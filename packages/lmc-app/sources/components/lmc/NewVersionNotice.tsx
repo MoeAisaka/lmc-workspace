@@ -57,7 +57,7 @@ export const NewVersionNotice = React.memo(function NewVersionNotice() {
                 accessibilityLabel={t('lmc.list.newVersionLater')}
                 onPress={() => useWebRelease.getState().snooze(Date.now())}
                 hitSlop={6}
-                style={({ pressed }) => ({ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}
+                style={({ pressed }) => ({ borderRadius: 8, width: 28, height: 28, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}
             >
                 <Ionicons name="close" size={15} color={theme.colors.textSecondary} />
             </Pressable>

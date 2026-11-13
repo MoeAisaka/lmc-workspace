@@ -116,11 +116,11 @@ export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
                 <View style={styles.contentWrapper}>
                     <View style={[styles.webContent, { height: isTablet ? DESKTOP_HEADER_HEIGHT : headerHeight }]}>
                         {onMenuPress && !isTablet ? (
-                            <Pressable onPress={onMenuPress} hitSlop={15} accessibilityRole="button" accessibilityLabel={t('lmc.common.sessionList')} style={styles.webBackButton}>
+                            <Pressable onPress={onMenuPress} hitSlop={15} accessibilityRole="button" accessibilityLabel={t('lmc.common.sessionList')} style={[{ borderRadius: 10 }, styles.webBackButton]}>
                                 <Ionicons name="menu-outline" size={26} color={theme.colors.header.tint} />
                             </Pressable>
                         ) : showBackButton && (
-                            <Pressable onPress={onBackPress} hitSlop={15} style={styles.webBackButton}>
+                            <Pressable onPress={onBackPress} hitSlop={15} style={[{ borderRadius: 10 }, styles.webBackButton]}>
                                 <Ionicons
                                     name="arrow-back"
                                     size={24}
@@ -132,7 +132,7 @@ export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
                             // Option A: the title reads as the head of the
                             // transcript, not as chrome floating over it.
                             <Pressable
-                                style={({ pressed }) => [styles.webTitleColumn, pressed && onTitlePress ? { opacity: 0.6 } : null]}
+                                style={({ pressed }) => [{ borderRadius: 8 }, styles.webTitleColumn, pressed && onTitlePress ? { opacity: 0.6 } : null]}
                                 onPress={onTitlePress}
                                 disabled={!onTitlePress}
                             >
@@ -223,7 +223,7 @@ export const ChatHeaderView: React.FC<ChatHeaderViewProps> = ({
         </BubblePressable>
     ) : (
         <BubblePressable
-            style={styles.titleContainer}
+            style={[{ borderRadius: 8 }, styles.titleContainer]}
             onPress={onTitlePress}
             disabled={!onTitlePress}
             bubbleScale={1.012}

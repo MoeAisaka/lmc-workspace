@@ -14,7 +14,7 @@ export function SavedFilesDialog({ onClose }: { onClose?: () => void }) {
     return <UtilityDialog title={t('lmc.dialogs.savedFiles')} onClose={onClose} testID="saved-files-dialog">
         <View style={{ flex: 1, display: selected ? 'none' : 'flex' }}><SavedFilesList onOpen={setSelected} /></View>
         {selected && <View style={{ flex: 1, minHeight: 0 }}>
-            <Pressable accessibilityRole="button" onPress={() => setSelected(null)} style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 20 }}>
+            <Pressable accessibilityRole="button" onPress={() => setSelected(null)} style={{ borderRadius: 8, minHeight: 44, justifyContent: 'center', paddingHorizontal: 20 }}>
                 <Text style={{ color: theme.colors.textLink }}>{t('lmc.savedFiles.backToList')}</Text>
             </Pressable>
             <SavedFileDetails key={selected} id={selected} />

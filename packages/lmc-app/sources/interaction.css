@@ -55,7 +55,7 @@ html[data-lmc-motion="off"] { --yulor-interaction-fast: 0ms; --yulor-interaction
 }
 /* Nested row actions get the feedback, rather than illuminating both layers. */
 @supports selector(:has(*)) {
-    [data-yulor-interaction]:has([data-yulor-interaction]:hover):not([data-yulor-interaction="none"])::after { opacity: 0; }
+    [data-yulor-interaction]:has([data-yulor-interaction]:not([data-yulor-interaction="none"]):hover):not([data-yulor-interaction="none"])::after { opacity: 0; }
 }
 
 :where(input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]), textarea, select) {
@@ -124,8 +124,10 @@ html[data-lmc-motion="off"] [data-yulor-reorder] { transition: none !important; 
 }
 @supports selector(:has(*)) {
     [data-yulor-card]:has([data-yulor-card]:focus-within)::before { opacity: 0; }
+    [data-yulor-card]:has([data-yulor-interaction]:focus-visible)::before { opacity: 0; }
     @media (hover: hover) and (pointer: fine) {
         [data-yulor-card]:has([data-yulor-card]:hover)::before { opacity: 0; }
+        [data-yulor-card]:has([data-yulor-interaction]:not([data-yulor-interaction="none"]):hover)::before { opacity: 0; }
     }
 }
 [data-yulor-disclosure="chevron"] {
@@ -137,4 +139,10 @@ html[data-lmc-motion="off"] [data-yulor-reorder] { transition: none !important; 
 html[data-lmc-motion="off"] [data-yulor-disclosure="content"] { animation: none; }
 @media (prefers-reduced-motion: reduce) {
     [data-yulor-disclosure="content"] { animation: none !important; }
+}
+
+/* Inline prose links own text emphasis rather than a rectangular overlay. */
+[data-lmc-link="true"] { transition: opacity var(--yulor-interaction-fast) var(--yulor-interaction-ease); }
+@media (hover: hover) and (pointer: fine) {
+    [data-lmc-link="true"]:hover { opacity: .82; text-decoration-thickness: 2px; text-underline-offset: 3px; }
 }

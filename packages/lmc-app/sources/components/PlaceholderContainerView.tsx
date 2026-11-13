@@ -28,7 +28,7 @@ export const PlaceholderContainerView: React.FC<PlaceholderContainerViewProps> =
 
     return (
         <Animated.View style={[{ flex: 1 }, style]}>
-            <Pressable
+            <Pressable interaction="none"
                 style={[
                     {
                         flex: 1,

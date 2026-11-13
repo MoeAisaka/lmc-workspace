@@ -1,3 +1,4 @@
+import { iconActionFrame } from '@/components/interactionGeometry';
 import { DetailSummary } from '@/components/lmc/DetailSummary';
 import { openResourceSharing } from '@/components/lmc/ResourceSharingDialog';
 import { useSettingsNavigation } from '@/components/lmc/settings/settingsNavigation';
@@ -198,7 +199,7 @@ export default function MachineDetailScreen({ machineId: suppliedId, onClose }: 
                         <Pressable
                             onPress={handleRenameMachine}
                             hitSlop={10}
-                            style={{
+                            style={{ ...iconActionFrame,
                                 opacity: isRenamingMachine ? 0.5 : 1
                             }}
                             disabled={isRenamingMachine}

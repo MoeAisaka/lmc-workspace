@@ -181,7 +181,7 @@ const DiffPaneHeader = React.memo(function DiffPaneHeader({
                 </View>
             ) : null}
             {showToggle ? <DiffStyleToggle value={diffStyle} onChange={onDiffStyleChange} /> : null}
-            <Pressable onPress={onClose} hitSlop={15} style={styles.closeButton}>
+            <Pressable onPress={onClose} hitSlop={15} style={[{ borderRadius: 8 }, styles.closeButton]}>
                 <Ionicons name="close" size={20} color={theme.colors.textSecondary} />
             </Pressable>
         </View>

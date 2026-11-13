@@ -247,7 +247,7 @@ function AgentTextBlock(props: {
   return (
     <View style={styles.agentMessageContainer}>
       <MarkdownView markdown={props.message.text} inferOptions onOptionPress={handleOptionPress} sessionId={props.sessionId} />
-      {props.copyText ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 28 }}>
+      {props.copyText ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <MessageCopyButton text={props.copyText} />
         <MessageImageCopyButton text={props.copyText} sessionId={props.sessionId} />
       </View> : null}
@@ -278,7 +278,7 @@ function EngineHandoffBlock(props: { from: string; source: 'engine' | 'compiled'
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
         onPress={() => setOpen((current) => !current)}
-        style={styles.handoffHeader}
+        style={[{ borderRadius: 8 }, styles.handoffHeader]}
       >
         <View style={[styles.handoffRule, { backgroundColor: theme.colors.divider }]} />
         <Ionicons name="swap-horizontal-outline" size={14} color={theme.colors.agentEventText} />

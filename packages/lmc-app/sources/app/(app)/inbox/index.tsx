@@ -76,7 +76,7 @@ export default function InboxPage() {
                         <Pressable
                             onPress={() => router.back()}
                             hitSlop={12}
-                            style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}
+                            style={{ borderRadius: 999, width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}
                         >
                             <Ionicons
                                 name={Platform.OS === 'ios' ? 'chevron-back' : 'arrow-back'}

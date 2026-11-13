@@ -53,11 +53,11 @@ export function NativeAppApprovalCard({ sessionId, state, respond, maxWidth }: {
         </View>}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             {prompt.choices && <Pressable accessibilityRole="button" accessibilityState={{ expanded }} onPress={() => setExpanded(value => !value)}
-                style={{ minHeight: 36, justifyContent: 'center', paddingHorizontal: 4 }}>
+                style={{ borderRadius: 8, minHeight: 36, justifyContent: 'center', paddingHorizontal: 4 }}>
                 <Text style={[text, { color: theme.colors.textSecondary }]}>{t(expanded ? 'localFeatures.nativeApprovalLess' : 'localFeatures.nativeApprovalDetails')}</Text>
             </Pressable>}
             <Pressable accessibilityRole="button" disabled={state.busy || state.unavailable} onPress={() => openClaudeNative(sessionId)}
-                style={{ minHeight: 36, justifyContent: 'center', paddingHorizontal: 4, opacity: state.busy || state.unavailable ? 0.45 : 1 }}>
+                style={{ borderRadius: 8, minHeight: 36, justifyContent: 'center', paddingHorizontal: 4, opacity: state.busy || state.unavailable ? 0.45 : 1 }}>
                 <Text style={[text, { color: theme.colors.textSecondary }]}>{t('localFeatures.nativeApprovalOpen')}</Text>
             </Pressable>
         </View>

@@ -66,7 +66,7 @@ export function EngineAuthBanner({ sessionId, maxWidth, minHeight }: { sessionId
         <Text style={{ color: theme.colors.textSecondary, ...wrapText }}>{metadata.host} · {t('localFeatures.loginErrorUnknown')}</Text>
         {!sessionCapabilities(metadata).authentication && <Text style={{ color: theme.colors.textSecondary }}>{t('localFeatures.loginErrorUpgrade')}</Text>}
         {!!error && <Text style={{ color: theme.colors.status.error, ...wrapText }}>{error}</Text>}
-        <Pressable accessibilityRole="button" disabled={checking || !canCheck} onPress={recheck} style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8, opacity: canCheck ? 1 : 0.45 }}>
+        <Pressable accessibilityRole="button" disabled={checking || !canCheck} onPress={recheck} style={{ borderRadius: 8, minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8, opacity: canCheck ? 1 : 0.45 }}>
             {checking && <ActivityIndicator size="small" />}
             <Text style={{ color: theme.colors.text }}>{t(checking ? 'localFeatures.engineAuthChecking' : 'localFeatures.engineAuthCheck')}</Text>
         </Pressable>
@@ -81,7 +81,7 @@ export function EngineAuthBanner({ sessionId, maxWidth, minHeight }: { sessionId
             <Pressable accessibilityRole="button" disabled={!machine?.active} onPress={() => Modal.show({ component: EngineLoginDialog, props: { sessionId } })} style={{ minHeight: 44, maxWidth: '100%', minWidth: 0, flexShrink: 1, paddingHorizontal: 16, paddingVertical: 10, justifyContent: 'center', borderRadius: 22, backgroundColor: theme.dark ? '#6DA8FF' : '#0060F0', opacity: machine?.active ? 1 : 0.45 }}>
                 <Text style={{ color: theme.dark ? '#10243B' : '#FFFFFF', fontWeight: '600', textAlign: 'center', ...wrapText }}>{t(recovering ? 'localFeatures.loginViewRecovery' : inProgress ? 'localFeatures.loginContinue' : 'localFeatures.loginTitle')}</Text>
             </Pressable>
-            <Pressable accessibilityRole="button" disabled={!machine?.active || login.busy} onPress={() => Modal.show({ component: EngineLoginDialog, props: { sessionId, initialAction: 'check' } })} style={{ minHeight: 44, maxWidth: '100%', minWidth: 0, flexShrink: 1, justifyContent: 'center', paddingHorizontal: 8, paddingVertical: 10 }}><Text style={{ color: theme.colors.text, textAlign: 'center', ...wrapText }}>{t('localFeatures.loginRecheck')}</Text></Pressable>
+            <Pressable accessibilityRole="button" disabled={!machine?.active || login.busy} onPress={() => Modal.show({ component: EngineLoginDialog, props: { sessionId, initialAction: 'check' } })} style={{ borderRadius: 8, minHeight: 44, maxWidth: '100%', minWidth: 0, flexShrink: 1, justifyContent: 'center', paddingHorizontal: 8, paddingVertical: 10 }}><Text style={{ color: theme.colors.text, textAlign: 'center', ...wrapText }}>{t('localFeatures.loginRecheck')}</Text></Pressable>
         </View>
     </View>;
     const engine = metadata.flavor === 'codex' ? 'Codex' : 'Claude Code';
@@ -91,7 +91,7 @@ export function EngineAuthBanner({ sessionId, maxWidth, minHeight }: { sessionId
         <Text style={{ color:theme.colors.textSecondary }}>{t('localFeatures.engineAuthHint')} {metadata.host}</Text>
         <Text selectable style={{ color:theme.colors.text }}>{metadata.flavor === 'codex' ? 'codex login' : 'claude auth login'}</Text>
         {!!error && <Text style={{color:theme.colors.status.error}}>{error}</Text>}
-        <Pressable accessibilityRole="button" disabled={checking || !canCheck} onPress={recheck} style={{ minHeight:44, flexDirection:'row', alignItems:'center', gap:8 }}>
+        <Pressable accessibilityRole="button" disabled={checking || !canCheck} onPress={recheck} style={{ borderRadius: 8, minHeight:44, flexDirection:'row', alignItems:'center', gap:8 }}>
             {checking && <ActivityIndicator size="small" />}
             <Text style={{color:theme.colors.text}}>{t(checking ? 'localFeatures.engineAuthChecking' : 'localFeatures.engineAuthCheck')}</Text>
         </Pressable>

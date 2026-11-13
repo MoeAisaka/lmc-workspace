@@ -36,7 +36,7 @@ export const Switch = (props: SwitchProps) => {
             disabled={props.disabled}
             hitSlop={8}
             onPress={() => props.onValueChange?.(!on)}
-            style={({ pressed }) => ({ opacity: props.disabled ? 0.4 : pressed ? 0.8 : 1 })}
+            style={({ pressed }) => ({ borderRadius: 12, opacity: props.disabled ? 0.4 : pressed ? 0.8 : 1 })}
         >
             <View style={{
                 width: TRACK_WIDTH,

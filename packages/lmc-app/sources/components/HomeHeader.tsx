@@ -170,7 +170,7 @@ function HeaderRightNotAuth() {
             interaction="control"
             onPress={() => router.push('/server')}
             hitSlop={15}
-            style={styles.headerButton}
+            style={[{ borderRadius: 8 }, styles.headerButton]}
         >
             <Ionicons name="server-outline" size={24} color={theme.colors.header.tint} />
         </Pressable>

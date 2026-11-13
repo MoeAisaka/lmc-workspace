@@ -192,7 +192,7 @@ export const ProjectAvatarButton = React.memo(({
                     }
                 },
             } : {})}
-            style={{flex:1, minWidth:0, flexDirection:'row', alignItems:'center', gap:8, ...(Platform.OS === 'web' ? {position:'relative', userSelect:'none', WebkitUserSelect:'none', WebkitTouchCallout:'none'} as any : {})}}
+            style={{ borderRadius: 8, flex:1, minWidth:0, flexDirection:'row', alignItems:'center', gap:8, ...(Platform.OS === 'web' ? {position:'relative', userSelect:'none', WebkitUserSelect:'none', WebkitTouchCallout:'none'} as any : {})}}
         >{contextHitOverlay}{children}</Pressable>
         <ProjectAvatarActions anchor={anchor} onClose={closeMenu} hasCustomAvatar={hasCustomAvatar}
             onPick={() => { closeMenu(); void pickImage(); }}

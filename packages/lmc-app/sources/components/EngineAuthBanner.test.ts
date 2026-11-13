@@ -11,6 +11,7 @@ vi.mock('react-native', () => ({
     Text: ({ children }: any) => React.createElement('span', null, children),
     Pressable: ({ children, disabled, onPress }: any) => React.createElement('button', { disabled, onClick: onPress }, children),
 }));
+vi.mock('@/components/StyledText', () => ({ Text: ({ children }: any) => React.createElement('span', null, children) }));
 vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme: { colors: { status: {} } } }) }));
 vi.mock('@/sync/storage', () => ({ useSession: () => mock.session, useMachine: () => ({ active: true, metadata: { engineLogin: { claude: true, codex: true } } }) }));
 vi.mock('@/sync/engineAuthentication', () => ({ checkSessionAuthentication: mock.check }));

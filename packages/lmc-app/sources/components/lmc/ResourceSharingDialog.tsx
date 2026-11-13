@@ -1,3 +1,4 @@
+import { iconActionFrame } from '@/components/interactionGeometry';
 import React from 'react';
 import { View, ScrollView, ActivityIndicator, TextInput } from 'react-native';
 import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
@@ -650,7 +651,7 @@ export function ResourceSharingDialog({
                                                     grants: policy.grants.filter((g) => g.accountId !== grant.accountId),
                                                 })
                                             }
-                                            style={{ padding: 12 }}
+                                            style={{ borderRadius: 8, padding: 12 }}
                                         >
                                             <Text style={{ color: theme.colors.textLink }}>{t('lmc.sharing.remove')}</Text>
                                         </Pressable>
@@ -999,7 +1000,7 @@ export function ResourceSharingList({ ownerId, onClose }: { ownerId?: string; on
                                 }}
                             />
                             {!!query && (
-                                <Pressable accessibilityRole="button" onPress={() => setQuery('')} hitSlop={8}>
+                                <Pressable style={iconActionFrame} accessibilityRole="button" onPress={() => setQuery('')} hitSlop={8}>
                                     <Ionicons name="close-circle" size={16} color={theme.colors.textSecondary} />
                                 </Pressable>
                             )}

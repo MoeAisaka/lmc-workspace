@@ -228,14 +228,14 @@ export default function ArtifactDetailScreen() {
                         <View style={{ flexDirection: 'row' }}>
                             <Pressable
                                 onPress={handleEdit}
-                                style={{ padding: 8, marginRight: 8 }}
+                                style={{ borderRadius: 8, padding: 8, marginRight: 8 }}
                                 disabled={isDeleting}
                             >
                                 <Ionicons name="create-outline" size={22} color={styles.title.color} />
                             </Pressable>
                             <Pressable
                                 onPress={handleDelete}
-                                style={{ padding: 8 }}
+                                style={{ borderRadius: 8, padding: 8 }}
                                 disabled={isDeleting}
                             >
                                 <Ionicons 

@@ -1,3 +1,4 @@
+import { iconActionFrame } from '@/components/interactionGeometry';
 import * as React from 'react';
 import { type StyleProp, type ViewStyle } from 'react-native';
 import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
@@ -66,10 +67,8 @@ export function MessageCopyButton(props: {
 
 const styles = StyleSheet.create({
     action: {
+        ...iconActionFrame,
         alignSelf: 'flex-start',
-        height: 20,
-        justifyContent: 'center',
-        borderRadius: 4,
     },
     compact: {
         alignSelf: 'center',

@@ -2128,7 +2128,7 @@ function NewSessionScreen() {
                                 <BubblePressable
                                     onPress={toggleConfig}
                                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                    style={(p) => [styles.collapseToggle, p.pressed && styles.configRowPressed]}
+                                    style={(p) => [{ borderRadius: 10 }, styles.collapseToggle, p.pressed && styles.configRowPressed]}
                                 >
                                     <Ionicons name="chevron-up" size={16} color={theme.colors.textSecondary} />
                                 </BubblePressable>
@@ -2171,7 +2171,7 @@ function NewSessionScreen() {
                                         <BubblePressable
                                             scaleFeedback={false}
                                             onPress={() => togglePicker('agent')}
-                                            style={(p) => [styles.configInlineField, p.pressed && styles.configRowPressed]}
+                                            style={(p) => [{ borderRadius: 8 }, styles.configInlineField, p.pressed && styles.configRowPressed]}
                                         >
                                             <RNImage
                                                 source={agentIcons[agent.key]}
@@ -2187,7 +2187,7 @@ function NewSessionScreen() {
                                         {showModel && (
                                             <>
                                                 <Text style={[styles.configLabel, { color: theme.colors.textSecondary }]}>·</Text>
-                                                <BubblePressable scaleFeedback={false} onPress={() => togglePicker('model')} style={(p) => [styles.configInlineField, p.pressed && styles.configRowPressed]}>
+                                                <BubblePressable scaleFeedback={false} onPress={() => togglePicker('model')} style={(p) => [{ borderRadius: 8 }, styles.configInlineField, p.pressed && styles.configRowPressed]}>
                                                     <Text style={[styles.configLabel, styles.configInlineText, { color: theme.colors.textSecondary }]} numberOfLines={1}>
                                                         {currentModel?.name}
                                                     </Text>
@@ -2199,7 +2199,7 @@ function NewSessionScreen() {
                                         {showEffort && (
                                             <>
                                                 <Text style={[styles.configLabel, { color: theme.colors.textSecondary }]}>·</Text>
-                                                <BubblePressable scaleFeedback={false} onPress={() => togglePicker('effort')} style={(p) => [styles.configInlineField, p.pressed && styles.configRowPressed]}>
+                                                <BubblePressable scaleFeedback={false} onPress={() => togglePicker('effort')} style={(p) => [{ borderRadius: 8 }, styles.configInlineField, p.pressed && styles.configRowPressed]}>
                                                     <Text style={[styles.configLabel, styles.configInlineText, { color: theme.colors.textSecondary }]} numberOfLines={1}>
                                                         {currentEffort?.name}
                                                     </Text>
@@ -2288,7 +2288,7 @@ function NewSessionScreen() {
                             <BubblePressable
                                 onPress={toggleConfig}
                                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                style={(p) => [styles.collapseToggle, p.pressed && styles.configRowPressed]}
+                                style={(p) => [{ borderRadius: 10 }, styles.collapseToggle, p.pressed && styles.configRowPressed]}
                             >
                                 <Ionicons name="chevron-down" size={16} color={theme.colors.textSecondary} />
                             </BubblePressable>
@@ -2387,7 +2387,7 @@ function NewSessionScreen() {
             ]}
         >
             <Pressable
-                style={(pressedState) => [
+                style={(pressedState) => [{ borderRadius: 999 },
                     styles.sendButtonInner,
                     pressedState.pressed && styles.sendButtonInnerPressed,
                 ]}
@@ -2636,7 +2636,7 @@ function NewSessionScreen() {
                         }}
                         showsVerticalScrollIndicator={false}
                     >
-                        <Pressable
+                        <Pressable interaction="none"
                             onPress={() => {
                                 Keyboard.dismiss();
                                 closePicker();

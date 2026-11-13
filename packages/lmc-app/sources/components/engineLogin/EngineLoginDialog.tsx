@@ -60,7 +60,7 @@ export function EngineLoginPanel({ engine, host, online, flow, error, busy, onAc
             <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: desktop ? 24 : 20, gap: 16 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     <Text accessibilityRole="header" style={{ ...text, fontSize: 20, lineHeight: 28, flex: 1, ...Typography.default('semiBold') }}>{title}</Text>
-                    <Pressable accessibilityRole="button" accessibilityLabel={t('localFeatures.loginClose')} onPress={onClose} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Ionicons name="close-outline" size={24} color={theme.colors.textSecondary} /></Pressable>
+                    <Pressable accessibilityRole="button" accessibilityLabel={t('localFeatures.loginClose')} onPress={onClose} style={{ borderRadius: 12, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}><Ionicons name="close-outline" size={24} color={theme.colors.textSecondary} /></Pressable>
                 </View>
                 <View style={{ backgroundColor: muted, borderRadius: 12, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                     <Ionicons name="laptop-outline" size={22} color={theme.colors.textSecondary} />

@@ -75,7 +75,7 @@ export function ImagePreviewModal({ uri, label, onClose }: { uri: string; label:
           <GestureHandlerRootView style={{ flex: 1 }}>
             <View style={styles.toolbar}>
                 <Text numberOfLines={1} style={styles.title}>{label}</Text>
-                <Pressable testID="image-preview-close" accessibilityRole="button" accessibilityLabel={t('lmc.common.close')} onPress={onClose} style={styles.button}>
+                <Pressable testID="image-preview-close" accessibilityRole="button" accessibilityLabel={t('lmc.common.close')} onPress={onClose} style={[{ borderRadius: 12 }, styles.button]}>
                     <Ionicons name="close" size={24} color="white" />
                 </Pressable>
             </View>
@@ -92,13 +92,13 @@ export function ImagePreviewModal({ uri, label, onClose }: { uri: string; label:
             </GestureDetector>
             <View style={styles.controls}>
                 <Text numberOfLines={2} style={styles.hint}>{t('projectAvatar.cropInstructions')}</Text>
-                <Pressable testID="image-preview-zoom-out" accessibilityRole="button" accessibilityLabel="−" onPress={() => update({ ...current.current, scale: current.current.scale - 0.5 })} style={styles.button}>
+                <Pressable testID="image-preview-zoom-out" accessibilityRole="button" accessibilityLabel="−" onPress={() => update({ ...current.current, scale: current.current.scale - 0.5 })} style={[{ borderRadius: 12 }, styles.button]}>
                     <Text style={styles.controlText}>−</Text>
                 </Pressable>
-                <Pressable testID="image-preview-reset" accessibilityRole="button" accessibilityLabel={t('common.reset')} onPress={() => update(initialPose)} style={styles.button}>
+                <Pressable testID="image-preview-reset" accessibilityRole="button" accessibilityLabel={t('common.reset')} onPress={() => update(initialPose)} style={[{ borderRadius: 12 }, styles.button]}>
                     <Text style={styles.controlText}>{Math.round(pose.scale * 100)}%</Text>
                 </Pressable>
-                <Pressable testID="image-preview-zoom-in" accessibilityRole="button" accessibilityLabel="+" onPress={() => update({ ...current.current, scale: current.current.scale + 0.5 })} style={styles.button}>
+                <Pressable testID="image-preview-zoom-in" accessibilityRole="button" accessibilityLabel="+" onPress={() => update({ ...current.current, scale: current.current.scale + 0.5 })} style={[{ borderRadius: 12 }, styles.button]}>
                     <Text style={styles.controlText}>+</Text>
                 </Pressable>
             </View>

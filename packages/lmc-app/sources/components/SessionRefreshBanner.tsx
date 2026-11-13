@@ -124,7 +124,7 @@ function RefreshCard({ sessionId, steps, frame, engine, host }: {
         return (
             <View testID="session-refresh-banner" accessibilityLiveRegion="polite" style={[styles.card, frame, styles.compactCard]}>
                 <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.refresh.showDetails')} accessibilityState={{ expanded: false }}
-                    onPress={() => setDetailsOpen(true)} style={styles.compactSummary}>
+                    onPress={() => setDetailsOpen(true)} style={[{ borderRadius: 8 }, styles.compactSummary]}>
                     <Ionicons name="alert-circle-outline" size={18} color={theme.colors.status.error} />
                     <View style={styles.summaryText}>
                         <Text style={[styles.engine, { color: theme.colors.text }]} numberOfLines={1}>{engine} · {t('lmc.refresh.failedShort')}</Text>
@@ -149,7 +149,7 @@ function RefreshCard({ sessionId, steps, frame, engine, host }: {
                 <Text style={[styles.elapsed, { color: theme.colors.textSecondary }]}>{formatElapsed(steps.elapsedMs)}</Text>
                 {failed && (
                     <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.refresh.hideDetails')} accessibilityState={{ expanded: true }}
-                        onPress={() => setDetailsOpen(false)} style={styles.collapse}>
+                        onPress={() => setDetailsOpen(false)} style={[{ borderRadius: 10 }, styles.collapse]}>
                         <Ionicons name="chevron-up" size={18} color={theme.colors.textSecondary} />
                     </Pressable>
                 )}

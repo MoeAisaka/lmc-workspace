@@ -64,11 +64,11 @@ export function UsageSessionDetails({ sessions, roles = {}, names, total, ready,
     };
     const renderSession = (s: UsageGroup) => <View key={s.id} testID={`usage-session-row-${s.id}`} style={styles.entry}>
         <View style={styles.between}>
-            <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.usage.openSessionA11y', { name: name(s.id) })} onPress={() => onSession(s.id)} style={styles.title}>
+            <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.usage.openSessionA11y', { name: name(s.id) })} onPress={() => onSession(s.id)} style={[{ borderRadius: 8 }, styles.title]}>
                 <Text numberOfLines={2} style={styles.text}>{name(s.id)}</Text>
                 <Text style={styles.muted}>{roleLabel(s.id)}</Text>
             </Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.usage.filterBySessionA11y', { name: name(s.id) })} accessibilityHint={t('lmc.usage.totalTokensHint', { tokens: usageTotal(s.tokens).toLocaleString() })} onPress={() => onFilterSession(s.id)} style={styles.amountButton}>
+            <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.usage.filterBySessionA11y', { name: name(s.id) })} accessibilityHint={t('lmc.usage.totalTokensHint', { tokens: usageTotal(s.tokens).toLocaleString() })} onPress={() => onFilterSession(s.id)} style={[{ borderRadius: 8 }, styles.amountButton]}>
                 <Text style={styles.amount}>{fmt(usageTotal(s.tokens))}</Text><Text style={styles.muted}>Token · {total ? (usageTotal(s.tokens) / total * 100).toFixed(1) : '0.0'}%</Text>
             </Pressable>
         </View>
@@ -97,9 +97,9 @@ export function UsageSessionDetails({ sessions, roles = {}, names, total, ready,
             const memberLimit = (memberPages[group.id] ?? 1) * 10;
             return <View key={group.id} testID={`usage-hub-group-${group.hubId ?? 'other'}`} style={styles.group}>
                 <View style={styles.between}>
-                    {group.hubId ? <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.usage.openHubA11y', { title })} onPress={() => onSession(group.hubId!)} style={styles.title}><Text numberOfLines={2} style={styles.heading}>{title}</Text></Pressable>
+                    {group.hubId ? <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.usage.openHubA11y', { title })} onPress={() => onSession(group.hubId!)} style={[{ borderRadius: 8 }, styles.title]}><Text numberOfLines={2} style={styles.heading}>{title}</Text></Pressable>
                         : <Text style={[styles.heading, { flex: 1 }]}>{title}</Text>}
-                    <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.usage.toggleGroupA11y', { open, title })} accessibilityHint={t('lmc.usage.groupTotalHint', { tokens: usageTotal(group.tokens).toLocaleString() })} accessibilityState={{ expanded: open }} onPress={() => setExpanded(current => ({ ...current, [group.id]: !open }))} style={[styles.row, { flexShrink: 0 }]}>
+                    <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.usage.toggleGroupA11y', { open, title })} accessibilityHint={t('lmc.usage.groupTotalHint', { tokens: usageTotal(group.tokens).toLocaleString() })} accessibilityState={{ expanded: open }} onPress={() => setExpanded(current => ({ ...current, [group.id]: !open }))} style={[{ borderRadius: 8 }, styles.row, { flexShrink: 0 }]}>
                         <View style={styles.amountButton}><Text style={styles.amount}>{fmt(usageTotal(group.tokens))}</Text><Text style={styles.muted}>{t('lmc.usage.tokensAndSessions', { count: group.sessions.length })}</Text></View>
                         <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={theme.colors.textSecondary} />
                     </Pressable>

@@ -1,3 +1,4 @@
+import { textActionFrame } from '@/components/interactionGeometry';
 import * as React from 'react';
 import { ActivityIndicator, Modal, ScrollView, TextInput, View } from 'react-native';
 import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
@@ -106,7 +107,7 @@ export function AgentQuestionModal({ pending, sessionId, visible, onClose }: Age
         >
             <View style={[styles.container, { paddingTop: safeArea.top }]}>
                 <View style={styles.header}>
-                    <Pressable onPress={handleDismiss} hitSlop={12} disabled={submitting}>
+                    <Pressable style={textActionFrame} onPress={handleDismiss} hitSlop={12} disabled={submitting}>
                         <Text style={styles.headerAction}>{t('common.cancel')}</Text>
                     </Pressable>
                     <Text style={styles.headerTitle}>{t('agentQuestion.title')}</Text>

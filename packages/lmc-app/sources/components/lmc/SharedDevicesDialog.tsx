@@ -1,3 +1,4 @@
+import { textActionFrame } from '@/components/interactionGeometry';
 import React from 'react';
 import { View, ScrollView, ActivityIndicator } from 'react-native';
 import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
@@ -42,8 +43,8 @@ function SharedDevicesDialog({ onCreated, onClose }: { onCreated: (id: string) =
             </Pressable>)}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>{(['codex', 'claude', 'agy'] as const).map(value => <Pressable key={value} accessibilityRole="button" disabled={busy} onPress={() => setEngine(value)} style={{ padding: 12, backgroundColor: engine === value ? theme.colors.surfaceHigh : undefined, borderRadius: 12 }}><Text style={{ color: theme.colors.text }}>{({ codex: 'Codex', claude: 'Claude Code', agy: 'Antigravity' })[value]}</Text></Pressable>)}</View>
             {!!error && <Text accessibilityRole="alert" style={{ color: theme.colors.textDestructive }}>{error}</Text>}
-            {!!pendingSession && <Pressable accessibilityRole="button" onPress={() => { onClose?.(); onCreated(pendingSession); }}><Text style={{ color: theme.colors.textLink }}>{t('lmc.sharing.openCreatedSession')}</Text></Pressable>}
-            <Pressable accessibilityRole="button" disabled={!selected || busy} onPress={() => void create()} style={{ padding: 14, opacity: !selected || busy ? 0.5 : 1 }}>{busy ? <ActivityIndicator /> : <Text style={{ color: theme.colors.textLink }}>{t('lmc.sharing.createPrivateSession')}</Text>}</Pressable>
+            {!!pendingSession && <Pressable style={textActionFrame} accessibilityRole="button" onPress={() => { onClose?.(); onCreated(pendingSession); }}><Text style={{ color: theme.colors.textLink }}>{t('lmc.sharing.openCreatedSession')}</Text></Pressable>}
+            <Pressable accessibilityRole="button" disabled={!selected || busy} onPress={() => void create()} style={{ borderRadius: 8, padding: 14, opacity: !selected || busy ? 0.5 : 1 }}>{busy ? <ActivityIndicator /> : <Text style={{ color: theme.colors.textLink }}>{t('lmc.sharing.createPrivateSession')}</Text>}</Pressable>
         </ScrollView>
     </UtilityDialog>;
 }
@@ -52,5 +53,5 @@ export function SharedDeviceEntry({ onCreated }: { onCreated: (id: string) => vo
     const [enabled, setEnabled] = React.useState(false);
     React.useEffect(() => { let active = true; void accountMe().then(result => { if (active) setEnabled(result.capabilities.deviceSharing === true); }).catch(() => {}); return () => { active = false; }; }, []);
     if (!enabled) return null;
-    return <Pressable accessibilityRole="button" onPress={() => Modal.show({ component: SharedDevicesDialog, props: { onCreated }, blurBackdrop: true })} style={{ paddingVertical: 12 }}><Text style={{ color: theme.colors.textLink }}>{t('lmc.sharing.useSharedDevice')}</Text></Pressable>;
+    return <Pressable accessibilityRole="button" onPress={() => Modal.show({ component: SharedDevicesDialog, props: { onCreated }, blurBackdrop: true })} style={{ borderRadius: 8, paddingVertical: 12 }}><Text style={{ color: theme.colors.textLink }}>{t('lmc.sharing.useSharedDevice')}</Text></Pressable>;
 }

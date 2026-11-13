@@ -14,7 +14,7 @@ export function SessionHeaderActions({ sessionId }: { sessionId: string }) {
     return <>
         <Pressable ref={button} accessibilityRole="button" accessibilityLabel={t('localFeatures.sessionMenu')}
             accessibilityState={{ expanded: anchor !== null }}
-            style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
+            style={{ borderRadius: 12, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
             onPress={() => button.current?.measureInWindow((x, y, width, height) => setAnchor({ type: 'rect', x, y, width, height }))}>
             <Ionicons name="ellipsis-horizontal" size={24} color={theme.colors.text} />
         </Pressable>

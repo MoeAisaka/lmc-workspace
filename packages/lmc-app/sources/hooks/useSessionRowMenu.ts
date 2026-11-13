@@ -1081,6 +1081,7 @@ export function useWebSecondaryContextMenu({
                     draggable: false,
                     'aria-hidden': true,
                     'data-lmc-context-hit': '',
+                    'data-yulor-interaction': 'none',
                     onClick: handleHitOverlayClick,
                     onAuxClick: (event: React.MouseEvent<HTMLAnchorElement>) => {
                         handleHitOverlayAuxClick(event);

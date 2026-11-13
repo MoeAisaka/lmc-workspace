@@ -1,3 +1,4 @@
+import { iconActionFrame } from '@/components/interactionGeometry';
 import { openSessionFiles } from '@/components/lmc/SessionFilesDialog';
 import { SharedSessionComposer } from '@/components/lmc/SharedSessionComposer';
 import { openSessionInfo } from '@/components/lmc/SessionInfoDialog';
@@ -733,9 +734,9 @@ export const SessionView = React.memo((props: { id: string }) => {
             </View>
             <Animated.View {...(Platform.OS === 'web' ? {dataSet:{lmcResourceWindow:showSidebar?'open':'closed'}} : {})} pointerEvents={showSidebar ? 'auto' : 'none'} accessibilityElementsHidden={!showSidebar} importantForAccessibility={showSidebar ? 'auto' : 'no-hide-descendants'} style={{ position: 'absolute', right: 16, top: safeArea.top + mobileHeaderHeight + 12, width: sidebarWidth, height: Math.min(760, Math.max(280, windowHeight - 150)), maxHeight: '86%', ...(Platform.OS === 'web' ? { opacity: showSidebar ? 1 : 0, visibility: showSidebar ? 'visible' : 'hidden', transform: [{translateY:showSidebar?0:-8},{scale:showSidebar?1:.98}], transformOrigin: 'top right' } as any : {display: showSidebar ? 'flex' : 'none'}), borderRadius: 16, backgroundColor: theme.colors.surface, ...lmcSurfaceBorder(theme), ...lmcElevation(theme, 3), overflow: 'hidden', zIndex: 100 }}>
                 <View style={{padding: 12, flexDirection: 'row', alignItems: 'center', gap: 8}}>
-                    {resourceBrowser && <Pressable accessibilityLabel={t('lmc.common.backToResources')} onPress={() => setResourceBrowser(false)}><SidebarIcon name="chevron-back" size={20} color={theme.colors.text}/></Pressable>}
+                    {resourceBrowser && <Pressable style={iconActionFrame} accessibilityLabel={t('lmc.common.backToResources')} onPress={() => setResourceBrowser(false)}><SidebarIcon name="chevron-back" size={20} color={theme.colors.text}/></Pressable>}
                     <Text style={{flex:1,fontSize:15,fontWeight:'600',color:theme.colors.text}}>{resourceBrowser ? t('lmc.common.projectFiles') : t('lmc.common.resources')}</Text>
-                    <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.common.closeResources')} onPress={() => setSidebarExpanded(false)} style={{padding:6}}><SidebarIcon name="close" size={20} color={theme.colors.textSecondary}/></Pressable>
+                    <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.common.closeResources')} onPress={() => setSidebarExpanded(false)} style={{ borderRadius: 8, padding:6}}><SidebarIcon name="close" size={20} color={theme.colors.textSecondary}/></Pressable>
                 </View>
                 {!resourceBrowser ? <SessionResourceWindow key={sessionId} active={showSidebar} sessionId={sessionId} onOpen={(path) => { setSidebarExpanded(false); handleAllFilesFilePress(path); }} onBrowse={() => { openSidebarPanel('allFiles'); setResourceBrowser(true); }} /> : (
                 <View style={{ width: sidebarWidth, flex: 1 }}>

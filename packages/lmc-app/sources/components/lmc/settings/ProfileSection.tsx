@@ -105,7 +105,7 @@ export function ProfileSection() {
                 subtitle={t('lmc.profile.editNameHint')}
                 loading={busy}
                 leftElement={
-                    <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.profile.changeAvatar')} onPress={pickAvatar} style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}>
+                    <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.profile.changeAvatar')} onPress={pickAvatar} style={({ pressed }) => ({ borderRadius: 999, opacity: pressed ? 0.7 : 1 })}>
                         <View style={{ width: 40, height: 40, borderRadius: 20, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.brand }}>
                             {avatarUrl
                                 ? <Image source={{ uri: avatarUrl }} style={{ width: 40, height: 40 }} />

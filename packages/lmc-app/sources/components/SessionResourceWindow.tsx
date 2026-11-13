@@ -1,3 +1,4 @@
+import { iconActionFrame, textActionFrame } from '@/components/interactionGeometry';
 import { Typography } from '@/constants/Typography';
 import { Text } from '@/components/StyledText';
 import { apiSocket } from '@/sync/apiSocket';
@@ -106,7 +107,7 @@ export function SessionResourceWindow({ sessionId, onOpen, onBrowse, active = tr
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, borderRadius: 10, backgroundColor: theme.colors.surfacePressed }}>
                 <Ionicons name="search" size={16} color={theme.colors.textSecondary} />
                 <TextInput value={query} onChangeText={setQuery} maxLength={200} accessibilityLabel={t('lmc.resources.searchPlaceholder')} placeholder={t('lmc.resources.searchPlaceholder')} placeholderTextColor={theme.colors.textSecondary} autoCapitalize="none" autoCorrect={false} style={{ flex: 1, minWidth: 0, height: 40, fontSize: 13, color: theme.colors.text }} />
-                {!!query && <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.resources.clearSearch')} onPress={() => setQuery('')} hitSlop={8}><Ionicons name="close" size={18} color={theme.colors.textSecondary} /></Pressable>}
+                {!!query && <Pressable style={iconActionFrame} accessibilityRole="button" accessibilityLabel={t('lmc.resources.clearSearch')} onPress={() => setQuery('')} hitSlop={8}><Ionicons name="close" size={18} color={theme.colors.textSecondary} /></Pressable>}
             </View>
             <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
                 <SettingsSelect value={extension} onChange={setExtension} title={t('lmc.resources.fileFormat')} options={[
@@ -121,12 +122,12 @@ export function SessionResourceWindow({ sessionId, onOpen, onBrowse, active = tr
                 <Text accessibilityLiveRegion="polite" style={{ ...infoStyle, flex: 1 }}>{searching
                     ? search ? t('lmc.resources.searchProgress', { scanned: search.scanned, total: search.total }) : t('lmc.resources.searchingBody')
                     : search?.error ? t('lmc.resources.searchFailed') : t('lmc.resources.searchComplete', { count: (search?.scanned ?? 0) - (search?.skipped.length ?? 0) })}</Text>
-                {!!search?.error && <Pressable accessibilityRole="button" onPress={retry}><Text style={{ color: linkColor, fontSize: 12 }}>{t('common.retry')}</Text></Pressable>}
+                {!!search?.error && <Pressable style={textActionFrame} accessibilityRole="button" onPress={retry}><Text style={{ color: linkColor, fontSize: 12 }}>{t('common.retry')}</Text></Pressable>}
             </View>}
             {!!needle && scope !== 'all' && <Text style={infoStyle}>{t('lmc.resources.searchCurrentBody')}</Text>}
             {!!needle && transcriptPaths.length > 2000 && <Text style={infoStyle}>{t('lmc.resources.searchPathLimit')}</Text>}
-            {!!needle && !!search?.skipped.length && <Pressable accessibilityRole="button" accessibilityState={{ expanded: showSkipped }} onPress={() => setShowSkipped(value => !value)}><Text style={{ color: linkColor, fontSize: 12 }}>{t('lmc.resources.searchSkippedCount', { count: search.skipped.length })} {showSkipped ? '⌃' : '⌄'}</Text></Pressable>}
-            {filtering && <Pressable accessibilityRole="button" onPress={clear}><Text style={{ color: linkColor, fontSize: 12 }}>{t('lmc.resources.clearFilters')}</Text></Pressable>}
+            {!!needle && !!search?.skipped.length && <Pressable style={textActionFrame} accessibilityRole="button" accessibilityState={{ expanded: showSkipped }} onPress={() => setShowSkipped(value => !value)}><Text style={{ color: linkColor, fontSize: 12 }}>{t('lmc.resources.searchSkippedCount', { count: search.skipped.length })} {showSkipped ? '⌃' : '⌄'}</Text></Pressable>}
+            {filtering && <Pressable style={textActionFrame} accessibilityRole="button" onPress={clear}><Text style={{ color: linkColor, fontSize: 12 }}>{t('lmc.resources.clearFilters')}</Text></Pressable>}
         </View>
         {busy && <Text style={{ paddingHorizontal: 16, color: theme.colors.textSecondary }}>{t('lmc.resources.working')}</Text>}
         {!!reviewError && <Text style={{ padding: 12, color: theme.colors.textSecondary }}>{reviewError}</Text>}
@@ -144,8 +145,8 @@ export function SessionResourceWindow({ sessionId, onOpen, onBrowse, active = tr
             </>}
             {scope !== 'all' && !needle && <>
                 <Text style={{ padding: 10, ...infoStyle }}>{t('lmc.resources.reviewNote')}</Text>
-                {!!review?.olderCursor && <Pressable onPress={() => void readReview(review.olderCursor)}><Text style={{ padding: 10, color: linkColor }}>{t('lmc.resources.loadOlder')}</Text></Pressable>}
-                {filteredEntries.map(entry => <Pressable key={entry.revision} onPress={() => setSelectedChange(selectedChange?.revision === entry.revision ? null : entry)} style={{ padding: 10, borderBottomWidth: 1, borderColor: theme.colors.divider }}>
+                {!!review?.olderCursor && <Pressable style={{ borderRadius: 8 }} onPress={() => void readReview(review.olderCursor)}><Text style={{ padding: 10, color: linkColor }}>{t('lmc.resources.loadOlder')}</Text></Pressable>}
+                {filteredEntries.map(entry => <Pressable key={entry.revision} onPress={() => setSelectedChange(selectedChange?.revision === entry.revision ? null : entry)} style={{ borderRadius: 8, padding: 10, borderBottomWidth: 1, borderColor: theme.colors.divider }}>
                     <Text style={{ color: theme.colors.text, fontSize: 13 }}>{{ add: t('lmc.resources.kindAdd'), update: t('lmc.resources.kindUpdate'), delete: t('lmc.resources.kindDelete'), rename: t('lmc.resources.kindRename') }[entry.kind]} · {entry.path}{entry.destination ? ' → ' + entry.destination : ''}</Text>
                     {selectedChange?.revision === entry.revision && <Text selectable style={{ ...Typography.mono(), fontSize: 11, lineHeight: 17, paddingTop: 8, color: theme.colors.textSecondary }}>{entry.patch || t('lmc.resources.noPatch')}</Text>}
                 </Pressable>)}

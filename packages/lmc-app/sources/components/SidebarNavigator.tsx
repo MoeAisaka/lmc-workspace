@@ -198,7 +198,7 @@ const PersistentHeader = React.memo(() => {
                 <Pressable
                     onPress={handleZenToggle}
                     hitSlop={10}
-                    style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center' }}
+                    style={{ borderRadius: 8, width: 28, height: 28, alignItems: 'center', justifyContent: 'center' }}
                     accessibilityRole="button"
                     accessibilityLabel={leftSidebarCollapsed ? t('lmc.common.expandList') : t('lmc.common.collapseList')}
                     accessibilityState={{ expanded: !leftSidebarCollapsed }}
@@ -206,11 +206,11 @@ const PersistentHeader = React.memo(() => {
                     <Ionicons name={leftSidebarCollapsed ? 'menu-outline' : 'albums-outline'} size={22} color={theme.colors.header.tint} />
                 </Pressable>
                 {/* Detail screens (message, files, info) have no back button of their own on desktop; this one is always available. */}
-                <Pressable onPress={handleBack} disabled={!canGoBackEffective} hitSlop={10} style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', opacity: canGoBackEffective ? 1 : 0.3 }}>
+                <Pressable onPress={handleBack} disabled={!canGoBackEffective} hitSlop={10} style={{ borderRadius: 8, width: 28, height: 28, alignItems: 'center', justifyContent: 'center', opacity: canGoBackEffective ? 1 : 0.3 }}>
                     <Ionicons name="chevron-back" size={20} color={theme.colors.header.tint} />
                 </Pressable>
                 {Platform.OS === 'web' && (
-                    <Pressable onPress={handleForward} disabled={!canGoForwardEffective} hitSlop={10} style={{ width: 28, height: 28, alignItems: 'center', justifyContent: 'center', opacity: canGoForwardEffective ? 1 : 0.3 }}>
+                    <Pressable onPress={handleForward} disabled={!canGoForwardEffective} hitSlop={10} style={{ borderRadius: 8, width: 28, height: 28, alignItems: 'center', justifyContent: 'center', opacity: canGoForwardEffective ? 1 : 0.3 }}>
                         <Ionicons name="chevron-forward" size={20} color={theme.colors.header.tint} />
                     </Pressable>
                 )}

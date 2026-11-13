@@ -101,7 +101,7 @@ export function EnvelopeCard({ envelope, direction, counterpartId, counterpartLa
             </View>
             {evidence && (
                 <View style={styles.evidence}>
-                    <Pressable accessibilityRole="button" accessibilityLabel={showEvidence ? t('lmc.orchestration.hideEvidence') : t('lmc.orchestration.showEvidence')} accessibilityState={{ expanded: showEvidence }} aria-expanded={showEvidence} onPress={() => setShowEvidence((v) => !v)} style={styles.evidenceToggle}>
+                    <Pressable accessibilityRole="button" accessibilityLabel={showEvidence ? t('lmc.orchestration.hideEvidence') : t('lmc.orchestration.showEvidence')} accessibilityState={{ expanded: showEvidence }} aria-expanded={showEvidence} onPress={() => setShowEvidence((v) => !v)} style={[{ borderRadius: 8 }, styles.evidenceToggle]}>
                         <Ionicons accessible={false} name={showEvidence ? 'chevron-down' : 'chevron-forward'} size={12} color={theme.colors.textSecondary} />
                         <Text style={[styles.evidenceLabel, { color: theme.colors.textSecondary }]}>{showEvidence ? t('lmc.orchestration.hideEvidence') : t('lmc.orchestration.showEvidence')}</Text>
                     </Pressable>

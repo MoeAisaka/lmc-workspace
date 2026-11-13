@@ -37,7 +37,7 @@ export const ConnectButton = React.memo(() => {
             
             <TouchableOpacity
                 onPress={() => setShowManualEntry(!showManualEntry)}
-                style={{
+                style={{ borderRadius: 8,
                     marginTop: 12,
                     flexDirection: 'row',
                     alignItems: 'center',
@@ -99,7 +99,7 @@ export const ConnectButton = React.memo(() => {
                         <TouchableOpacity
                             onPress={handleManualConnect}
                             disabled={!manualUrl.trim()}
-                            style={{
+                            style={{ borderRadius: 8,
                                 marginLeft: 8,
                                 padding: 8,
                                 opacity: manualUrl.trim() ? 1 : 0.5,

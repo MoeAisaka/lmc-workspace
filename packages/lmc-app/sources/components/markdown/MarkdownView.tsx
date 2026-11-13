@@ -459,7 +459,7 @@ function RenderImageBlock(props: { url: string, alt: string, sessionId?: string,
         <View style={[style.imageBlock, props.first && style.first, props.last && style.last]}>
             <View style={style.image}>
                 {image.uri && <Pressable accessibilityRole="button" accessibilityLabel={accessibleLabel}
-                    onPress={() => openImagePreview(image.uri!, accessibleLabel)} style={{ width: '100%', height: '100%' }}><Image
+                    onPress={() => openImagePreview(image.uri!, accessibleLabel)} style={{ borderRadius: 12, width: '100%', height: '100%' }}><Image
                     source={{ uri: image.uri }}
                     style={{ width: '100%', height: '100%' }}
                     accessibilityLabel={accessibleLabel}
@@ -467,11 +467,11 @@ function RenderImageBlock(props: { url: string, alt: string, sessionId?: string,
                     onError={image.onError}
                 /></Pressable>}
                 {image.status === 'loading' && <ActivityIndicator accessibilityLabel={t('common.loading')} />}
-                {image.status === 'failed' && <Pressable accessibilityRole="button" onPress={image.retry} style={{ padding: 12 }}>
+                {image.status === 'failed' && <Pressable accessibilityRole="button" onPress={image.retry} style={{ borderRadius: 8, padding: 12 }}>
                     <Text style={style.imageCaption}>{t('common.retry')}</Text>
                 </Pressable>}
                 {image.status === 'unsupported' && (savedId
-                    ? <Pressable accessibilityRole="button" onPress={() => openSavedFile(savedId)} style={{ padding: 16 }}>
+                    ? <Pressable accessibilityRole="button" onPress={() => openSavedFile(savedId)} style={{ borderRadius: 8, padding: 16 }}>
                         <Text style={[style.imageCaption, style.link]}>{t('lmc.savedFiles.notAnImageViewSaved')}</Text>
                     </Pressable>
                     : <Text style={[style.imageCaption, { padding: 16 }]}>{t('lmc.resources.unsupported')}</Text>)}

@@ -572,7 +572,7 @@ function RefusableControl({
         <Animated.View style={shakeStyle}>
             {children}
             {refusing && (
-                <Pressable
+                <Pressable interaction="none"
                     style={styles.pressBlocker}
                     onPress={() => {
                         shakeOnce(shake);
@@ -626,7 +626,7 @@ function FocusConfigRevealRow({
         <Animated.View style={[styles.focusConfigRevealRow, revealStyle]}>
             {children}
             {refusing && (
-                <Pressable
+                <Pressable interaction="none"
                     style={styles.pressBlocker}
                     onPress={() => {
                         shakeOnce(shake);
@@ -1391,7 +1391,7 @@ export const HomeDock = React.memo(({
     const renderPickerRow = (row: SettingsRow, config: PickerConfig, compact: boolean) => {
         if (!useNativeMenus) {
             return (
-                <Pressable
+                <Pressable style={{ borderRadius: 8 }}
                     key={row.page}
                     onPress={() => setSheetPage(row.page as PickerPage)}
                     accessibilityRole="button"
@@ -1466,7 +1466,7 @@ export const HomeDock = React.memo(({
             {!useNativeMenus ? (
                 <Pressable
                     onPress={() => setSheetPage(page)}
-                    style={style}
+                    style={[{ borderRadius: 8 }, style]}
                     accessibilityRole="button"
                     accessibilityLabel={accessibilityLabel}
                 >
@@ -1611,7 +1611,7 @@ export const HomeDock = React.memo(({
             >
                 <View style={styles.composerContent}>
                     {activateOnPress ? (
-                        <Pressable onPress={activateOnPress} style={styles.inputEntry}>
+                        <Pressable interaction="none" onPress={activateOnPress} style={styles.inputEntry}>
                             <Text
                                 style={[styles.inputEntryText, !prompt && styles.inputEntryPlaceholder]}
                                 numberOfLines={1}
@@ -1740,7 +1740,7 @@ export const HomeDock = React.memo(({
                         short of the action row. The controls keep their normal
                         appearance; only the touch is refused. */}
                     {isSubmitting && (
-                        <Pressable
+                        <Pressable interaction="none"
                             style={styles.composerPressBlocker}
                             onPress={() => refuseWithShake(composerShakerRef)}
                         />
@@ -1955,7 +1955,7 @@ export const HomeDock = React.memo(({
                             {/* The sheet is a single surface rather than a row
                                 of controls, so its refusal is the whole sheet. */}
                             {isSubmitting && sheetVisible && sheetPage && (
-                                <Pressable style={styles.pressBlocker} onPress={refuse} />
+                                <Pressable interaction="none" style={styles.pressBlocker} onPress={refuse} />
                             )}
                         </View>
                         <View style={[

@@ -527,7 +527,7 @@ export const TabBar = React.memo(({ activeTab, onTabPress, inboxBadgeCount = 0 }
                         return (
                             <Pressable
                                 key={tab.key}
-                                style={styles.webTab}
+                                style={[{ borderRadius: 10 }, styles.webTab]}
                                 onPress={() => onTabPress(tab.key)}
                                 hitSlop={8}
                             >

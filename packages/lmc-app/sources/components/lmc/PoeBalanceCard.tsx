@@ -19,7 +19,7 @@ export function PoeBalanceCard() {
     return <View style={styles.card} testID="quota-poe">
         <View style={styles.heading}>
             <Text style={styles.name}>Poe</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel={t('localFeatures.poeRefresh')} onPress={refresh} disabled={loading || !available} style={styles.refresh}>
+            <Pressable accessibilityRole="button" accessibilityLabel={t('localFeatures.poeRefresh')} onPress={refresh} disabled={loading || !available} style={[{ borderRadius: 8 }, styles.refresh]}>
                 {loading ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <Ionicons name="refresh-outline" size={16} color={theme.colors.textSecondary} />}
             </Pressable>
         </View>

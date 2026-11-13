@@ -48,7 +48,7 @@ export function EngineDiagnosticBanner({ sessionId, maxWidth, visible = true }: 
                 : notice.systemPrompt.status === 'none' ? t('lmc.diagnostics.noSystemPrompt')
                     : notice.systemPrompt.status === 'unsupported' ? t('lmc.diagnostics.unsupported') : t('lmc.diagnostics.unknown')}</Text>}
             {nativeSupported && <Pressable accessibilityRole="button" disabled={approval.unavailable} onPress={() => openClaudeNative(sessionId)}
-                style={{ minHeight: 44, justifyContent: 'center', opacity: approval.unavailable ? 0.45 : 1 }}>
+                style={{ borderRadius: 8, minHeight: 44, justifyContent: 'center', opacity: approval.unavailable ? 0.45 : 1 }}>
                 <Text style={color}>{t('localFeatures.nativeApprovalOpen')}</Text>
             </Pressable>}
             {!nativeSupported && session?.metadata?.flavor === 'claude' && session.metadata.claudeNativeActive &&

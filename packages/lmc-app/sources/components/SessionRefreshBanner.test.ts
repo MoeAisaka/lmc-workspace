@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 const mock = vi.hoisted(() => ({ session: {} as any, retry: vi.fn(), cancel: vi.fn() }));
 vi.mock('react-native', () => ({
+    Platform: { OS: 'web' },
     ActivityIndicator: () => null,
     View: ({ children, testID }: any) => React.createElement('div', { 'data-testid': testID }, children),
     Pressable: ({ children, accessibilityLabel, accessibilityState, disabled, onPress }: any) => React.createElement('button', {
@@ -58,7 +59,7 @@ it.each(['claude', 'codex'])('keeps a failed %s refresh compact until details ar
     expect(mock.cancel).not.toHaveBeenCalled();
     await click(button('lmc.refresh.showDetails'));
     await click([...container.querySelectorAll('button')].find(b => b.textContent === 'lmc.refresh.retry')!);
-    expect(mock.retry).toHaveBeenCalledExactlyOnceWith('session');
+    expect(mock.retry).toHaveBeenCalledExactlyOnceWith('session', undefined);
 });
 
 it('does not carry an expanded old failure into another session or refresh attempt', async () => {

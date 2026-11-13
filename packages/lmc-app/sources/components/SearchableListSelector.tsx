@@ -1,3 +1,4 @@
+import { iconActionFrame } from '@/components/interactionGeometry';
 import { Text } from '@/components/StyledText';
 import * as React from 'react';
 import { View, Platform } from 'react-native';
@@ -612,7 +613,7 @@ export function SearchableListSelector<T>(props: SearchableListSelectorProps<T>)
                                                     />
                                                 )}
                                                 {onToggleFavorite && canRemove && (
-                                                    <Pressable
+                                                    <Pressable style={iconActionFrame}
                                                         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                                                         onPress={(e) => {
                                                             e.stopPropagation();

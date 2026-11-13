@@ -1,3 +1,4 @@
+import { iconActionFrame } from '@/components/interactionGeometry';
 /**
  * File view/edit overlay panel.
  * Shown in the main content area when a file is selected from the "All Files" sidebar tab.
@@ -323,7 +324,7 @@ export const FileViewPanel = React.memo(function FileViewPanel({
                     <Pressable onPress={handleReload} style={[styles.warningAction, { borderColor: theme.colors.divider }]}>
                         <Text style={[styles.warningActionText, { color: theme.colors.textLink }]}>{t('files.reload')}</Text>
                     </Pressable>
-                    <Pressable onPress={handleDismissWarning} hitSlop={8}>
+                    <Pressable style={iconActionFrame} onPress={handleDismissWarning} hitSlop={8}>
                         <Ionicons name="close" size={16} color={theme.colors.textSecondary} />
                     </Pressable>
                 </View>
@@ -350,7 +351,7 @@ export const FileViewPanel = React.memo(function FileViewPanel({
                         >
                             <Text style={styles.actionButtonText}>{t('files.reload')}</Text>
                         </Pressable>
-                        <Pressable onPress={() => setShowConflictDiff(false)} hitSlop={8} style={{ padding: 4 }}>
+                        <Pressable onPress={() => setShowConflictDiff(false)} hitSlop={8} style={{ ...iconActionFrame,  padding: 4 }}>
                             <Ionicons name="close" size={18} color={theme.colors.textSecondary} />
                         </Pressable>
                     </View>

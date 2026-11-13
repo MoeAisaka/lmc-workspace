@@ -186,7 +186,7 @@ export default function EditArtifactScreen() {
     
     const HeaderRight = React.useCallback(() => (
         <Pressable
-            style={[styles.headerButton, (!hasChanges || isSaving) && styles.headerButtonDisabled]}
+            style={[{ borderRadius: 8 }, styles.headerButton, (!hasChanges || isSaving) && styles.headerButtonDisabled]}
             onPress={handleSave}
             disabled={!hasChanges || isSaving}
         >

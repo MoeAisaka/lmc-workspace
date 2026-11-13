@@ -1,3 +1,4 @@
+import { iconActionFrame } from '@/components/interactionGeometry';
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
@@ -58,10 +59,10 @@ export function MessageImageCopyButton(props: { text: string; sessionId: string 
     };
 
     return <>
-        <Pressable accessibilityRole="button" accessibilityLabel={job ? t('lmc.messageImage.generatingA11y') : t('lmc.messageImage.copyAsImageA11y')}
+        <Pressable interaction="control" accessibilityRole="button" accessibilityLabel={job ? t('lmc.messageImage.generatingA11y') : t('lmc.messageImage.copyAsImageA11y')}
             disabled={!!job} onPress={copy} hitSlop={10}
-            style={({ pressed }) => ({ height: 24, width: 28, alignItems: 'center', justifyContent: 'center', opacity: pressed || job ? 0.5 : 1 })}>
-            <Ionicons name="image-outline" size={17} color={theme.colors.text} />
+            style={({ pressed }) => ({ ...iconActionFrame, opacity: pressed || job ? 0.5 : 1 })}>
+            <Ionicons name="image-outline" size={16} color={theme.colors.text} />
         </Pressable>
         {job && createPortal(<div aria-hidden="true" style={{ position: 'fixed', top: 0, left: -100000, pointerEvents: 'none' }}>
             <div ref={node} data-message-image="true" style={{ width: 760, boxSizing: 'border-box', padding: 24, backgroundColor: theme.colors.surface, color: theme.colors.text }}>

@@ -117,7 +117,7 @@ const styles = StyleSheet.create((theme) => ({
     rowLine: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
     metaText: { fontSize: 11, lineHeight: 15, ...Typography.default() },
     suffix: { fontSize: 11, maxWidth: 120, ...Typography.default() },
-    toggle: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+    toggle: { flexDirection: 'row', alignItems: 'center', gap: 2, minWidth: 20, minHeight: 20, paddingHorizontal: 3, borderRadius: 6 },
     hubGroup: { marginTop: 8, marginHorizontal: 2, borderRadius: 12, borderWidth: 1, borderColor: 'transparent' },
     hubHeader: { gap: 3, paddingLeft: 8, paddingRight: 10, paddingTop: 10, paddingBottom: 8, borderRadius: 10 },
     hubName: { fontSize: 15, color: theme.colors.text, ...Typography.default('semiBold') },
@@ -341,7 +341,7 @@ const SessionRow = React.memo(({ session, selected, now, onNavigate, engineBadge
                                 {meta!.fastMode && <SessionFastModeIcon />}
                             </View>
                             {meta!.toggle && (
-                                <Pressable accessibilityRole="button" accessibilityState={{ expanded: meta!.toggle.open }} onPress={(e) => { e.stopPropagation?.(); meta!.toggle!.onToggle(); }} hitSlop={6} style={({ pressed }) => [styles.toggle, pressed && { opacity: 0.6 }]}>
+                                <Pressable accessibilityRole="button" accessibilityState={{ expanded: meta!.toggle.open }} onPress={(e) => { e.stopPropagation?.(); meta!.toggle!.onToggle(); }} hitSlop={6} style={({ pressed }) => [{ borderRadius: 6 }, styles.toggle, pressed && { opacity: 0.6 }]}>
                                     {!!meta!.toggle.label && <Text style={[styles.metaText, { color: colors.tertiary }]}>{meta!.toggle.label}</Text>}
                                     <Ionicons name={meta!.toggle.open ? 'chevron-down' : 'chevron-forward'} size={12} color={colors.tertiary} />
                                 </Pressable>
@@ -486,7 +486,7 @@ const DeviceSection = React.memo(({ group, selectedSessionId, now, onNavigate, o
                     accessibilityLabel={group.shared ? t('lmc.sharing.sharedSessionsA11y') : group.sharedDevice ? t('lmc.sharing.sharedDeviceA11y', { name: group.name }) : t('lmc.list.deviceDetail', { name: group.name })}
                     disabled={!group.machineId || group.shared || group.sharedDevice}
                     onPress={() => { onNavigate?.(); group.machineId && openMachineDetails(group.machineId); }}
-                    style={({ pressed }) => ({ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8, opacity: pressed ? 0.6 : 1 })}
+                    style={({ pressed }) => ({ borderRadius: 8, flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8, opacity: pressed ? 0.6 : 1 })}
                 >
                     <Ionicons name={group.shared ? "people-outline" : "laptop-outline"} size={18} color={group.online ? theme.colors.text : colors.placeholder} />
                     <Text style={[styles.deviceName, !group.online && { color: colors.placeholder }]}>{group.name}</Text>

@@ -1,3 +1,4 @@
+import { textActionFrame } from '@/components/interactionGeometry';
 import React from 'react';
 import { View, ScrollView, ActivityIndicator, Platform } from 'react-native';
 import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
@@ -127,13 +128,13 @@ export function SavedFileDetails({ id }: { id: string }) {
                     }))}
                 </View>
                 {!!busy && <View style={{ gap: 8 }}><Text style={{ color: theme.colors.textSecondary }}>{busy}{busy === downloadingLabel ? ' · ' + fileSize(progress) + ' / ' + fileSize(file.manifest.size) : ''}</Text>
-                    {(busy === downloadingLabel || busy === loadingPreviewLabel) && <Pressable accessibilityRole="button" onPress={() => controller.current?.abort()}><Text style={{ color: theme.colors.textLink }}>{t('common.cancel')}</Text></Pressable>}</View>}
+                    {(busy === downloadingLabel || busy === loadingPreviewLabel) && <Pressable style={textActionFrame} accessibilityRole="button" onPress={() => controller.current?.abort()}><Text style={{ color: theme.colors.textLink }}>{t('common.cancel')}</Text></Pressable>}</View>}
                 {!!notice && <Text accessibilityLiveRegion="polite" style={{ color: theme.colors.textSecondary }}>{notice}</Text>}
                 {!!error && <Text accessibilityRole="alert" style={{ color: theme.colors.textDestructive }}>{error}</Text>}
                 <View style={{ flexDirection: 'row', gap: 4, borderBottomWidth: 1, borderColor: theme.colors.divider }}>
                     {([['preview', t('lmc.savedFiles.tabPreview')], ['share', t('lmc.savedFiles.tabShare')], ['send', t('lmc.savedFiles.tabSend')]] as const).filter(([value]) => !file.shared || value === 'preview').map(([value, label]) => (
                         <Pressable key={value} accessibilityRole="tab" accessibilityState={{ selected: tab === value }} onPress={() => setTab(value)}
-                            style={{ paddingHorizontal: 12, paddingVertical: 12, borderBottomWidth: 2, borderBottomColor: tab === value ? theme.colors.textLink : 'transparent' }}>
+                            style={{ borderRadius: 8, paddingHorizontal: 12, paddingVertical: 12, borderBottomWidth: 2, borderBottomColor: tab === value ? theme.colors.textLink : 'transparent' }}>
                             <Text style={{ fontSize: 14, color: tab === value ? theme.colors.textLink : theme.colors.textSecondary }}>{label}</Text>
                         </Pressable>
                     ))}

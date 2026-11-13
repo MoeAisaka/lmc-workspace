@@ -1,3 +1,4 @@
+import { smallIconActionFrame, textActionFrame } from '@/components/interactionGeometry';
 import * as React from 'react';
 import { Platform, ScrollView, TextInput, View, useWindowDimensions } from 'react-native';
 import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
@@ -139,7 +140,7 @@ export const DutyChipRow = React.memo(({ selected, onPick, compact, style }: { s
                         placeholderTextColor={colors.placeholder}
                         style={[styles.customInput, compact && styles.customInputCompact, { color: theme.colors.text, borderColor: colors.border }, Platform.OS === 'web' && ({ outlineStyle: 'none' } as any)]}
                     />
-                    <Pressable accessibilityRole="button" onPress={submitCustom} hitSlop={6}>
+                    <Pressable style={textActionFrame} accessibilityRole="button" onPress={submitCustom} hitSlop={6}>
                         <Text style={[styles.customInputConfirm, { color: colors.brand }]}>{t('lmc.orchestration.dutyCustomConfirm')}</Text>
                     </Pressable>
                 </View>
@@ -157,7 +158,7 @@ const WorkerChip = React.memo(({ label, onRemove }: { label: string; onRemove: (
     return (
         <View style={[styles.chip, styles.workerChip, { borderColor: colors.border }]}>
             <Text numberOfLines={1} style={[styles.chipText, { color: theme.colors.text, maxWidth: 160 }]}>{label}</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel={t('common.cancel')} hitSlop={8} onPress={onRemove}>
+            <Pressable style={smallIconActionFrame} accessibilityRole="button" accessibilityLabel={t('common.cancel')} hitSlop={8} onPress={onRemove}>
                 <Ionicons name="close" size={13} color={colors.tertiary} />
             </Pressable>
         </View>
@@ -410,7 +411,7 @@ export const CollaborationSheet = React.memo(({ sessionId, onClose }: Collaborat
 
                             <Text style={[styles.hintText, { color: colors.tertiary }]}>{t('lmc.orchestration.spawnHint')}</Text>
 
-                            <Pressable accessibilityRole="button" disabled={pending} onPress={handleDissolve} style={({ pressed }) => [styles.dissolveButton, pressed && { opacity: 0.7 }]}>
+                            <Pressable accessibilityRole="button" disabled={pending} onPress={handleDissolve} style={({ pressed }) => [{ borderRadius: 8 }, styles.dissolveButton, pressed && { opacity: 0.7 }]}>
                                 <Text style={[styles.dissolveButtonText, { color: theme.colors.status.error }]}>{t('lmc.orchestration.dissolveButton')}</Text>
                             </Pressable>
                         </View>

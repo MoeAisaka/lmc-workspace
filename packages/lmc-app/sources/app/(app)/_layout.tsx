@@ -37,7 +37,7 @@ export default function RootLayout() {
     // the floating drawer from its header instead.
     const drawerHeaderLeft = Platform.OS === 'web' && !isTablet
         ? () => (
-            <TouchableOpacity onPress={openSessionDrawer} accessibilityRole="button" accessibilityLabel={t('lmc.common.sessionList')} hitSlop={12} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+            <TouchableOpacity onPress={openSessionDrawer} accessibilityRole="button" accessibilityLabel={t('lmc.common.sessionList')} hitSlop={12} style={{ borderRadius: 10, width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
                 <Ionicons name="menu-outline" size={26} color={theme.colors.header.tint} />
             </TouchableOpacity>
         )
@@ -316,7 +316,7 @@ export default function RootLayout() {
                     headerRight: () => (
                         <TouchableOpacity
                             onPress={() => navigation.navigate('friends/search' as never)}
-                            style={{ paddingHorizontal: 16 }}
+                            style={{ borderRadius: 8, paddingHorizontal: 16 }}
                         >
                             <Text style={{ color: theme.colors.button.primary.tint, fontSize: 16 }}>
                                 {t('friends.addFriend')}

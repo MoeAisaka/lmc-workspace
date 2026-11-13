@@ -38,9 +38,9 @@ export function SharedSessionComposer({ sessionId, actions, connected }: { sessi
         {canSend && <TextInput accessibilityLabel={t('lmc.sharing.sendToSharedSession')} placeholder={t('lmc.sharing.messagePlaceholder')} placeholderTextColor={theme.colors.textSecondary} multiline value={text} editable={!busy} onChangeText={setText} style={{ color: theme.colors.text, fontSize: 16, lineHeight: 28, minHeight: 52, maxHeight: 160, padding: 10 }} />}
         {!!error && <Text accessibilityRole="alert" style={{ color: theme.colors.textDestructive }}>{error}</Text>}
         <View style={{ flexDirection: 'row', gap: 12, justifyContent: 'flex-end' }}>
-            {canSend && !connected && <Pressable accessibilityRole="button" disabled={busy} onPress={() => void resume()} style={{ padding: 12 }}><Text style={{ color: theme.colors.textLink }}>{t('lmc.sharing.resumeSession')}</Text></Pressable>}
-            {actions.includes('stop') && <Pressable accessibilityRole="button" disabled={busy} onPress={() => { setBusy(true); void sessionAbort(sessionId).catch(e => setError(e.message)).finally(() => setBusy(false)); }} style={{ padding: 12 }}><Text style={{ color: theme.colors.textDestructive }}>{t('lmc.sharing.stopReply')}</Text></Pressable>}
-            {canSend && <Pressable accessibilityRole="button" disabled={busy || !text.trim()} onPress={() => void send()} style={{ padding: 12, opacity: busy || !text.trim() ? 0.5 : 1 }}>{busy ? <ActivityIndicator /> : <Text style={{ color: theme.colors.textLink }}>{t('lmc.sharing.send')}</Text>}</Pressable>}
+            {canSend && !connected && <Pressable accessibilityRole="button" disabled={busy} onPress={() => void resume()} style={{ borderRadius: 8, padding: 12 }}><Text style={{ color: theme.colors.textLink }}>{t('lmc.sharing.resumeSession')}</Text></Pressable>}
+            {actions.includes('stop') && <Pressable accessibilityRole="button" disabled={busy} onPress={() => { setBusy(true); void sessionAbort(sessionId).catch(e => setError(e.message)).finally(() => setBusy(false)); }} style={{ borderRadius: 8, padding: 12 }}><Text style={{ color: theme.colors.textDestructive }}>{t('lmc.sharing.stopReply')}</Text></Pressable>}
+            {canSend && <Pressable accessibilityRole="button" disabled={busy || !text.trim()} onPress={() => void send()} style={{ borderRadius: 8, padding: 12, opacity: busy || !text.trim() ? 0.5 : 1 }}>{busy ? <ActivityIndicator /> : <Text style={{ color: theme.colors.textLink }}>{t('lmc.sharing.send')}</Text>}</Pressable>}
         </View>
     </View>;
 }

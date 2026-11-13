@@ -27,7 +27,7 @@ export function SavedFilesList({ onOpen }: { onOpen?: (id: string) => void }) {
             {files.map(file => <SavedFileCard onOpen={onOpen} key={file.manifest.id} id={file.manifest.id} name={file.manifest.name} size={file.manifest.size} />)}
             {!loading && !files.length && !error && <Text style={{ color: theme.colors.textSecondary }}>{t('lmc.savedFiles.emptyList')}</Text>}
             {!!error && <Text accessibilityRole="alert" style={{ color: theme.colors.textDestructive }}>{error}</Text>}
-            {loading ? <ActivityIndicator /> : <Pressable accessibilityRole="button" onPress={() => void load(next ?? undefined)} style={{ padding: 12 }}><Text style={{ color: theme.colors.textLink }}>{next ? t('lmc.savedFiles.loadMore') : t('lmc.savedFiles.refresh')}</Text></Pressable>}
+            {loading ? <ActivityIndicator /> : <Pressable accessibilityRole="button" onPress={() => void load(next ?? undefined)} style={{ borderRadius: 8, padding: 12 }}><Text style={{ color: theme.colors.textLink }}>{next ? t('lmc.savedFiles.loadMore') : t('lmc.savedFiles.refresh')}</Text></Pressable>}
         </ScrollView>
     </View>;
 }

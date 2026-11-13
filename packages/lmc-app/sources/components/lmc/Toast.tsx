@@ -1,3 +1,4 @@
+import { textActionFrame } from '@/components/interactionGeometry';
 import * as React from 'react';
 import { View } from 'react-native';
 import { InteractionPressable as Pressable } from '@/components/InteractionPressable';
@@ -124,7 +125,7 @@ export const ToastLayer = React.memo(() => {
                 />
                 <Text style={styles.label} numberOfLines={2}>{shown.text}</Text>
                 {!!shown.action && (
-                    <Pressable
+                    <Pressable style={textActionFrame}
                         accessibilityRole="button"
                         accessibilityLabel={shown.action.label}
                         hitSlop={8}

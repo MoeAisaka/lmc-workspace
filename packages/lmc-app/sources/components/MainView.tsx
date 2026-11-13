@@ -281,7 +281,7 @@ const HeaderRight = React.memo(({ activeTab }: { activeTab: ActiveTabType }) => 
                         onPress={() => openLmcSettings()}
                         accessibilityLabel={t('settings.title')}
                         accessibilityRole="button"
-                        style={styles.headerActionButton}
+                        style={[{ borderRadius: 12 }, styles.headerActionButton]}
                     >
                         <Ionicons name="settings-outline" size={22} color={theme.colors.header.tint} />
                     </Pressable>

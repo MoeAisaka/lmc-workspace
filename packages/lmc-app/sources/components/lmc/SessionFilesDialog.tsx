@@ -16,7 +16,7 @@ export function SessionFilesDialog({ sessionId, onClose }: { sessionId: string; 
         <View style={{ flex: 1, display: path ? 'none' : 'flex' }}><FilesScreen sessionId={sessionId} onOpen={setPath} /></View>
         {path && <View style={{ flex: 1, minHeight: 0 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12 }}>
-                <Pressable accessibilityRole="button" style={{ minHeight: 44, justifyContent: 'center' }} onPress={() => setPath(null)}><Text style={{ color: theme.colors.textLink }}>{t('lmc.dialogs.backToFiles')}</Text></Pressable>
+                <Pressable accessibilityRole="button" style={{ borderRadius: 8, minHeight: 44, justifyContent: 'center' }} onPress={() => setPath(null)}><Text style={{ color: theme.colors.textLink }}>{t('lmc.dialogs.backToFiles')}</Text></Pressable>
                 {controls}
             </View>
             <FileViewPanel key={path} sessionId={sessionId} filePath={path} onHeaderRightSlotChange={setControls} />
