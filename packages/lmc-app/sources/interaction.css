@@ -65,16 +65,30 @@ html[data-lmc-motion="off"] { --yulor-interaction-fast: 0ms; --yulor-interaction
     outline: 2px solid var(--yulor-focus) !important;
     outline-offset: 2px;
 }
-[data-yulor-focus-within] {
-    transition: outline-color var(--yulor-interaction-fast) ease, box-shadow var(--yulor-interaction-settle) ease;
-    outline: 2px solid transparent;
-    outline-offset: 2px;
+/* Focus stays inside the composer; the outside edge belongs to the working ring.
+   A separate inert layer also preserves the card's existing elevation shadow. */
+[data-yulor-focus-within="composer"]::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    box-shadow: inset 0 0 0 1px rgba(var(--yulor-feedback-ink), .14);
+    opacity: 0;
+    transition: opacity var(--yulor-interaction-fast) var(--yulor-interaction-ease);
 }
-[data-yulor-focus-within]:focus-within {
-    outline-color: var(--yulor-focus);
-    box-shadow: 0 0 0 5px var(--yulor-focus-soft);
-}
+[data-yulor-focus-within="composer"]:focus-within::before { opacity: 1; }
 [data-yulor-focus-within] :where(input, textarea):focus { outline: none !important; box-shadow: none; }
+/* A segmented control owns one sliding background. Hover/press only changes
+   the label emphasis, never painting another stationary selection surface. */
+[data-yulor-tab][aria-selected="false"] > * {
+    opacity: .72;
+    transition: opacity var(--yulor-interaction-fast) var(--yulor-interaction-ease);
+}
+@media (hover: hover) and (pointer: fine) {
+    [data-yulor-tab]:hover > * { opacity: 1; }
+}
+[data-yulor-tab][data-yulor-pressed="true"] > * { opacity: 1; }
 [data-yulor-surface="menu"] { animation: yulor-menu-in var(--yulor-interaction-settle) var(--yulor-interaction-ease) both; }
 @keyframes yulor-menu-in {
     from { opacity: 0; translate: 0 6px; }

@@ -46,6 +46,7 @@ export function SegmentedTabs<T extends string>({ items, selected, onSelect, idP
         <Animated.View pointerEvents="none" testID={testID ? `${testID}-indicator` : undefined}
             style={[{ position: 'absolute', left: 3, top: 3, bottom: 3, width: segmentWidth, borderRadius: 9, backgroundColor: theme.colors.surface }, indicatorStyle]} />
         {items.map((item, i) => <InteractionPressable key={item.value} ref={node => { refs.current[i] = node; }}
+            interaction="none" dataSet={{ 'yulor-tab': 'true' }}
             nativeID={idPrefix ? `${idPrefix}-tab-${item.value}` : undefined}
             accessibilityRole="tab" accessibilityLabel={item.accessibilityLabel ?? item.label} accessibilityState={{ selected: selected === item.value }}
             {...(Platform.OS === 'web' ? {
