@@ -137,7 +137,7 @@ export function AccountMenuLayer() {
     if (!shown) return null;
     return (
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 3000 }}>
-            <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.menu.close')} onPress={close} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
+            <Pressable interaction="none" accessibilityRole="button" accessibilityLabel={t('lmc.menu.close')} onPress={close} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
             <Animated.View style={[{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }, style]} pointerEvents="box-none">
                 <AccountMenu anchor={shown} onClose={close} />
             </Animated.View>

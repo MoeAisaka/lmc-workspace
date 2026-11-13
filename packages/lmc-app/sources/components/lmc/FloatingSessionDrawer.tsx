@@ -94,7 +94,7 @@ export const FloatingSessionDrawer = React.memo(() => {
     return (
         <View style={styles.layer} pointerEvents={open ? 'auto' : 'none'}>
             <Animated.View style={[styles.scrim, scrimStyle]}>
-                <Pressable accessibilityRole="button" accessibilityLabel={t('lmc.list.closeDrawer')} onPress={close} style={{ flex: 1 }} />
+                <Pressable interaction="none" accessibilityRole="button" accessibilityLabel={t('lmc.list.closeDrawer')} onPress={close} style={{ flex: 1 }} />
             </Animated.View>
             <GestureDetector gesture={swipeClose} touchAction="pan-y">
                 <Animated.View ref={panelRef} testID="floating-session-drawer" style={[styles.panel, panelStyle, { top, width: panelWidth, height: panelHeight, backgroundColor: theme.colors.surface }]}>

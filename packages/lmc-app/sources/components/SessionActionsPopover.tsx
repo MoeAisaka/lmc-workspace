@@ -377,7 +377,7 @@ export function SessionActionsPopover({
                         },
                     } as any)}
                 >
-                    <Pressable onPress={() => runWhenArmed(onClose)} style={[styles.backdrop, styles.webBackdrop]} />
+                    <Pressable interaction="none" onPress={() => runWhenArmed(onClose)} style={[styles.backdrop, styles.webBackdrop]} />
                     <View
                         style={[
                             styles.webMenu,
@@ -404,7 +404,7 @@ export function SessionActionsPopover({
             visible={visible}
         >
             <View style={styles.nativeContainer}>
-                <Pressable onPress={onClose} style={styles.backdrop}>
+                <Pressable interaction="none" onPress={onClose} style={styles.backdrop}>
                     <View pointerEvents="none" style={styles.backdropScrim} />
                 </Pressable>
                 <AnimatedPopup

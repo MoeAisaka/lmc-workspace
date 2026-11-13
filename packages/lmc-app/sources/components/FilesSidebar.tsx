@@ -499,7 +499,7 @@ export const FilesSidebar = React.memo<FilesSidebarProps>(({
             {addMenuOpen && (
                 Platform.OS === 'web' ? (
                     <>
-                        <Pressable style={styles.menuBackdrop} onPress={() => setAddMenuOpen(false)} />
+                        <Pressable interaction="none" style={styles.menuBackdrop} onPress={() => setAddMenuOpen(false)} />
                         <View style={[styles.menuCard, styles.webMenuCard]}>{addMenuContent}</View>
                     </>
                 ) : (

@@ -112,7 +112,7 @@ function CopyMenu({ anchor, onClose, text }: {
             visible
         >
             <View style={styles.container}>
-                <Pressable onPress={onClose} style={styles.backdrop} />
+                <Pressable interaction="none" onPress={onClose} style={styles.backdrop} />
                 <AnimatedPopup style={[styles.menu, { left, top }]}>
                     <Pressable
                         accessibilityLabel={t('common.copy')}

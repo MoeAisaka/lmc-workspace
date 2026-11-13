@@ -299,7 +299,7 @@ export const CollaborationSheet = React.memo(({ sessionId, onClose }: Collaborat
         <View pointerEvents="box-none" style={isNative ? { width, height, justifyContent: 'flex-end' } : { width, height, alignItems: 'center', justifyContent: 'center' }}>
             {/* This full-screen layout sits above BaseModal's backdrop. Handle
                 its empty area here; the sheet itself remains a separate sibling. */}
-            <Pressable
+            <Pressable interaction="none"
                 accessible={false}
                 focusable={false}
                 importantForAccessibility="no"

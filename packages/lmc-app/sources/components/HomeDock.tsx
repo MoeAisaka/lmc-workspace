@@ -1936,7 +1936,7 @@ export const HomeDock = React.memo(({
                             pointerEvents="none"
                             style={[styles.modalBackdrop, styles.focusBackdropDim]}
                         />
-                        <Pressable
+                        <Pressable interaction="none"
                             style={styles.modalBackdrop}
                             onPress={handleFocusBackdropPress}
                         />

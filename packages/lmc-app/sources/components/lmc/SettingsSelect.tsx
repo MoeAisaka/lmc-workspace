@@ -211,7 +211,7 @@ function SettingsMenuLayer({ menu, host, onClose }: { menu: OpenMenu; host: { wi
 
     return (
         <View testID="settings-select-menu" style={StyleSheet.absoluteFillObject}>
-            <Pressable
+            <Pressable interaction="none"
                 accessibilityRole="button"
                 accessibilityLabel={t('lmc.menu.close')}
                 onPress={dismiss}
