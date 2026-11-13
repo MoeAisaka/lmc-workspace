@@ -1671,7 +1671,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                         ]}
                     >
                         <Pressable
-                            style={(p) => ({ borderRadius: 999,
+                            style={(p) => ({ borderRadius: Platform.OS === 'web' ? '50%' : 999,
                                 width: '100%',
                                 height: '100%',
                                 alignItems: 'center',
@@ -1757,9 +1757,9 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                 ]}
             >
                 <View ref={pickerPanelRef} style={{ width: 332, maxWidth: '100%' }}>
-                    <FloatingOverlay maxHeight={480} keyboardShouldPersistTaps="always">
+                    <FloatingOverlay maxHeight={480} contentContainerStyle={Platform.OS === 'web' ? { paddingVertical: 6 } : undefined} keyboardShouldPersistTaps="always">
                         {settingsPanel}
-                        <View style={{ height: 6 }} />
+                        {Platform.OS !== 'web' && <View style={{ height: 6 }} />}
                     </FloatingOverlay>
                 </View>
             </View>
@@ -1813,9 +1813,9 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                             styles.settingsOverlay,
                             { paddingHorizontal: screenWidth > 700 ? 0 : 16 }
                         ]}>
-                            <FloatingOverlay maxHeight={400} keyboardShouldPersistTaps="always">
+                            <FloatingOverlay maxHeight={400} contentContainerStyle={Platform.OS === 'web' ? { paddingVertical: 6 } : undefined} keyboardShouldPersistTaps="always">
                                 {settingsPanel}
-                                <View style={{ height: 6 }} />
+                                {Platform.OS !== 'web' && <View style={{ height: 6 }} />}
                             </FloatingOverlay>
                         </View>
                     </>
@@ -2068,7 +2068,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                             >
                                 <BubblePressable
                     interaction="control"
-                                    style={(p) => ({ borderRadius: 999,
+                                    style={(p) => ({ borderRadius: Platform.OS === 'web' ? '50%' : 999,
                                         width: '100%',
                                         height: '100%',
                                         alignItems: 'center',

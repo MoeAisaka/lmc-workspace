@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Platform } from 'react-native';
+import { Platform, type StyleProp, type ViewStyle } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { lmcElevation } from './lmc/elevation';
@@ -26,6 +26,7 @@ interface FloatingOverlayProps {
     children: React.ReactNode;
     maxHeight?: number;
     showScrollIndicator?: boolean;
+    contentContainerStyle?: StyleProp<ViewStyle>;
     keyboardShouldPersistTaps?: boolean | 'always' | 'never' | 'handled';
 }
 
@@ -45,6 +46,7 @@ export const FloatingOverlay = React.memo((props: FloatingOverlayProps) => {
             <AnimatedPopup style={[styles.container, { maxHeight }]}>
                 <Animated.ScrollView
                     style={{ maxHeight }}
+                    contentContainerStyle={props.contentContainerStyle}
                     keyboardShouldPersistTaps={keyboardShouldPersistTaps}
                     showsVerticalScrollIndicator={showScrollIndicator}
                 >
@@ -67,6 +69,7 @@ export const FloatingOverlay = React.memo((props: FloatingOverlayProps) => {
             >
                 <Animated.ScrollView
                     style={{ maxHeight }}
+                    contentContainerStyle={props.contentContainerStyle}
                     keyboardShouldPersistTaps={keyboardShouldPersistTaps}
                     showsVerticalScrollIndicator={showScrollIndicator}
                 >

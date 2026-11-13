@@ -56,17 +56,14 @@ export function AccountMenu({ anchor, onClose }: { anchor: AccountMenuAnchor; on
     const auth = useAuth();
     const quota = useAccountQuota();
     const { width: windowWidth, height } = useWindowDimensions();
-    // Measured, not guessed: the menu's bottom edge lines up with the top of the
-    // card it belongs to, so the two rounded corners meet instead of drifting.
-    const [menuHeight, setMenuHeight] = React.useState(296);
+    // The anchor fixes the frame before quota/traffic responses arrive. Data can
+    // grow inside the scroll view without moving the popover's outside edges.
     const gap = 8;
     const menuWidth = Math.min(anchor.width, windowWidth - 16);
     const left = Math.max(8, Math.min(anchor.x - (anchor.inset ?? 0), windowWidth - menuWidth - 8));
     const cardTop = anchor.y - (anchor.insetY ?? anchor.inset ?? 0);
     const spaceAbove = cardTop - gap - 8;
-    const top = anchor.panelTop !== undefined
-        ? Math.max(8, anchor.panelTop)
-        : Math.max(8, Math.min(cardTop - menuHeight - gap, height - menuHeight - 8));
+    const top = Math.max(8, anchor.panelTop ?? 8);
     const maxHeight = anchor.panelTop !== undefined
         ? Math.max(0, Math.min(cardTop - gap, height - 8) - top)
         : spaceAbove >= 120 ? Math.min(height - 16, spaceAbove) : height - 16;
@@ -90,16 +87,13 @@ export function AccountMenu({ anchor, onClose }: { anchor: AccountMenuAnchor; on
     return (
         <View style={{ width: windowWidth, height }} pointerEvents="box-none">
             <View
-                onLayout={(event) => {
-                    const next = Math.ceil(event.nativeEvent.layout.height);
-                    setMenuHeight((current) => (Math.abs(current - next) < 1 ? current : next));
-                }}
-                style={[styles.menu, { left, width: menuWidth, maxHeight, top, borderRadius: anchor.cardRadius ?? 24 }]}
+                style={[styles.menu, { left, width: menuWidth, height: maxHeight, maxHeight, top, borderRadius: anchor.cardRadius ?? 24 }]}
             >
                 {/* Keep content at its original 12px inset, with the overlay scrollbar
                     in the outer 8px lane instead of on top of quota cards. */}
-                <ScrollView testID="account-menu-scroll" showsVerticalScrollIndicator contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: 2 }}>
+                <ScrollView testID="account-menu-scroll" showsVerticalScrollIndicator contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 8, paddingBottom: 2 }}>
                 <AccountQuotaCards {...quota} onRefresh={quota.refresh} />
+                <View style={{ flexGrow: 1 }} />
                 <View style={styles.divider} />
                 <Item icon="analytics-outline" label={t('lmc.menu.usage')} onPress={go(() => openUsage())} />
                 <Item icon="settings-outline" label={t('lmc.menu.settings')} onPress={open('general')} />
