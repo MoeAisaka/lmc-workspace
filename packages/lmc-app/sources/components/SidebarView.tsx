@@ -59,8 +59,8 @@ const stylesheet = StyleSheet.create((theme) => ({
         paddingBottom: 4,
     },
     accountCard: {
-        paddingHorizontal: 8,
-        paddingVertical: 4,
+        // Together with the 1px border, a uniform 4px inset: 16 - 4 = 12.
+        padding: 3,
     },
 }));
 
