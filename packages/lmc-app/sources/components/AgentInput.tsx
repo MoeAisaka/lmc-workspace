@@ -1068,6 +1068,17 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
     const shakerRef = React.useRef<ShakeInstance>(null);
     const sendBlockShakerRef = React.useRef<ShakeInstance>(null);
     const inputRef = React.useRef<MultiTextInputHandle>(null);
+    // The textarea owns caret placement. Bare card padding/action-row gaps
+    // should focus the same field without taking clicks from real controls.
+    const handleComposerBlankClick = React.useCallback((event: React.MouseEvent<HTMLElement>) => {
+        if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+        const target = event.target;
+        if (!(target instanceof Element) || target.closest(
+            'textarea, input, select, button, a, [contenteditable], [role="button"], [role="link"], [role="menuitem"], [role="switch"], [role="tab"], [role="slider"], [data-yulor-interaction]:not([data-yulor-interaction="none"])'
+        )) return;
+        inputRef.current?.focus();
+    }, []);
+
     const primaryAction = resolveAgentInputPrimaryAction({
         hasComposerContent,
         isSendBlocked,
@@ -1862,7 +1873,7 @@ export const AgentInput = React.memo(React.forwardRef<MultiTextInputHandle, Agen
                         compactMobileComposer && styles.mobileUnifiedPanelShadow,
                     ]}>
                         <MobileGlassSurface
-                            {...(Platform.OS === 'web' ? {dataSet: {lmcSurface: 'panel', 'yulor-focus-within': 'composer'}} : {})}
+                            {...(Platform.OS === 'web' ? {dataSet: {lmcSurface: 'panel', 'yulor-focus-within': 'composer'}, onClick: handleComposerBlankClick} : {})}
                             enabled={compactMobileComposer}
                             nativeEffect
                             material="frosted"
